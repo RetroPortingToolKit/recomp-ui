@@ -10661,7 +10661,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
-                    ImGui::TextColored(col(th.accent), "%s", ui_text("Required owner files"));
+                    ImGui::TextColored(col(th.accent), "%s", ui_text("Owner files"));
                     for (int resource_index = 0;
                          resource_index < resource_count; ++resource_index) {
                         RecompLauncherCModResource resource{};
@@ -10670,7 +10670,12 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 resource_index, &resource))
                             continue;
                         ImGui::PushID(resource.id);
-                        ImGui::TextUnformatted(resource.label);
+                        if (resource.required) {
+                            ImGui::TextUnformatted(resource.label);
+                        } else {
+                            ImGui::Text("%s %s", resource.label,
+                                        ui_text("(optional)"));
+                        }
                         if (resource.description[0])
                             ImGui::TextWrapped("%s", resource.description);
                         ImGui::TextColored(
@@ -10732,6 +10737,22 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                         m->mod_status,
                                         sizeof(m->mod_status),
                                         "%s verified. Changes apply on PLAY.",
+                                        resource.label);
+                                }
+                            }
+                        }
+                        if (!resource.required && resource.path[0]) {
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui_text("Clear"))) {
+                                if (!mods->feature_resource_set_path(
+                                        mods->ctx, feature.package_id,
+                                        feature.id, resource.id, "")) {
+                                    mod_note_error(m);
+                                } else {
+                                    std::snprintf(
+                                        m->mod_status,
+                                        sizeof(m->mod_status),
+                                        "%s cleared. Changes apply on PLAY.",
                                         resource.label);
                                 }
                             }
