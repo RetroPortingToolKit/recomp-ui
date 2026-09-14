@@ -11483,7 +11483,7 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - btn_w);
             if (ImGui::Button("Browse", ImVec2(btn_w, 0))) {
                 char title[96];
-                std::snprintf(title, sizeof(title), "Select %s (.cue/.bin/.car)",
+                std::snprintf(title, sizeof(title), "Select %s (.cue/.bin/.car/.chd)",
                               launcher_model_disc_label(m, i));
                 request_disc_slot_picker(m, i, title, patterns, pattern_count,
                                          pattern_desc, true);
@@ -11848,9 +11848,9 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
      * long note behind a (?). See draw_setup_disc_frame. */
     const bool multi_disc = launcher_model_disc_count(m) > 1;
     static const char* kPsxDiscNote =
-        "psxrecomp games require a .cue + .bin dump of the disc, or an "
-        "official re-release image (.car, e.g. from the Steam Special "
-        "Edition).\n\n"
+        "psxrecomp games require a .cue + .bin dump of the disc, a .chd "
+        "compressed dump, or an official re-release image (.car, e.g. from "
+        "the Steam Special Edition).\n\n"
         "A single-track .bin or .iso cannot be converted to multitrack. "
         "Redump-style dumps are the usual source; you can make your own from "
         "the original disc with redumper "
@@ -11866,9 +11866,9 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     if (multi_disc) {
         ImGui::PopTextWrapPos();
         static const char* kDiscPatterns[] = {"*.cue", "*.bin", "*.img",
-                                              "*.iso", "*.car"};
-        draw_setup_disc_frame(m, th, kDiscPatterns, 5,
-                              "Disc image (.cue .bin .img .iso .car)",
+                                              "*.iso", "*.car", "*.chd"};
+        draw_setup_disc_frame(m, th, kDiscPatterns, 6,
+                              "Disc image (.cue .bin .img .iso .car .chd)",
                               kPsxDiscNote);
         ImGui::PushTextWrapPos(wrap_x);
     } else if (plat == SETUP_PLAT_PSX) {
@@ -11877,8 +11877,8 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
          * BeginPopupModal (Windows first-run wizard regression). */
         ImGui::TextColored(col(th.text_muted),
             "NOTE: psxrecomp games require a .cue + .bin dump of the disc, "
-            "or an official re-release image (.car, e.g. from the Steam "
-            "Special Edition). "
+            "a .chd compressed dump, or an official re-release image (.car, "
+            "e.g. from the Steam Special Edition). "
             "Note the number of tracks required by this project; multitrack "
             "discs are often Redump-formatted dumps. You can generate your own "
             "from the original disc with redumper "
@@ -11918,7 +11918,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
             char title[96];
             if (plat == SETUP_PLAT_PSX)
                 std::snprintf(title, sizeof(title),
-                              "Select %s (.cue/.bin/.car)", noun);
+                              "Select %s (.cue/.bin/.car/.chd)", noun);
             else
                 std::snprintf(title, sizeof(title), "Select %s", noun);
             if (prof && prof->rom_filter.pattern_count > 0)

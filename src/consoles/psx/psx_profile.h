@@ -75,6 +75,7 @@ static const char* const kPsxDiscPatterns[] = {
     "*.bin",
     "*.car",
     "*.sbi",
+    "*.chd",
 };
 #define LNG_PSX_DISC_PATTERN_COUNT \
     ((int)(sizeof(kPsxDiscPatterns) / sizeof(kPsxDiscPatterns[0])))
@@ -126,7 +127,7 @@ static const SystemProfile kSystemProfilePsx = {
     /* screen_kind_names */ NULL,   /* legacy Raw/CRT/Composite/Trinitron set */
     /* screen_kind_count */ 0,
     /* rom_filter        */ { kPsxDiscPatterns, LNG_PSX_DISC_PATTERN_COUNT,
-                              "PlayStation disc / SBI (.cue/.bin/.car/.sbi)" },
+                              "PlayStation disc / SBI (.cue/.bin/.car/.sbi/.chd)" },
     /* renderer_labels   */ NULL,
     /* hide_audio_freq   */ 0,
     /* brand             */ "brand_psx.tga",
