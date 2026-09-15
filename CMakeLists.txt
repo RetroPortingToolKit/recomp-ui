@@ -76,6 +76,15 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-ips-patch-test PRIVATE src/common)
     add_test(NAME recomp-ui-ips-patch COMMAND $<TARGET_FILE:recomp-ui-ips-patch-test>)
 
+    # The photosensitivity flash guard. Pure arithmetic on two ARGB frames --
+    # no SDL, no window, no ROM -- so it runs anywhere the rest of these do.
+    add_executable(recomp-ui-flash-guard-test
+        tests/flash_guard_test.c
+        src/common/recomp_flash_guard.c)
+    target_include_directories(recomp-ui-flash-guard-test PRIVATE src)
+    add_test(NAME recomp-ui-flash-guard
+             COMMAND $<TARGET_FILE:recomp-ui-flash-guard-test>)
+
     add_executable(recomp-ui-rom-patch-tool
         tools/rom_patch_tool.c
         src/common/ips_patch.c
@@ -175,6 +184,22 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-discs-test>
                 "${CMAKE_CURRENT_BINARY_DIR}")
 
+    # Renderer / VSync as enumerable lists rather than cycle buttons. Same
+    # include-the-TU shape as the discs test above.
+    add_executable(recomp-ui-launcher-video-pick-test
+        tests/launcher_video_pick_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-video-pick-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-video-pick-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-video-pick
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-video-pick-test>)
+
     # First-run wizard: staging a retail BIOS that has no linked backend.
     # Same include-the-TU shape as the discs test above.
     add_executable(recomp-ui-launcher-setup-bios-test
@@ -248,6 +273,27 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-memcard
         COMMAND $<TARGET_FILE:recomp-ui-launcher-memcard-test>)
 
+    # SNES first-launch input defaults: a gamepad slot with no GUID binds the
+    # live pad (so the Input source box names it instead of reading "Gamepad"),
+    # and a pad with no saved profile takes the console default deadzone.
+    # Includes launcher_binds.c and links the model for the real set_source.
+    add_executable(recomp-ui-snes-pad-defaults-test
+        tests/snes_pad_defaults_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-snes-pad-defaults-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-snes-pad-defaults-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-snes-pad-defaults-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(
+        NAME recomp-ui-snes-pad-defaults
+        COMMAND $<TARGET_FILE:recomp-ui-snes-pad-defaults-test>
+                "${CMAKE_CURRENT_BINARY_DIR}")
+
     add_executable(recomp-ui-psx-profile-test
         tests/psx_profile_test.c)
     target_include_directories(recomp-ui-psx-profile-test PRIVATE
@@ -263,6 +309,32 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-nds-profile
         COMMAND $<TARGET_FILE:recomp-ui-nds-profile-test>)
+
+    # The shared presentation blend, including the holding variant a host with
+    # a decoupled presentation clock needs. Pure arithmetic on two buffers, so
+    # no SDL and no window.
+    add_executable(recomp-ui-frame-blend-test
+        tests/frame_blend_test.c
+        src/common/recomp_frame_blend.c)
+    target_include_directories(recomp-ui-frame-blend-test PRIVATE
+        src src/common)
+    add_test(NAME recomp-ui-frame-blend
+             COMMAND $<TARGET_FILE:recomp-ui-frame-blend-test>)
+
+    # Backspace in a launcher text field must not steal the focus ring: the
+    # footer's Back/Start "re-home to PLAY" shortcut fired while an InputText
+    # was active. Real ImGui frames, headless, same shape as the runtime-ui
+    # test below.
+    add_executable(recomp-ui-launcher-nav-backspace-test
+        tests/launcher_nav_backspace_test.cpp
+        src/third_party/imgui/imgui.cpp
+        src/third_party/imgui/imgui_draw.cpp
+        src/third_party/imgui/imgui_tables.cpp
+        src/third_party/imgui/imgui_widgets.cpp)
+    target_include_directories(recomp-ui-launcher-nav-backspace-test PRIVATE
+        src src/common src/third_party/imgui)
+    add_test(NAME recomp-ui-launcher-nav-backspace
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-nav-backspace-test>)
 
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp

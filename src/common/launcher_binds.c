@@ -12,6 +12,7 @@
 #include "consoles/nes/nes_binds.h"   // NES-native keybind bridge (nesrecomp keybinds.c format)
 #include "consoles/genesis/genesis_binds.h"   // Genesis-native bridge (settings.ini [input.pN])
 #include "consoles/gb/gb_binds.h"     // Game Boy-native bridge (keybinds.ini [controls])
+#include "consoles/snes/snes_pad_binds.h" // SNES pad shape (default deadzone)
 
 #include <ctype.h>
 #include <stdio.h>
@@ -580,12 +581,19 @@ static void snes_gamepad_read_config_order(int player,
         char* value = eq + 1;
         char* hash = strchr(value, '#');
         if (hash) *hash = 0;
-        char* item_save = NULL;
+        /* Split POSITIONALLY. An empty entry is this store's unbound value
+         * (the runtime's ParseGamepadArray keeps it in place and skips it),
+         * and strtok would have collapsed a leading one, shifting every
+         * control after a cleared D-Pad Up one seat to the left. */
         int i = 0;
-        for (char* item = strtok_r(value, ",", &item_save);
-             item && i < LNG_SNES_PAD_BUTTON_COUNT;
-             item = strtok_r(NULL, ",", &item_save), ++i) {
+        char* item = value;
+        while (i < LNG_SNES_PAD_BUTTON_COUNT) {
+            char* comma = strchr(item, ',');
+            if (comma) *comma = 0;
             copy_str(out[i], sizeof(out[i]), trim_token(item));
+            ++i;
+            if (!comma) break;
+            item = comma + 1;
         }
         break;
     }
@@ -687,7 +695,11 @@ static int snes_gamepad_set_button(LauncherModel* m, int player, int b,
                                    int kind, int code, int axis_dir) {
     if (!m || player < 0 || player > 1 || b < 0 || b >= LNG_SNES_PAD_BUTTON_COUNT)
         return 0;
-    const char* token = snes_gamepad_token_for_capture(kind, code, axis_dir);
+    /* An empty token IS the store's unbound value (snes_gamepad_label draws
+     * it as "(unbound)"), so a clear writes one rather than being refused. */
+    const char* token = (kind == LNG_PADBIND_NONE)
+                            ? ""
+                            : snes_gamepad_token_for_capture(kind, code, axis_dir);
     if (!token) return 0;
 
     char controls[LNG_SNES_PAD_BUTTON_COUNT][48];
@@ -783,6 +795,32 @@ void launcher_binds_hydrate_snes_pad_names(LauncherModel* m,
                                            const LauncherPad* pads,
                                            int pad_count) {
     if (!m || !is_snes_profile(m)) return;
+
+    /* A slot whose source is "gamepad" with no GUID is what a first launch
+     * looks like: config.ini says EnableGamepad, and nothing has ever named a
+     * device. The Input source box then reads the generic placeholder while
+     * the game is in fact about to use a specific controller. Bind the first
+     * live pad no other slot has claimed, so the box names the pad it will
+     * actually play with -- and apply that pad's saved profile, or the console
+     * default deadzone when it has none. One shot: once a GUID is set this
+     * whole block is skipped, so it never fights a later choice. */
+    for (int p = 0; p < 2 && pads; ++p) {
+        if (m->s.player_src[p] != 2 || m->s.player_gamepad_guid[p][0]) continue;
+        for (int i = 0; i < pad_count; ++i) {
+            int taken = 0;
+            if (!pads[i].guid[0]) continue;
+            for (int o = 0; o < 2; ++o)
+                if (o != p && m->s.player_src[o] == 2 &&
+                    !strcmp(m->s.player_gamepad_guid[o], pads[i].guid))
+                    taken = 1;
+            if (taken) continue;
+            launcher_model_set_source(m, p, 2, pads[i].id, pads[i].name,
+                                      pads[i].guid);
+            launcher_binds_apply_snes_pad_profile(m, p + 1);
+            break;
+        }
+    }
+
     for (int p = 0; p < 2; ++p) {
         const char* guid = m->s.player_gamepad_guid[p];
         char name[64];
@@ -892,6 +930,12 @@ void launcher_binds_apply_snes_pad_profile(LauncherModel* m, int player) {
         if (dz < 0) dz = 0;
         if (dz > 100) dz = 100;
         m->s.deadzone[player - 1] = dz;
+    } else {
+        /* No saved profile for this pad: the console default, not whatever the
+         * previously selected pad happened to be on. A deadzone belongs to the
+         * device, so selecting a device the player has never configured must
+         * land on the default rather than inherit a stranger's number. */
+        m->s.deadzone[player - 1] = RUI_SNES_PAD_DEFAULT_DEADZONE_PCT;
     }
     if (snes_profile_get(guid, "Name", name, sizeof(name)) && name[0])
         copy_str(m->player_pad_name[player - 1],
@@ -1108,6 +1152,76 @@ void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
     rui_genesis_binds_set_pad(genesis_binds_file_path(), player - 1, b, kind, code, axis_dir);
     genesis_pad_label(kind, code, axis_dir,
                       m->pad_binds[player - 1][b], sizeof(m->pad_binds[player - 1][b]));
+}
+
+/* ---- N64 gamepad profiles ------------------------------------------------
+ * Mirrors the PSX trio on the N64 per-GUID store. The mapping itself is
+ * written on every capture (launcher_binds_set_pad_button), so Save is the
+ * explicit commit of the identity beside it: name, whether the player chose
+ * that name, and the deadzone the runner will read. */
+static void n64_fallback_pad_label(const char* guid, char* out, size_t cap) {
+    if (!out || !cap) return;
+    if (guid && guid[0]) {
+        size_t n = strlen(guid);
+        if (n >= 8)
+            snprintf(out, cap, "Controller \xe2\x80\xa6%s", guid + n - 8);
+        else
+            snprintf(out, cap, "Controller %s", guid);
+        return;
+    }
+    copy_str(out, cap, "Controller");
+}
+
+void launcher_binds_save_n64_gamepad(LauncherModel* m, int player) {
+    if (!m || !is_n64_profile(m)) return;
+    if (player < 1 || player > LNG_MAX_PLAYERS) return;
+    const int p = player - 1;
+    if (m->s.player_src[p] != 2) return;
+    const char* guid = m->s.player_gamepad_guid[p];
+    if (!guid[0]) return;
+    const char* path = n64_input_ini_path();
+    char name[64];
+    if (m->player_pad_name[p][0] && strcmp(m->player_pad_name[p], "Gamepad") != 0)
+        copy_str(name, sizeof(name), m->player_pad_name[p]);
+    else
+        n64_fallback_pad_label(guid, name, sizeof(name));
+    const int custom = rui_n64_pad_binds_name_is_custom(path, guid);
+    int dz = m->s.deadzone[p];
+    if (dz < 0) dz = 0;
+    if (dz > 100) dz = 100;
+    rui_n64_pad_binds_save_profile(path, guid, name, custom, dz);
+    copy_str(m->player_pad_name[p], sizeof(m->player_pad_name[p]), name);
+    launcher_binds_refresh(m);
+}
+
+void launcher_binds_rename_n64_gamepad(LauncherModel* m, int player,
+                                       const char* name) {
+    if (!m || !is_n64_profile(m) || !name || !name[0]) return;
+    if (player < 1 || player > LNG_MAX_PLAYERS) return;
+    const int p = player - 1;
+    const char* guid = m->s.player_gamepad_guid[p];
+    if (!guid[0]) return;
+    rui_n64_pad_binds_rename(n64_input_ini_path(), guid, name);
+    copy_str(m->player_pad_name[p], sizeof(m->player_pad_name[p]), name);
+}
+
+void launcher_binds_delete_n64_gamepad(LauncherModel* m, int player) {
+    if (!m || !is_n64_profile(m)) return;
+    if (player < 1 || player > LNG_MAX_PLAYERS) return;
+    const char* guid = n64_player_guid(m, player);
+    if (!guid[0]) return;
+    rui_n64_pad_binds_delete(n64_input_ini_path(), guid);
+    /* Every player that pointed at this GUID now points at a profile that
+     * does not exist; put them back on the keyboard rather than leave a
+     * source naming a mapping the file no longer holds. */
+    for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {
+        if (m->s.player_src[p] == 2 &&
+            m->s.player_gamepad_guid[p][0] &&
+            !strcmp(m->s.player_gamepad_guid[p], guid)) {
+            launcher_model_set_source(m, p, 1, 0, NULL, NULL);
+        }
+    }
+    launcher_binds_refresh(m);
 }
 
 static int psx_guid_claimed_by_other(const LauncherModel* m, int self,

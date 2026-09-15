@@ -30,6 +30,22 @@ static OpenPad* free_open_slot(void) {
     return NULL;
 }
 
+static void log_opened_pad(const LauncherPad* pad, const OpenPad* opened) {
+    if (!pad || !opened || !opened->handle) return;
+#if defined(LNG_SDL3)
+    char* mapping = SDL_GetGamepadMapping(opened->handle);
+#else
+    char* mapping = SDL_GameControllerMapping(opened->handle);
+#endif
+    fprintf(stderr,
+            "[launcher] gamepad opened: id=%u name=\"%s\" guid=%s "
+            "mapping=\"%s\"\n",
+            pad->id, pad->name[0] ? pad->name : "Gamepad",
+            pad->guid[0] ? pad->guid : "unknown",
+            mapping ? mapping : "");
+    if (mapping) SDL_free(mapping);
+}
+
 static int id_is_live(const LauncherPad* pads, int count, uint32_t id) {
     for (int i = 0; i < count; ++i)
         if (pads[i].id == id) return 1;
@@ -132,6 +148,7 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
                 if (opened) {
                     opened->handle = SDL_OpenGamepad(ids[i]);
                     opened->id = out[n].id;
+                    log_opened_pad(&out[n], opened);
                     if (enable_gyro && opened->handle &&
                         SDL_GamepadHasSensor(opened->handle, SDL_SENSOR_GYRO) &&
                         SDL_SetGamepadSensorEnabled(
@@ -190,6 +207,7 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
             if (opened) {
                 opened->handle = SDL_GameControllerOpen(i);
                 opened->id = out[n].id;
+                log_opened_pad(&out[n], opened);
 #if SDL_VERSION_ATLEAST(2, 0, 14)
                 if (enable_gyro && opened->handle &&
                     SDL_GameControllerHasSensor(

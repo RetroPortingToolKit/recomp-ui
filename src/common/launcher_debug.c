@@ -171,6 +171,11 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
         else if (strcmp(v, "controller") == 0) launcher_model_set_view(m, LNG_VIEW_CONTROLLER);
         else if (strcmp(v, "assist_tools") == 0) launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
         else if (strcmp(v, "credits") == 0) launcher_model_set_view(m, LNG_VIEW_CREDITS);
+        /* The LAN-vs-online fork. Reachable only by clicking NETPLAY on the
+         * dashboard, which made it the one netplay page a screenshot script
+         * could not open. */
+        else if (strcmp(v, "netplay_mode") == 0)
+            launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
         else if (strcmp(v, "netplay") == 0) {
             m->netplay_list_fresh = false;
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);

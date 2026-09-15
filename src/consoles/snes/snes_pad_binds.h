@@ -28,7 +28,12 @@
 extern "C" {
 #endif
 
+/* snes_profile.h derives the same count from its button table. Both say 12;
+ * the guard is so a translation unit may include both headers (launcher_binds.c
+ * wants the deadzone default and the profile) without a redefinition warning. */
+#ifndef LNG_SNES_PAD_BUTTON_COUNT
 #define LNG_SNES_PAD_BUTTON_COUNT 12
+#endif
 #define RUI_SNES_PAD_DEFAULT_DEADZONE_PCT 10
 
 void rui_snes_pad_binds_init(const char* path);

@@ -45,6 +45,8 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_REWIND_INTERVAL 1
 /* Host may #ifdef this when reading Settings.rewind_enabled. */
 #define RECOMP_LAUNCHER_HAS_REWIND_ENABLED 1
+/* Host may #ifdef this when reading Settings.run_ahead. */
+#define RECOMP_LAUNCHER_HAS_RUN_AHEAD 1
 /* Host may #ifdef this when reading Settings.vsync. */
 #define RECOMP_LAUNCHER_HAS_VSYNC 1
 /* Host may #ifdef this when reading Settings.virtual_stylus. */
@@ -104,6 +106,15 @@ typedef struct RecompLauncherCNetplayLobby {
  * browser's "players online" panel. */
 typedef struct RecompLauncherCNetplayOnlinePlayer {
     char display_name[64];
+    /* Opaque, stable id for the ACCOUNT behind this player; "" for a guest.
+     *
+     * Not a name and not a Discord identifier -- the server's own row key,
+     * published precisely so a client can keep a list that survives the other
+     * player reconnecting or renaming. Never render it; it is a key, not a
+     * label. A guest has none, so a guest can only be muted for as long as
+     * their connection lasts. */
+    char account[40];
+
     char country[4];     /* alpha-2 from the server's GeoIP; "" unknown */
     char lobby_name[64]; /* room they are in; "" while browsing */
     int  in_lobby;
@@ -114,6 +125,15 @@ typedef struct RecompLauncherCNetplayOnlinePlayer {
 typedef struct RecompLauncherCNetplayMember {
     int  slot;
     char display_name[64];
+    /* Opaque, stable id for the ACCOUNT behind this player; "" for a guest.
+     *
+     * Not a name and not a Discord identifier -- the server's own row key,
+     * published precisely so a client can keep a list that survives the other
+     * player reconnecting or renaming. Never render it; it is a key, not a
+     * label. A guest has none, so a guest can only be muted for as long as
+     * their connection lasts. */
+    char account[40];
+
     int  ready;
     int  is_host;
     /* Round-trip ms from the local peer *to* this seat; -1 unknown / self. */
@@ -177,8 +197,53 @@ typedef struct RecompLauncherCNetplayLobbyMod {
 /* One lobby chat line, oldest first. Backends keep a short ring (the last
  * 64 or so); the UI redraws the whole ring every frame, so `seq` only has to
  * be monotonic so the UI can notice a new line and scroll to it. */
+/* One automatch queue type, as the server advertises it. The caps summary is
+ * a short human line the server builds ("Delay 2 - Rollback on"), NOT a
+ * parsed settings blob: the launcher shows what the player is signing up for
+ * and the server remains the only thing that writes match_caps. */
+typedef struct RecompLauncherCNetplayRuleset {
+    char id[48];
+    char label[64];
+    char caps_summary[128];
+    /* Empty when the ruleset accepts any release. */
+    char game_version[48];
+    int  max_slots;
+} RecompLauncherCNetplayRuleset;
+
+/* The opponent offered at the accept gate. */
+typedef struct RecompLauncherCNetplayFound {
+    char handle[64];
+    /* Discord @handle, shown small under the name -- display names are not
+     * unique, so this is the disambiguator. Empty when unknown. */
+    char username[64];
+    /* ISO 3166-1 alpha-2, drawn as a flag. Empty when the server has none. */
+    char country[4];
+    char ruleset_label[64];
+    /* Round-trip estimate through the relay, summed for both peers. <0 when
+     * the server did not offer one. */
+    int  est_rtt_ms;
+    /* Seconds left to answer. Counts down; 0 means it is about to lapse. */
+    int  accept_secs_left;
+} RecompLauncherCNetplayFound;
+
 typedef struct RecompLauncherCNetplayChatMessage {
     char     from[64];   /* display name; empty for a system line */
+    /* The SERVER's id for this line. A report names this and never the text:
+     * chat already passes through the server, so it has the words, and
+     * letting a report carry them would let anyone compose a message,
+     * attribute it to somebody, and have them sanctioned for words they never
+     * typed. Empty when the server predates ids -- such a line simply cannot
+     * be reported, because there is no agreed referent for it. */
+    char     mid[40];
+    /* Opaque, stable id for the ACCOUNT behind this player; "" for a guest.
+     *
+     * Not a name and not a Discord identifier -- the server's own row key,
+     * published precisely so a client can keep a list that survives the other
+     * player reconnecting or renaming. Never render it; it is a key, not a
+     * label. A guest has none, so a guest can only be muted for as long as
+     * their connection lasts. */
+    char account[40];
+
     char     text[256];
     int      is_local;   /* sent by this client */
     int      is_system;  /* join/leave/notice, not a player */
@@ -527,7 +592,189 @@ typedef struct RecompLauncherCNetplayCallbacks {
      * matching prompt. NULL leaves the local check off and the server's
      * refusal still lands. */
     int  (*name_rejected)(void* ctx, const char* name);
+
+    /* ---- Discord account (optional, append-only) --------------------------
+     * A host compiles against whatever recomp-ui its game pins, which may
+     * predate these fields. RECOMP_LAUNCHER_HAS_ACCOUNT (below the struct)
+     * lets a host wire them up when they exist and compile clean when they do
+     * not, so a runner and a UI can be updated in either order.
+     * Sign-in is OPTIONAL, always. A build with these NULL, a lobby server
+     * that offers no logins, and a player who never signs in are all ordinary
+     * supported cases: the launcher keeps its locally-typed player name and
+     * plays as a guest, which is what it has always done. Nothing in the seat
+     * table, the lobby list or the match path may be made to require an
+     * account.
+     *
+     * The host owns the HTTP: the launcher only opens a URL in a browser and
+     * asks the host how it is going. The flow, as the lobby server implements
+     * it (POST /auth/discord/start, GET /auth/discord/callback, POST
+     * /auth/discord/poll), is:
+     *
+     *   account_login_begin()  -> host asks the server to start a login, gets
+     *                             back a URL, and opens it in the player's
+     *                             browser. 0 = started; <0 = could not, and
+     *                             account_error says why.
+     *   account_state()        -> polled every frame while the modal is open.
+     *   account_handle()       -> the seat name the SERVER owns once signed in.
+     *   account_username()     -> the Discord @handle, shown as the
+     *                             disambiguator when two players present the
+     *                             same handle (Discord display names are not
+     *                             unique).
+     *   account_error()        -> one line for a human, when state is FAILED.
+     *   account_sign_out()     -> forget the stored session. Returns to guest;
+     *                             never fails in a way the player cares about.
+     *   account_set_handle()   -> ask the server to change the presentational
+     *                             handle. 0 = accepted; <0 = refused (it trips
+     *                             the word list), and the player picks another.
+     *
+     * account_available() reports whether the CONFIGURED lobby server offers
+     * logins at all -- the server answers 503 to a start when its operator has
+     * not set up Discord. Draw no sign-in affordance when this says no, rather
+     * than offering a button that cannot work. */
+    int         (*account_available)(void* ctx);
+    int         (*account_login_begin)(void* ctx);
+    int         (*account_state)(void* ctx); /* RecompLauncherCAccountState */
+    const char* (*account_handle)(void* ctx);
+    const char* (*account_username)(void* ctx);
+    const char* (*account_error)(void* ctx);
+    int         (*account_sign_out)(void* ctx);
+    int         (*account_set_handle)(void* ctx, const char* handle);
+
+    /* ---- automatch (optional, append-only) --------------------------------
+     * Server-run pairing: two players who want a match and do not care which
+     * lobby it happens in. The server creates the room, owns its match_caps
+     * (a named ruleset, not a host's settings) and is its host. Protocol:
+     * recomp-net-server `docs/AUTOMATCH.md`.
+     *
+     * automatch_available() reports whether the CONFIGURED server offers it --
+     * a deployment with no rulesets loaded has automatch off, and a signed-out
+     * player cannot queue at all, because the dodge cost the accept gate
+     * charges has to survive a reconnect and an ephemeral connection id does
+     * not. Online netplay draws the ⚡ Automatch button from this answer.
+     *
+     * The queue / accept callbacks land with the flow itself; this one is
+     * here first so the button is gated on a real capability rather than
+     * offered and then found not to work. */
+    /* Which lobbies the browser should be shown: 0 = every source (the
+     * historical behaviour), 1 = LAN / Direct IP only, 2 = the lobby server
+     * only.
+     *
+     * The backend merges its LAN registry and beacon rows with the server's
+     * list, and only the UI knows which fork the player took on the way in --
+     * so the scope has to travel. Without it a player who chose "LAN / Direct
+     * IP" was shown online rooms they had no connection for, and a player who
+     * chose online was shown LAN rooms from their own machine.
+     *
+     * Appended for ABI stability; a backend without it keeps merging. */
+    /* Report chat lines for moderation. `mids` are RecompLauncherCNetplay-
+     * ChatMessage.mid values -- several at once, because harassment is
+     * usually a burst rather than a line, and making somebody file six
+     * reports for one incident produces six rows that each look minor.
+     *
+     * `reason` is a category string; anything unrecognised is filed as
+     * "other" rather than refused. `note` is optional.
+     *
+     * 0 means handed to the server, NOT accepted: it refuses a line that has
+     * scrolled out of its ring, one from a signed-out sender, one that is
+     * your own, and anything over the per-account rate limit.
+     *
+     * NULL hides the report affordance entirely. Appended for ABI stability. */
+    int         (*chat_report)(void* ctx, const char* const* mids, int mid_count,
+                               const char* reason, const char* note);
+
+    /* Hand the backend the accounts this player has blocked, ';'-separated,
+     * replacing the whole set. The server needs them because two of a
+     * block's three effects cannot be done client-side: it must not pair the
+     * two in automatch, and the blocked player must not see or be able to
+     * join the blocker's room. A client can hide what it was sent; it cannot
+     * know it was blocked. NULL/"" clears. Appended for ABI stability. */
+    int         (*set_blocks)(void* ctx, const char* accounts);
+
+    int         (*list_scope_set)(void* ctx, int scope);
+
+    int         (*automatch_available)(void* ctx);
+    /* The queue types this server offers for this title. Zero is a valid
+     * answer and means the same as automatch_available saying no. */
+    int         (*automatch_ruleset_count)(void* ctx);
+    int         (*automatch_ruleset_get)(void* ctx, int index,
+                                         RecompLauncherCNetplayRuleset* out);
+    /* Join the queue for `ruleset_id` (NULL / "" = the first one). 0 =
+     * queued; <0 = refused and automatch_error() has the line to show. The
+     * launcher builds the opted-in title list, not the host: standalone
+     * recomp-ui offers the running game and nothing else, and a multi-title
+     * launcher offers what the player ticked. */
+    int         (*automatch_queue)(void* ctx, const char* ruleset_id);
+    int         (*automatch_cancel)(void* ctx);
+    /* RecompLauncherCAutomatchState. Polled every frame while the page is up. */
+    int         (*automatch_state)(void* ctx);
+    /* Seconds this ticket has been waiting, and how many others are in the
+     * same bucket. The population is what makes a wait legible rather than
+     * indistinguishable from a broken feature, so show it. */
+    int         (*automatch_queued_secs)(void* ctx);
+    int         (*automatch_pool)(void* ctx);
+    /* 1 when a pair is on offer and `out` was filled. */
+    int         (*automatch_found_get)(void* ctx, RecompLauncherCNetplayFound* out);
+    /* Answer the accept gate. Declining (or letting it lapse) costs a queue
+     * cooldown that survives a reconnect, which is why automatch needs an
+     * account at all -- so the button says "Decline", not "Skip". */
+    int         (*automatch_accept)(void* ctx, int accept);
+    /* One line for a human when state is FAILED, or after a refused queue. */
+    const char* (*automatch_error)(void* ctx);
 } RecompLauncherCNetplayCallbacks;
+
+/* Present since the account callbacks were added. A host guards its wiring
+ * with `#ifdef RECOMP_LAUNCHER_HAS_ACCOUNT` so it builds against an older
+ * recomp-ui too -- the runner and the UI then land in either order. */
+#define RECOMP_LAUNCHER_HAS_ACCOUNT 1
+
+/* Present since automatch_available was added. Guarded the same way, for
+ * the same reason: a game pins a recomp-ui and the two move separately. */
+#define RECOMP_LAUNCHER_HAS_AUTOMATCH 1
+
+/* Host may #ifdef this when wiring list_scope_set. */
+#define RECOMP_LAUNCHER_HAS_LIST_SCOPE 1
+
+/* Host may #ifdef this when filling the `account` key on player rows. */
+#define RECOMP_LAUNCHER_HAS_PLAYER_ACCOUNT 1
+
+/* Host may #ifdef this when wiring chat_report / filling ChatMessage.mid. */
+#define RECOMP_LAUNCHER_HAS_CHAT_REPORT 1
+/* Host may #ifdef this when wiring set_blocks. */
+#define RECOMP_LAUNCHER_HAS_SET_BLOCKS 1
+/* The categories the server matches on. Same list on every console; an
+ * unrecognised one is stored as "other" rather than refused. */
+#define RECOMP_LAUNCHER_REPORT_HARASSMENT     "harassment"
+#define RECOMP_LAUNCHER_REPORT_HATE_SPEECH    "hate_speech"
+#define RECOMP_LAUNCHER_REPORT_SEXUAL_CONTENT "sexual_content"
+#define RECOMP_LAUNCHER_REPORT_SPAM           "spam"
+#define RECOMP_LAUNCHER_REPORT_THREATS        "threats"
+#define RECOMP_LAUNCHER_REPORT_CHEATING       "cheating_claim"
+#define RECOMP_LAUNCHER_REPORT_OTHER          "other"
+#define RECOMP_LAUNCHER_REPORT_NOTE_MAX 500
+enum {
+    RECOMP_LAUNCHER_LIST_SCOPE_ANY = 0,
+    RECOMP_LAUNCHER_LIST_SCOPE_LAN = 1,
+    RECOMP_LAUNCHER_LIST_SCOPE_ONLINE = 2
+};
+
+/* account_state() values. Guest is not an error and not a lesser state: it is
+ * the launcher's original behaviour, and most players will sit in it. */
+enum {
+    RECOMP_LAUNCHER_ACCOUNT_GUEST = 0,
+    RECOMP_LAUNCHER_ACCOUNT_WAITING = 1, /* browser open, polling */
+    RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN = 2,
+    RECOMP_LAUNCHER_ACCOUNT_FAILED = 3   /* account_error() has one line */
+};
+
+/* automatch_state() values. IDLE is the resting state and covers "this build
+ * has no automatch" -- a page that never queues sits in it forever. */
+enum {
+    RECOMP_LAUNCHER_AUTOMATCH_IDLE = 0,
+    RECOMP_LAUNCHER_AUTOMATCH_QUEUED = 1,   /* waiting for a pair */
+    RECOMP_LAUNCHER_AUTOMATCH_FOUND = 2,    /* accept gate open; found_get fills */
+    RECOMP_LAUNCHER_AUTOMATCH_ACCEPTED = 3, /* answered, waiting on the peer */
+    RECOMP_LAUNCHER_AUTOMATCH_FAILED = 4    /* automatch_error() has one line */
+};
 
 /* ---- schema-driven mods --------------------------------------------------
  * The host owns package parsing, persistence, dependency resolution, and
@@ -1044,7 +1291,31 @@ struct RecompLauncherCSettings {
      * Costs half a frame of motion ghosting. 0 = off (the faithful
      * default). Appended for ABI stability. */
     int  frame_blend;
+
+    /* Run-ahead depth in frames (GameInfo.has_run_ahead consoles): how many
+     * frames the runtime speculates past the one being shown, so that the
+     * game's own internal input latency is hidden. The runtime advances the
+     * machine, snapshots, runs N more frames with the same input, presents
+     * the last one, then restores -- so the picture the player sees is the
+     * one their input will have produced N frames from now.
+     *
+     * Costs N extra emulated frames per displayed frame, and it is strictly
+     * a LOCAL prediction: a peer cannot be speculated about, so a host must
+     * refuse it during netplay regardless of this value.
+     *
+     * 0 = off, which is both "unset" and the faithful default -- a
+     * zero-initialized host predating this field gets exactly the behavior
+     * it had. RECOMP_LAUNCHER_RUN_AHEAD_MAX bounds what the UI offers.
+     * Appended for ABI stability. */
+    int  run_ahead;
 };
+
+/* Largest run-ahead depth the launcher will offer for
+ * RecompLauncherCSettings.run_ahead. Deeper than this and the cost (one full
+ * extra emulated frame each) buys latency the player cannot feel, while the
+ * mispredictions a deep speculation makes become visible. A host whose
+ * runtime clamps lower still clamps on read; the UI never offers more. */
+#define RECOMP_LAUNCHER_RUN_AHEAD_MAX 4
 
 /* Values for RecompLauncherCSettings.vsync (1-based; 0 = unset). */
 #define RECOMP_LAUNCHER_VSYNC_ON       1
@@ -1654,6 +1925,11 @@ typedef struct RecompLauncherCGameInfo {
      * so a console that leaves this unset keeps exactly today's settings
      * surface. Appended for ABI stability. */
     int has_frame_blend;
+
+    /* Display row (cycle) for Settings.run_ahead. 0 => no row drawn, so a
+     * console whose runtime cannot snapshot-and-restore a frame keeps
+     * exactly today's settings surface. Appended for ABI stability. */
+    int has_run_ahead;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

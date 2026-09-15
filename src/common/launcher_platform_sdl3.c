@@ -159,6 +159,12 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
         fprintf(stderr, "[launcher] SDL_Init failed: %s\n", SDL_GetError());
         return false;
     }
+    {
+        const int version = SDL_GetVersion();
+        fprintf(stderr, "[launcher] SDL runtime %d.%d.%d (%s)\n",
+                SDL_VERSIONNUM_MAJOR(version), SDL_VERSIONNUM_MINOR(version),
+                SDL_VERSIONNUM_MICRO(version), SDL_GetRevision());
+    }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);

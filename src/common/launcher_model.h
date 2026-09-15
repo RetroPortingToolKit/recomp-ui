@@ -50,6 +50,19 @@ typedef enum {
      * local player seated in a lobby, and back to Netplay when it does not.
      * Every profile that opens a lobby goes through it. */
     LNG_VIEW_LOBBY,
+    /* The fork the NETPLAY button lands on: LAN / Direct IP, or online. Its
+     * own view rather than a modal because the choice decides what the whole
+     * netplay page then means, and because a controller has to be able to
+     * make it. */
+    LNG_VIEW_NETPLAY_MODE,
+    /* Signing in, full screen. Only reached on the way to ONLINE play, and
+     * skipped entirely when this client is already signed in or when the
+     * server offers no logins -- see draw_netplay_mode_page. */
+    LNG_VIEW_NETPLAY_SIGNIN,
+    /* Keep last. launcher_model_set_view validates against this rather than
+     * against the last real view, which is what silently swallowed the two
+     * views above when they were first added. */
+    LNG_VIEW__COUNT,
 } LngView;
 
 typedef enum {
@@ -299,6 +312,7 @@ typedef struct {
     bool has_sharp_filter;
     bool has_affine_filter;
     bool has_frame_blend;
+    bool has_run_ahead;
     bool has_shader;
     bool netplay_supported;
     /* Host opted into first-run wizard + Generate & rebuild (GameInfo). */
@@ -506,7 +520,21 @@ typedef struct {
     bool      netplay_host_modal_open;
     bool      netplay_network_modal_open;
     bool      netplay_password_modal_open;
+    bool      netplay_moderation_modal_open;
+    /* The report dialog: which line, who said it, and what the reporter
+     * chose. The mid is the whole referent -- the text is never carried. */
+    bool      netplay_report_modal_open;
+    char      netplay_report_mid[40];
+    char      netplay_report_who[64];
+    int       netplay_report_reason;
+    char      netplay_report_note[512];
+    char      netplay_report_status[160];
     bool      netplay_local_room;
+    /* Which kind of netplay the player picked on LNG_VIEW_NETPLAY_MODE.
+     * 0 = not chosen yet, 1 = LAN / Direct IP, 2 = online. The netplay page
+     * reads it to decide whether the lobby-server half of itself is drawn at
+     * all: a LAN player should not be looking at an online lobby list. */
+    int       netplay_mode;
     int       netplay_selected_lobby;
     char      netplay_name_edit[64];
     char      netplay_lobby_url[256];
@@ -522,6 +550,14 @@ typedef struct {
     bool      netplay_lan_only;   /* "LAN/Direct IP Only"; false = online / ICE path */
     bool      netplay_list_fresh; /* false → refresh lobby list on next Netplay draw */
     bool      netplay_direct_modal_open;
+    /* Automatch. The accept gate is NOT a flag the UI owns -- it opens and
+     * closes off automatch_state, so a peer's decline or a lapsed deadline
+     * takes the modal down without the launcher having to be told twice.
+     * This only tracks whether the popup has been opened for the current
+     * gate, so ImGui::OpenPopup is called once rather than every frame. */
+    bool      netplay_automatch_gate_open;
+    /* The queue-type picker, drawn only when the server offers more than one. */
+    bool      netplay_automatch_picker_open;
     char      netplay_direct_ip[64];
     char      netplay_direct_port[16];
     char      netplay_password[64];
@@ -694,12 +730,23 @@ void launcher_model_restore_defaults(LauncherModel* m);
 void launcher_model_cancel_restore_defaults(LauncherModel* m);
 
 // ---- display settings ----
-void launcher_model_cycle_scale(LauncherModel* m);   // 1..6 wrap
+// Window scale, in whole native-size steps. LNG_WINDOW_SCALE_MAX bounds both
+// the cycle's wrap and the dropdown's list, so the two can never offer
+// different sets.
+#define LNG_WINDOW_SCALE_MAX 6
+void launcher_model_cycle_scale(LauncherModel* m);   // 1..LNG_WINDOW_SCALE_MAX wrap
+void launcher_model_set_scale(LauncherModel* m, int scale);  // clamped
 void launcher_model_toggle_filter(LauncherModel* m);
 void launcher_model_cycle_scaling_filter(LauncherModel* m);
 const char* launcher_model_scaling_filter_label(const LauncherModel* m);
 void launcher_model_toggle_affine_filter(LauncherModel* m);
 void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_blend
+// Run-ahead depth, 0 (Off) .. RECOMP_LAUNCHER_RUN_AHEAD_MAX. Off by default:
+// each frame of depth is a whole extra emulated frame plus a snapshot/restore,
+// so it is opt-in rather than a cost every host pays. Set, not cycled -- the
+// UI draws it as a dropdown, and the labels for each depth live with that
+// control alongside every other choice list.
+void launcher_model_set_run_ahead(LauncherModel* m, int frames);  // clamped, gated has_run_ahead
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields
@@ -742,6 +789,12 @@ void launcher_model_cycle_window_size(LauncherModel* m);       // {960,1280,1600
 const char* launcher_model_window_size_label(const LauncherModel* m);  // "1280 x 960" (H follows aspect)
 void launcher_model_toggle_renderer(LauncherModel* m);         // Software/OpenGL
 const char* launcher_model_renderer_label(const LauncherModel* m);
+/* List form of the same vocabulary, for hosts that draw a dropdown instead of
+ * a cycle button. count/label_at follow the same precedence as the label
+ * getter above; set_renderer clamps. */
+int         launcher_model_renderer_count(const LauncherModel* m);
+const char* launcher_model_renderer_label_at(const LauncherModel* m, int i);
+void        launcher_model_set_renderer(LauncherModel* m, int index);
 void launcher_model_cycle_supersampling(LauncherModel* m);     // 1x..4x wrap
 const char* launcher_model_supersampling_label(const LauncherModel* m);
 void launcher_model_cycle_aa(LauncherModel* m);            // Off/2x/4x/8x (MSAA sample count)
@@ -780,11 +833,15 @@ const char* launcher_model_rewind_interval_label(const LauncherModel* m);
 void launcher_model_cycle_vsync(LauncherModel* m);
 // Binary On/Off flip for the legacy-surface checkbox (Adaptive counts as On).
 void launcher_model_toggle_vsync(LauncherModel* m);
-const char* launcher_model_vsync_label(const LauncherModel* m);  // "On"/"Off"/"Adaptive"
+const char* launcher_model_vsync_label(const LauncherModel* m);
+/* Set the exact state rather than cycling to it. Takes a
+ * RECOMP_LAUNCHER_VSYNC_* value, not an index. */
+void launcher_model_set_vsync(LauncherModel* m, int value);  // "On"/"Off"/"Adaptive"
 void launcher_model_toggle_skip_fmv(LauncherModel* m);
 void launcher_model_toggle_turbo_loads(LauncherModel* m);
 void launcher_model_cycle_fullscreen(LauncherModel* m);        // Off -> Borderless -> Exclusive, wraps
 const char* launcher_model_fullscreen_label(const LauncherModel* m);  // "Off"/"Borderless"/"Exclusive"
+void launcher_model_set_fullscreen(LauncherModel* m, int mode);  // 0/1/2, clamped
 void launcher_model_toggle_fullscreen(LauncherModel* m);       // binary on/off; kept for bool-style hosts
 void launcher_model_cycle_language(LauncherModel* m);          // wraps over num_languages
 const char* launcher_model_language_label(const LauncherModel* m);
@@ -910,6 +967,10 @@ void launcher_model_skip_msu1_patch(LauncherModel* m);
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode);
 void launcher_model_cycle_player_src(LauncherModel* m, int player); // None/Kbd/Pad
 void launcher_model_deadzone_delta(LauncherModel* m, int player, int delta);
+/* Absolute set, for a drag slider rather than a +/- stepper. Clamped 0..100,
+ * and to whole percent: the value the runner consumes is a raw stick radius
+ * derived from it, so a fractional percent would not survive the round trip. */
+void launcher_model_set_deadzone(LauncherModel* m, int player, int pct);
 // Set the input source explicitly (used by the device dropdown). kind: 0 None,
 // 1 Keyboard, 2 Gamepad. For gamepad, pass the SDL id + display name + GUID
 // (GUID may be NULL/empty; then player_gamepad_guid[player] is cleared).

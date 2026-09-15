@@ -56,6 +56,8 @@ static const LauncherI18nEntry kItalian[] = {
     {"Network Settings", "Impostazioni rete"},
     {"Refresh", "Aggiorna"},
     {"Join Direct", "Connessione diretta"},
+    {"Automatch", "Partita rapida"},
+    {"Queued", "In coda"},
     {"Actions##np_footer", "Azioni##np_footer"},
     {"Browse For", "Sfoglia"},
     {"Browse", "Sfoglia"},

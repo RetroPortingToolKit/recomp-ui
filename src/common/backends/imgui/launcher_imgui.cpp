@@ -21,11 +21,13 @@
 #include "launcher_panels.h"
 #include "launcher_system.h"
 #include "launcher_i18n.h"
+#include "recomp_moderation.h"   // local ignore/block list (online only)
 #include "consoles/n64/n64_binds.h"   // RUI_N64_FIELD_* for the pad-capture path
 
 #include "launcher_sdlcompat.h"   // pulls the right SDL header + event shim
 
 #include "imgui.h"
+#include "launcher_nav.h"
 #if defined(LNG_SDL3)
   #include "imgui_impl_sdl3.h"
   #define LNG_ImplSDL_InitForOpenGL  ImGui_ImplSDL3_InitForOpenGL
@@ -962,6 +964,132 @@ static int emoji_input_callback(ImGuiInputTextCallbackData* data) {
  * provider renders as the real flag. Without a color provider the outline
  * font has no flags, so the code is shown in a muted "[JP]" instead of two
  * meaningless letter boxes. Draws nothing for an empty / malformed code. */
+const RecompLauncherCNetplayCallbacks* np_cb(LauncherModel* m);   /* fwd */
+
+/*
+ * Push the block list to the server when it changes, and again on a fresh
+ * connection.
+ *
+ * Sent rather than merely applied here because only one of a block's three
+ * effects can be done client-side. Hiding somebody's chat is ours. Not being
+ * PAIRED with them, and their not seeing or joining our room, are the
+ * server's -- and the second of those is the direction a client cannot do at
+ * all, because it cannot know it was blocked.
+ *
+ * Resent on reconnect: the server holds the list for the life of a connection
+ * and never persists it, so a dropped socket would otherwise silently leave
+ * the player unprotected on the next one.
+ */
+static void np_push_blocks(LauncherModel* m) {
+    const auto* np = np_cb(m);
+    if (!np || !np->set_blocks) return;
+    char list[256 * 41];
+    recomp_moderation_blocked_list(list, sizeof(list));
+
+    static char s_last[sizeof(list)];
+    static bool s_was_connected;
+    const bool connected = np->connected && np->connected(np->ctx);
+    if (!connected) { s_was_connected = false; return; }
+    /* A reconnect counts as a change even when the list did not move. */
+    if (s_was_connected && std::strcmp(s_last, list) == 0) return;
+    s_was_connected = true;
+    std::snprintf(s_last, sizeof(s_last), "%s", list);
+    np->set_blocks(np->ctx, list);
+}
+
+/*
+ * Right-click a player: ignore them, or block them.
+ *
+ * ONLINE ONLY, and that gate is the point rather than a simplification. A LAN
+ * / Direct IP room has no lobby server, so nobody published an account id and
+ * there is nothing durable to key a list on -- a menu there could only offer
+ * to remember a name, which is precisely the thing that blocks the wrong
+ * person later. It is also a room of people who already know each other.
+ *
+ * A guest has no account either. They get the menu disabled with the reason
+ * shown, rather than silently doing nothing: "I clicked Block and it did not
+ * block" is a worse outcome than being told why.
+ *
+ * `account` is the key and `name` is only what to put in the menu header and
+ * store as a label.
+ */
+static void np_player_menu(LauncherModel* m, const LauncherTheme& th,
+                           const char* account, const char* name,
+                           const char* mid = nullptr) {
+    if (m->netplay_mode != 2) return;   /* LAN/Direct IP has no accounts */
+    if (!ImGui::BeginPopupContextItem("##player_menu")) return;
+
+    char disp[96];
+    emoji_display((name && name[0]) ? name : "Player", disp, sizeof(disp));
+    ImGui::TextColored(col(th.text_muted), "%s", disp);
+    ImGui::Separator();
+
+    const bool has_key = account && account[0];
+    if (!has_key) {
+        ImGui::TextColored(col(th.text_muted),
+                           "Signed-out players cannot be ignored:");
+        ImGui::TextColored(col(th.text_muted),
+                           "there is no account to remember.");
+        ImGui::EndPopup();
+        return;
+    }
+
+    const RecompModLevel lvl = recomp_moderation_level(account);
+    bool ignored = lvl != RECOMP_MOD_NONE;
+    bool blocked = lvl == RECOMP_MOD_BLOCKED;
+
+    if (ImGui::MenuItem("Ignore Player", nullptr, ignored, !blocked)) {
+        recomp_moderation_set(account, name,
+                              ignored ? RECOMP_MOD_NONE : RECOMP_MOD_IGNORED);
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(blocked ? "Already blocked, which includes this"
+                                  : "Hide their chat. They can still be in "
+                                    "your lobby.");
+    if (ImGui::MenuItem("Block Player", nullptr, blocked)) {
+        recomp_moderation_set(account, name,
+                              blocked ? RECOMP_MOD_NONE : RECOMP_MOD_BLOCKED);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hide their chat, hide them from the lists, and ask "
+                          "the matchmaker not to pair you.");
+
+    /* Chat only, and only with an id.
+     *
+     * Ignoring and blocking are decisions about a PERSON and belong on any
+     * row that names one. A report is about a LINE -- the server records the
+     * words it relayed, not a person -- so it is offered where a line exists
+     * to point at, and nowhere else. Offering it on a seat row would leave
+     * the player choosing which of that person's messages they meant from a
+     * menu that never showed them one.
+     *
+     * A line with no id predates the server's message ids and cannot be
+     * reported at all: there is no referent both sides agree on. */
+    const auto* np_rep = np_cb(m);
+    if (mid && mid[0] && np_rep && np_rep->chat_report) {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Report Message...")) {
+            std::snprintf(m->netplay_report_mid, sizeof(m->netplay_report_mid),
+                          "%s", mid);
+            std::snprintf(m->netplay_report_who, sizeof(m->netplay_report_who),
+                          "%s", (name && name[0]) ? name : "Player");
+            m->netplay_report_note[0] = '\0';
+            m->netplay_report_reason = 0;
+            m->netplay_report_status[0] = '\0';
+            m->netplay_report_modal_open = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Send this line to the server's moderation "
+                              "queue. The server records what IT relayed, "
+                              "not text from here.");
+    }
+
+    ImGui::Separator();
+    if (ImGui::MenuItem("Moderation list..."))
+        m->netplay_moderation_modal_open = true;
+    ImGui::EndPopup();
+}
+
 static void np_draw_country_flag(const LauncherTheme& th, const char* cc) {
     if (!cc || !cc[0] || !cc[1]) return;
     const char a = (char)std::toupper((unsigned char)cc[0]);
@@ -1284,7 +1412,11 @@ void draw_dot(bool on, const LngColor& good, const LngColor& off) {
 }
 // The primary neon CTA (PLAY): glow + violet gradient + play triangle. Fully
 // custom-drawn over an InvisibleButton so it looks nothing like a stock button.
-bool neon_cta(const char* id, const char* label, ImVec2 size, bool enabled = true) {
+// `arrow` draws the ▶. PLAY wants it; a primary action that is not "start the
+// game" does not -- an Automatch button that already carries ⚡ would show two
+// glyphs arguing about what it does.
+bool neon_cta(const char* id, const char* label, ImVec2 size, bool enabled = true,
+              bool arrow = true) {
     const LauncherTheme& th = *g_th;
     ImVec2 p = ImGui::GetCursorScreenPos();
     // EnableNav is REQUIRED: ImGui::InvisibleButton() adds ImGuiItemFlags_NoNav by
@@ -1315,12 +1447,13 @@ bool neon_cta(const char* id, const char* label, ImVec2 size, bool enabled = tru
     // centered "▶ label"
     float th_h = ImGui::GetTextLineHeight();
     float tw = ImGui::CalcTextSize(label).x;
-    float tri = px(11.0f), gap = px(10.0f);
+    float tri = arrow ? px(11.0f) : 0.0f, gap = arrow ? px(10.0f) : 0.0f;
     float total = tri + gap + tw;
     float cx = p.x + (size.x - total) * 0.5f, cy = p.y + size.y * 0.5f;
     ImU32 fg = imcol(th.accent_text);
-    dl->AddTriangleFilled(ImVec2(cx, cy - tri*0.55f), ImVec2(cx, cy + tri*0.55f),
-                          ImVec2(cx + tri, cy), fg);
+    if (arrow)
+        dl->AddTriangleFilled(ImVec2(cx, cy - tri*0.55f), ImVec2(cx, cy + tri*0.55f),
+                              ImVec2(cx + tri, cy), fg);
     dl->AddText(ImVec2(cx + tri + gap, cy - th_h*0.5f), fg, label);
     if (!enabled) ImGui::EndDisabled();
     return clk && enabled;
@@ -1441,11 +1574,21 @@ void kv(const char* k, const char* v, const LauncherTheme& th,
         ImGui::TextUnformatted(b); ImGui::PopStyleColor();
     }
 }
-void stepper(const char* id, int value, const char* suffix, int* out_delta) {
+// `total_w` > 0 stretches the value field so the whole widget measures exactly
+// that — which is what lets a right-anchored stepper line its LEFT edge up
+// with the dropdowns above it instead of floating a few pixels inside them.
+// 0 keeps the natural width every other caller has always had.
+void stepper(const char* id, int value, const char* suffix, int* out_delta,
+             float total_w = 0.0f) {
     ImGui::PushID(id);
-    const float bh = px(30), fw = px(58);
-    if (ImGui::Button("-", ImVec2(px(32), bh))) *out_delta = -5;
-    ImGui::SameLine(0, px(6));
+    const float bh = px(30), bw = px(32), gap = px(6);
+    float fw = px(58);
+    if (total_w > 0.0f) {
+        const float want = total_w - bw * 2.0f - gap * 2.0f;
+        if (want > fw) fw = want;
+    }
+    if (ImGui::Button("-", ImVec2(bw, bh))) *out_delta = -5;
+    ImGui::SameLine(0, gap);
     // value centered in a fixed-width field so "+" never shifts with the digits
     char buf[32]; snprintf(buf, sizeof(buf), "%d%s", value, suffix);
     float cx = ImGui::GetCursorPosX();
@@ -1454,8 +1597,8 @@ void stepper(const char* id, int value, const char* suffix, int* out_delta) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(buf);
     ImGui::SameLine(0, 0);
-    ImGui::SetCursorPosX(cx + fw + px(6));
-    if (ImGui::Button("+", ImVec2(px(32), bh))) *out_delta = +5;
+    ImGui::SetCursorPosX(cx + fw + gap);
+    if (ImGui::Button("+", ImVec2(bw, bh))) *out_delta = +5;
     ImGui::PopID();
 }
 
@@ -1474,6 +1617,130 @@ void row_label(const char* text, const LauncherTheme& th, float col_w = 0.0f) {
     } else {
         ImGui::SameLine(0.0f, px(th.spacing_md));  // flow from label width (no fixed-x overlap)
     }
+}
+
+/*
+ * "Label ....................... [control]" — the label at the card's left
+ * edge, the control pushed out to its RIGHT edge.
+ *
+ * The settings cards used to align on the LEFT of the control column
+ * (row_label's col_w), which meant the caller had to measure every label in
+ * the card first and pass the widest, and a card's controls then floated in
+ * the middle with dead space to their right. Anchoring to the right edge
+ * needs no measuring pass at all -- it reads off the card's own width -- and
+ * a card whose rows all use the same control width comes out flush on BOTH
+ * sides, which is the grid the col_w pass was trying to build.
+ *
+ * `ctrl_w` is the width the caller is about to draw: px(SETTINGS_CTRL_W) for
+ * the shared button/dropdown width, ImGui::GetFrameHeight() for a checkbox
+ * (they are square), or a bespoke width for a row that needs one. A label too
+ * long to leave room keeps a minimum gap and lets its control run wide rather
+ * than colliding with the text.
+ */
+void row_label_right(const char* text, const LauncherTheme& th, float ctrl_w) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(col(th.text_muted), "%s", ui_text(text));
+    ImGui::SameLine(0.0f, 0.0f);
+    float shift = ImGui::GetContentRegionAvail().x - ctrl_w;
+    const float min_gap = px(th.spacing_md);
+    if (shift < min_gap) shift = min_gap;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + shift);
+}
+
+/* One width for every button and dropdown in the Display and Audio cards, so
+ * right-anchoring also lines their left edges up. Wide enough for the longest
+ * value any of them shows ("Borderless", "Adaptive", "2 frames", "32000 Hz").
+ * Rows whose value cannot fit -- a screen model, a file path -- pass their own
+ * width to row_label_right instead. */
+#define SETTINGS_CTRL_W 150.0f
+
+/*
+ * False while the window is too narrow to run DISPLAY and AUDIO side by side,
+ * so the settings cards stack in one column. draw_settings sets it each frame;
+ * the card drawers read it, because a STACKED card must hug its content — the
+ * legacy fixed band exists only to make two side-by-side cards the same
+ * height, and pinning it in one column leaves a tall empty region under a
+ * short card.
+ *
+ * A file-scope flag rather than a parameter: the panel registry's draw
+ * signature is the generic (model, theme) shared by every view, and threading
+ * one layout bit through all of it to reach two call sites would be worse.
+ */
+bool g_settings_two_col = true;
+
+/* One entry of a settings dropdown: the stored value and what it reads as. */
+struct SettingsChoice { int value; const char* label; };
+
+/*
+ * A labelled dropdown row: right-anchored combo over a fixed list of choices.
+ * Returns the value the player picked this frame, or `current` when they
+ * picked nothing, so the caller commits through its own model setter.
+ *
+ * Cycle buttons were fine when a setting had two or three states, but the
+ * player cannot see what the other states ARE without pressing through them,
+ * and a wrap-around list has no "back". A dropdown shows the whole set and
+ * puts every entry one click away -- which is what Renderer and VSync already
+ * did, so this is the control the card was already half using.
+ */
+int settings_combo_row(const char* label, const LauncherTheme& th,
+                       const char* id, const SettingsChoice* choices,
+                       int count, int current) {
+    const char* current_label = "";
+    for (int i = 0; i < count; ++i)
+        if (choices[i].value == current) { current_label = choices[i].label; break; }
+
+    row_label_right(label, th, px(SETTINGS_CTRL_W));
+    ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+    int picked = current;
+    if (ImGui::BeginCombo(id, ui_text(current_label))) {
+        for (int i = 0; i < count; ++i)
+            if (ImGui::Selectable(ui_text(choices[i].label),
+                                  choices[i].value == current))
+                picked = choices[i].value;
+        ImGui::EndCombo();
+    }
+    return picked;
+}
+
+/* Window scale reads as "1x".."6x". Spelled out rather than formatted per
+ * frame so the list is plain data, like every other choice list here. */
+static const SettingsChoice kScaleChoices[LNG_WINDOW_SCALE_MAX] = {
+    {1, "1x"}, {2, "2x"}, {3, "3x"}, {4, "4x"}, {5, "5x"}, {6, "6x"}
+};
+static const SettingsChoice kFullscreenChoices[] = {
+    {0, "Off"}, {1, "Borderless"}, {2, "Exclusive"}
+};
+static const SettingsChoice kRunAheadChoices[RECOMP_LAUNCHER_RUN_AHEAD_MAX + 1] = {
+    {0, "Off"}, {1, "1 frame"}, {2, "2 frames"}, {3, "3 frames"}, {4, "4 frames"}
+};
+
+/* The three rows those lists drive, so the legacy and deep Display surfaces
+ * cannot drift apart in what they offer. */
+void row_window_scale(LauncherModel* m, const LauncherTheme& th) {
+    launcher_model_set_scale(
+        m, settings_combo_row("Window scale", th, "##window_scale",
+                              kScaleChoices, LNG_WINDOW_SCALE_MAX,
+                              m->s.window_scale < 1 ? 1 : m->s.window_scale));
+}
+
+void row_fullscreen(LauncherModel* m, const LauncherTheme& th) {
+    launcher_model_set_fullscreen(
+        m, settings_combo_row("Fullscreen", th, "##fullscreen",
+                              kFullscreenChoices, 3, m->s.fullscreen));
+}
+
+void row_run_ahead(LauncherModel* m, const LauncherTheme& th) {
+    launcher_model_set_run_ahead(
+        m, settings_combo_row("Run-ahead", th, "##run_ahead", kRunAheadChoices,
+                              RECOMP_LAUNCHER_RUN_AHEAD_MAX + 1,
+                              m->s.run_ahead));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip(
+            "Emulate ahead and show a frame from the future, so\n"
+            "the game's own input lag is hidden. Each frame of depth\n"
+            "costs one extra emulated frame -- start at 1.\n\n"
+            "Local only: the runtime turns it off during netplay,\n"
+            "where a peer's input cannot be predicted.");
 }
 
 // ---- views -----------------------------------------------------------------
@@ -2902,13 +3169,23 @@ static bool has_display_aspect_row(const LauncherModel* m) {
                  m->aspect_mask != 0);
 }
 
-static void draw_aspect_row(LauncherModel* m, const LauncherTheme& th,
-                            float col_w = 0.0f) {
+static void draw_aspect_row(LauncherModel* m, const LauncherTheme& th) {
     if (!has_display_aspect_row(m)) return;
-    row_label(m->aspect_setting_label && m->aspect_setting_label[0]
-                  ? m->aspect_setting_label
-                  : "Aspect ratio",
-              th, col_w);
+    /* px(180) rather than the shared column, for the Screen layout reason:
+     * both the label and the value come from the HOST, not from a vocabulary
+     * this file owns, and a button does not elide.
+     *
+     * The EXPERIMENTAL tag sits AFTER the button on the same line, so it has
+     * to be inside the width reserved here -- right-anchoring aligns the right
+     * edge of what it is told about, and a tag left out of the sum hangs off
+     * the card. */
+    float ctrl_w = px(180);
+    if (m->aspect_experimental)
+        ctrl_w += px(8) + ImGui::CalcTextSize("EXPERIMENTAL").x;
+    row_label_right(m->aspect_setting_label && m->aspect_setting_label[0]
+                        ? m->aspect_setting_label
+                        : "Aspect ratio",
+                    th, ctrl_w);
     ImGui::PushID("aspect_ratio");
     if (ImGui::Button(launcher_model_aspect_label(m), ImVec2(px(180), px(30))))
         launcher_model_cycle_aspect(m);
@@ -2956,6 +3233,7 @@ bool video_card_grows(const LauncherModel* m) {
     if (m->has_shader) return true;
     if (m->has_sharp_filter || m->has_affine_filter) return true;
     if (m->has_frame_blend || m->has_vsync) return true;
+    if (m->has_run_ahead) return true;
     if (m->num_display_layouts > 0) return true;
     // NES legacy-surface additions (Integer scaling row, HD texture pack block)
     // add extra rows the fixed no_scroll band wasn't sized for.
@@ -3032,80 +3310,49 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
     if (!any_deep_display(m)) {
-        // ---- legacy minimal surface (SNES/NES etc.) — aligned label grid -------
-        float cw = ImGui::CalcTextSize("Linear filtering").x;
-        if (m->has_sharp_filter) {
-            float t = ImGui::CalcTextSize("Scaling filter").x;
-            if (t > cw) cw = t;
-        }
-        if (m->has_affine_filter) {
-            float t = ImGui::CalcTextSize("Affine background smoothing").x;
-            if (t > cw) cw = t;
-        }
-        if (m->has_frame_blend) {
-            float t = ImGui::CalcTextSize("Frame blending").x;
-            if (t > cw) cw = t;
-        }
-        if (m->has_shader) {
-            float t = ImGui::CalcTextSize("Shader").x;
-            if (t > cw) cw = t;
-        }
-        if (has_display_aspect_row(m)) {
-            const char* aspect_label =
-                m->aspect_setting_label && m->aspect_setting_label[0]
-                    ? m->aspect_setting_label
-                    : "Aspect ratio";
-            float t = ImGui::CalcTextSize(aspect_label).x;
-            if (t > cw) cw = t;
-        }
-        if (m->has_integer_scale) { float t = ImGui::CalcTextSize("Integer scaling").x; if (t > cw) cw = t; }
-        cw += px(18.0f);
-        row_label("Window scale", th, cw);
-        ImGui::PushID("window_scale");
-        if (ImGui::Button(ui_text(launcher_model_scale_label(m)), ImVec2(px(120), px(30))))
-            launcher_model_cycle_scale(m);
-        ImGui::PopID();
-        // Universal fullscreen row (every console; tri-state cycle restoring
-        // the legacy launcher's Off/Borderless/Exclusive vocabulary). Sits
-        // right under Window scale, matching the old Display panel order.
-        row_label("Fullscreen", th, cw);
-        ImGui::PushID("fullscreen");
-        if (ImGui::Button(ui_text(launcher_model_fullscreen_label(m)), ImVec2(px(120), px(30))))
-            launcher_model_cycle_fullscreen(m);
-        ImGui::PopID();
+        // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
+        // Labels at the left edge, controls at the right (row_label_right), so
+        // no measuring pass over the labels is needed and the card reads as a
+        // grid flush on both sides.
+        const float cb = ImGui::GetFrameHeight();   // a checkbox is square
+        row_window_scale(m, th);
+        // Universal fullscreen row (every console; Off/Borderless/Exclusive,
+        // the legacy launcher's vocabulary). Sits right under Window scale,
+        // matching the old Display panel order.
+        row_fullscreen(m, th);
         if (m->num_display_layouts > 0) {
-            row_label("Screen layout", th, cw);
+            row_label_right("Screen layout", th, px(180));
             ImGui::PushID("screen_layout");
             if (ImGui::Button(ui_text(launcher_model_display_layout_label(m)),
                               ImVec2(px(180), px(30))))
                 launcher_model_cycle_display_layout(m);
             ImGui::PopID();
         }
-        draw_aspect_row(m, th, cw);
+        draw_aspect_row(m, th);
         if (m->has_integer_scale) {   // NES module: snap the image to integer multiples
-            row_label("Integer scaling", th, cw);
+            row_label_right("Integer scaling", th, cb);
             bool is = m->s.integer_scale != 0;
             if (ImGui::Checkbox("##intscale", &is)) launcher_model_toggle_integer_scale(m);
         }
         if (m->has_sharp_filter) {
-            row_label("Scaling filter", th, cw);
+            row_label_right("Scaling filter", th, px(180));
             if (ImGui::Button(ui_text(launcher_model_scaling_filter_label(m)),
                               ImVec2(px(180), px(30))))
                 launcher_model_cycle_scaling_filter(m);
         } else {
-            row_label("Linear filtering", th, cw);
+            row_label_right("Linear filtering", th, cb);
             bool filter = m->s.linear_filter != 0;
             if (ImGui::Checkbox("##filter", &filter))
                 launcher_model_toggle_filter(m);
         }
         if (m->has_affine_filter) {
-            row_label("Affine background smoothing", th, cw);
+            row_label_right("Affine background smoothing", th, cb);
             bool affine = m->s.affine_filter != 0;
             if (ImGui::Checkbox("##affine_filter", &affine))
                 launcher_model_toggle_affine_filter(m);
         }
         if (m->has_frame_blend) {
-            row_label("Frame blending", th, cw);
+            row_label_right("Frame blending", th, cb);
             bool fb = m->s.frame_blend != 0;
             if (ImGui::Checkbox("##frame_blend", &fb))
                 launcher_model_toggle_frame_blend(m);
@@ -3116,11 +3363,12 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
                     "(thrusters, explosions) as a CRT would; costs a\n"
                     "little motion ghosting.");
         }
-        // On/Off checkbox rather than the deep surface's tri-state cycle:
+        if (m->has_run_ahead) row_run_ahead(m, th);
+        // On/Off checkbox rather than the deep surface's tri-state dropdown:
         // legacy-surface hosts map this onto a boolean renderer flag, so
         // offering "Adaptive" here would promise what they cannot deliver.
         if (m->has_vsync) {
-            row_label("VSync", th, cw);
+            row_label_right("VSync", th, cb);
             bool vs = m->s.vsync != RECOMP_LAUNCHER_VSYNC_OFF;
             if (ImGui::Checkbox("##vsync", &vs))
                 launcher_model_toggle_vsync(m);
@@ -3132,7 +3380,10 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
                     "The runtime still paces frames to the console's own "
                     "rate either way, so Off does not run the game fast.");
         }
-        draw_shader_row(m, th, cw);
+        // The shader row is a compound control (combo + Browse/Folder/Clear)
+        // that already fills to the card's right edge, so it flows from its
+        // label rather than reserving a fixed control width.
+        draw_shader_row(m, th);
         // HD texture packs (NES module, Mesen hires.txt format): one line —
         //   [x] HD texture pack   …folder tail   [Browse]
         // Mirrors the MSU-1 row in Audio (same enable + folder pattern).
@@ -3163,37 +3414,49 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // Supersampling, Aspect ratio, Texture filtering, Antialiasing, Screen
     // model, Frame interpolation (+Presentation target), Skip FMVs, Turbo
     // loads, Fullscreen.
+    // Labels left, controls right (row_label_right), same as the legacy card.
+    const float cb = ImGui::GetFrameHeight();   // a checkbox is square
     if (m->has_window_size) {
-        row_label("Window size", th);
-        if (ImGui::Button(ui_text(launcher_model_window_size_label(m)), ImVec2(px(150), px(30))))
+        row_label_right("Window size", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_window_size_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_window_size(m);
     } else {
-        row_label("Window scale", th);
-        ImGui::PushID("window_scale");
-        if (ImGui::Button(ui_text(launcher_model_scale_label(m)), ImVec2(px(120), px(30))))
-            launcher_model_cycle_scale(m);
-        ImGui::PopID();
+        row_window_scale(m, th);
     }
 
     // NES module rows can appear on this branch too (has_renderer puts NES
     // on the deep surface): integer scaling right under the window row,
     // mirroring the legacy branch's ordering.
     if (m->has_integer_scale) {
-        row_label("Integer scaling", th);
+        row_label_right("Integer scaling", th, cb);
         bool is = m->s.integer_scale != 0;
         if (ImGui::Checkbox("##intscale", &is)) launcher_model_toggle_integer_scale(m);
     }
 
     if (m->has_renderer) {
-        row_label("Renderer", th);
-        if (ImGui::Button(ui_text(launcher_model_renderer_label(m)), ImVec2(px(220), px(30))))
-            launcher_model_toggle_renderer(m);
+        /* A list, not a cycle button. The vocabulary is up to five entries on
+         * hosts that supply their own (Auto / D3D11 / D3D9 / OpenGL /
+         * Software), and reaching the last one by clicking through the other
+         * four is not a choice a player should have to count out. */
+        row_label_right("Renderer", th, px(SETTINGS_CTRL_W));
+        ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+        if (ImGui::BeginCombo("##renderer",
+                              ui_text(launcher_model_renderer_label(m)))) {
+            const int n = launcher_model_renderer_count(m);
+            for (int i = 0; i < n; ++i) {
+                const char* lbl = launcher_model_renderer_label_at(m, i);
+                if (!lbl || !lbl[0]) continue;
+                if (ImGui::Selectable(ui_text(lbl), m->s.renderer == i))
+                    launcher_model_set_renderer(m, i);
+            }
+            ImGui::EndCombo();
+        }
     }
 
     if (m->has_supersampling) {
-        row_label("Supersampling", th);
+        row_label_right("Supersampling", th, px(SETTINGS_CTRL_W));
         ImGui::PushID("supersampling");
-        if (ImGui::Button(ui_text(launcher_model_supersampling_label(m)), ImVec2(px(120), px(30))))
+        if (ImGui::Button(ui_text(launcher_model_supersampling_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_supersampling(m);
         ImGui::PopID();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
@@ -3206,15 +3469,15 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     // Universal fullscreen row (every console — no longer gated on the
-    // vestigial has_fullscreen_toggle). Tri-state cycle replaces the old
-    // binary checkbox so Exclusive mode is reachable again.
-    row_label("Fullscreen", th);
-    ImGui::PushID("fullscreen");
-        if (ImGui::Button(ui_text(launcher_model_fullscreen_label(m)), ImVec2(px(120), px(30))))
-        launcher_model_cycle_fullscreen(m);
-    ImGui::PopID();
+    // vestigial has_fullscreen_toggle). A tri-state dropdown, so Exclusive is
+    // both reachable and visible without pressing through the other two.
+    row_fullscreen(m, th);
     if (m->num_display_layouts > 0) {
-        row_label("Screen layout", th);
+        /* Wider than the shared column: these labels come from the HOST, not
+         * from a vocabulary this file owns, and a button (unlike a combo) does
+         * not elide -- so it keeps the room the widest stock layout name
+         * needs. Right-anchored like every other row regardless. */
+        row_label_right("Screen layout", th, px(180));
         ImGui::PushID("screen_layout");
         if (ImGui::Button(ui_text(launcher_model_display_layout_label(m)),
                           ImVec2(px(180), px(30))))
@@ -3224,22 +3487,22 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     draw_aspect_row(m, th);
 
     if (m->has_sharp_filter) {
-        row_label("Scaling filter", th);
+        row_label_right("Scaling filter", th, px(SETTINGS_CTRL_W));
         if (ImGui::Button(ui_text(launcher_model_scaling_filter_label(m)),
-                          ImVec2(px(180), px(30))))
+                          ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_scaling_filter(m);
     } else if (m->has_texture_filter) {
-        row_label("Texture filtering", th);
-        if (ImGui::Button(ui_text(launcher_model_texture_filter_label(m)), ImVec2(px(120), px(30))))
+        row_label_right("Texture filtering", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_texture_filter_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_toggle_texture_filter(m);
     } else {
-        row_label("Linear filtering", th);
+        row_label_right("Linear filtering", th, cb);
         bool filter = m->s.linear_filter != 0;
         if (ImGui::Checkbox("##filter", &filter)) launcher_model_toggle_filter(m);
     }
 
     if (m->has_frame_blend) {
-        row_label("Frame blending", th);
+        row_label_right("Frame blending", th, cb);
         bool fb = m->s.frame_blend != 0;
         if (ImGui::Checkbox("##frame_blend", &fb))
             launcher_model_toggle_frame_blend(m);
@@ -3252,9 +3515,9 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     if (m->has_antialiasing) {
-        row_label("Antialiasing", th);
+        row_label_right("Antialiasing", th, px(SETTINGS_CTRL_W));
         ImGui::PushID("antialiasing");
-        if (ImGui::Button(ui_text(launcher_model_aa_label(m)), ImVec2(px(90), px(30))))
+        if (ImGui::Button(ui_text(launcher_model_aa_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_aa(m);
         ImGui::PopID();
     }
@@ -3264,13 +3527,13 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
      * window, and the good answer differs between the two. Antialiasing off
      * means nearest everywhere, so the row has nothing to say then. */
     if (m->has_fmv_filter) {
-        row_label("FMV filtering", th);
+        row_label_right("FMV filtering", th, px(SETTINGS_CTRL_W));
         ImGui::PushID("fmv_filter");
         const bool aa_off = m->has_antialiasing && m->s.antialiasing == 0;
         if (aa_off) ImGui::BeginDisabled();
         if (ImGui::Button(ui_text(aa_off ? "Nearest"
                                          : launcher_model_fmv_filter_label(m)),
-                          ImVec2(px(120), px(30))))
+                          ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_fmv_filter(m);
         if (aa_off) {
             ImGui::EndDisabled();
@@ -3282,7 +3545,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     if (m->has_affine_filter) {
-        row_label("Affine background smoothing", th);
+        row_label_right("Affine background smoothing", th, cb);
         bool affine = m->s.affine_filter != 0;
         if (ImGui::Checkbox("##affine_filter", &affine))
             launcher_model_toggle_affine_filter(m);
@@ -3303,7 +3566,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // Perspective textures are unaffected by that problem: they only change
         // UV interpolation inside a polygon whose provenance is already proven,
         // so no vertex moves and adjacent polygons cannot disagree about an edge.
-        row_label("Perspective textures", th);
+        row_label_right("Perspective textures", th, cb);
         bool persp = m->s.perspective_texturing != 0;
         if (ImGui::Checkbox("##persptex", &persp))
             launcher_model_toggle_perspective_texturing(m);
@@ -3316,7 +3579,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     if (m->has_screen_kind) {
-        row_label("Screen model", th);
+        row_label_right("Screen model", th, px(220));
         // Wide enough for the longest label ("Super Game Boy (No Border)");
         // shorter models (e.g. "DMG") center within the same fixed box.
         if (ImGui::Button(ui_text(launcher_model_screen_kind_label(m)), ImVec2(px(220), px(30))))
@@ -3351,12 +3614,12 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // interpolation pass); Presentation target only matters once frame
     // interpolation is actually on.
     if (m->has_frame_interp && m->s.renderer) {
-        row_label("Frame interpolation", th);
+        row_label_right("Frame interpolation", th, cb);
         bool fi = m->s.frame_interp != 0;
         if (ImGui::Checkbox("##fi", &fi)) launcher_model_toggle_frame_interp(m);
         if (m->s.frame_interp) {
-            row_label("Presentation target", th);
-            if (ImGui::Button(ui_text(launcher_model_interp_fps_label(m)), ImVec2(px(150), px(30))))
+            row_label_right("Presentation target", th, px(SETTINGS_CTRL_W));
+            if (ImGui::Button(ui_text(launcher_model_interp_fps_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
                 launcher_model_cycle_interp_fps(m);
         }
     }
@@ -3364,9 +3627,20 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // VSync sits with frame interpolation because both decide how a finished
     // frame reaches the panel, not how it is drawn.
     if (m->has_vsync) {
-        row_label("VSync", th);
-        if (ImGui::Button(ui_text(launcher_model_vsync_label(m)), ImVec2(px(120), px(30))))
-            launcher_model_cycle_vsync(m);
+        row_label_right("VSync", th, px(SETTINGS_CTRL_W));
+        ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+        if (ImGui::BeginCombo("##vsync_mode",
+                              ui_text(launcher_model_vsync_label(m)))) {
+            static const struct { int v; const char* label; } kVsync[] = {
+                { RECOMP_LAUNCHER_VSYNC_OFF,      "Off" },
+                { RECOMP_LAUNCHER_VSYNC_ON,       "On" },
+                { RECOMP_LAUNCHER_VSYNC_ADAPTIVE, "Adaptive" },
+            };
+            for (const auto& o : kVsync)
+                if (ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
+                    launcher_model_set_vsync(m, o.v);
+            ImGui::EndCombo();
+        }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
                 "On: the swap waits for the panel — no tearing.\n"
@@ -3379,13 +3653,13 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     if (m->has_skip_fmv) {
-        row_label("Skip FMVs", th);
+        row_label_right("Skip FMVs", th, cb);
         bool sk = m->s.auto_skip_fmv != 0;
         if (ImGui::Checkbox("##skipfmv", &sk)) launcher_model_toggle_skip_fmv(m);
     }
 
     if (m->has_rewind_depth) {
-        row_label("Rewind", th);
+        row_label_right("Rewind", th, cb);
         bool rewind_on = m->s.rewind_enabled != 0;
         if (ImGui::Checkbox("##rewind_enabled", &rewind_on))
             launcher_model_toggle_rewind_enabled(m);
@@ -3398,8 +3672,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         }
         /* The two tuning rows only mean anything once it is on. */
         ImGui::BeginDisabled(!rewind_on);
-        row_label("Rewind buffer", th);
-        if (ImGui::Button(ui_text(launcher_model_rewind_depth_label(m)), ImVec2(px(100), px(30))))
+        row_label_right("Rewind buffer", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_rewind_depth_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_rewind_depth(m);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
@@ -3407,8 +3681,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
                 "Each one is a few MB of machine state.\n"
                 "Takes effect on the next launch.");
         }
-        row_label("Rewind interval", th);
-        if (ImGui::Button(ui_text(launcher_model_rewind_interval_label(m)), ImVec2(px(100), px(30))))
+        row_label_right("Rewind interval", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_rewind_interval_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_rewind_interval(m);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
@@ -3418,6 +3692,11 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::EndDisabled();
     }
+
+    /* Run-ahead sits with Rewind rather than with the filters: both spend
+     * machine snapshots to move the player in time, and neither changes how
+     * a frame is drawn. */
+    if (m->has_run_ahead) row_run_ahead(m, th);
 
     /* Turbo loads is deliberately NOT a Display row on any console. Load
      * acceleration is owned by the framework's Mods catalog (Fast Loading /
@@ -3432,7 +3711,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     //
     // Unlike the legacy NES row above, there is no folder picker here: which
     // pack is active is a per-title decision owned by the host's pack manager
-    // (RetComM's Texture Packs modal), which can list installed packs and show
+    // (Retro Launcher's Texture Packs modal), which can list installed packs and show
     // per-pack coverage. A second, blinder picker in this panel could only
     // fight it — so this panel does the one thing it is better placed to do,
     // which is flip the pack off and on without leaving the game.
@@ -3469,7 +3748,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
 void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
     // video_card_grows() folds in NES's legacy-surface additions (Integer
     // scaling row, HD texture pack block) alongside the deep/widescreen surfaces.
-    if (video_card_grows(m)) {
+    if (video_card_grows(m) || !g_settings_two_col) {
         if (begin_panel("disp", 0, false)) draw_display_controls(m, *th);
         end_panel();
     } else {
@@ -3480,27 +3759,30 @@ void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
 
 void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("AUDIO");
-    // Fixed label column so the sample-rate button, the volume stepper's "-",
-    // and the SPU toggle all share the same left edge (aligned grid).
-    float cw = ImGui::CalcTextSize("Sample rate").x;
-    if (m->has_spu_hq) { float t = ImGui::CalcTextSize("High-quality SPU").x; if (t > cw) cw = t; }
-    cw += px(18.0f);
+    // Labels at the card's left edge, controls at its right (row_label_right),
+    // matching DISPLAY. Every control is SETTINGS_CTRL_W wide -- including the
+    // volume stepper, which stretches its value field to reach it -- so the
+    // column is flush on both sides.
+    const float cb = ImGui::GetFrameHeight();   // a checkbox is square
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
     const SystemProfile* audio_prof = (const SystemProfile*)m->profile;
     if (!audio_prof || !audio_prof->hide_audio_freq) {
-        row_label("Sample rate", th, cw);
-        if (ImGui::Button(ui_text(launcher_model_freq_label(m)), ImVec2(px(120), px(30))))
+        row_label_right("Sample rate", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_freq_label(m)),
+                          ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_freq(m);
     }
-    row_label("Volume", th, cw);
-    int dv = 0; stepper("vol", m->s.volume, "%", &dv);
+    row_label_right("Volume", th, px(SETTINGS_CTRL_W));
+    int dv = 0; stepper("vol", m->s.volume, "%", &dv, px(SETTINGS_CTRL_W));
     if (dv) launcher_model_volume_delta(m, dv);
 
     // Output-device pick (host-enumerated names; N64/RT64 hosts) — "(system
     // default)" first, committing "" so an unplugged device degrades sanely.
+    // A device name is far longer than a setting value, so this row keeps the
+    // full-width combo on its own rather than squeezing into the column.
     if (m->num_audio_devices > 0 && m->audio_device_labels) {
-        row_label("Output device", th, cw);
+        row_label("Output device", th);
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::BeginCombo("##audiodev", ui_text(launcher_model_audio_device_label(m)))) {
             if (ImGui::Selectable(ui_text("(system default)"), m->s.audio_device[0] == '\0'))
@@ -3517,7 +3799,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     if (m->has_spu_hq) {
-        row_label("High-quality SPU", th, cw);
+        row_label_right("High-quality SPU", th, cb);
         bool hq = m->s.spu_hq != 0;
         if (ImGui::Checkbox("##spuhq", &hq)) launcher_model_toggle_spu_hq(m);
     }
@@ -3564,8 +3846,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     if (m->num_languages > 0) {
         ImGui::Dummy(ImVec2(0, px(6)));
         eyebrow("LOCALIZATION");
-        row_label("Language", th);
-        if (ImGui::Button(ui_text(launcher_model_language_label(m)), ImVec2(px(140), px(30))))
+        row_label_right("Language", th, px(SETTINGS_CTRL_W));
+        if (ImGui::Button(ui_text(launcher_model_language_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_cycle_language(m);
     }
 }
@@ -3575,7 +3857,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
 // to compute inline.
 void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
     const bool deep_audio = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
-    if (deep_audio) {
+    if (deep_audio || !g_settings_two_col) {
         if (begin_panel("audio", 0, false)) draw_audio_controls(m, *th);
         end_panel();
     } else {
@@ -3967,10 +4249,30 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
     // never has to be threaded through the generic draw(model,theme) signature.)
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const float gap  = px(th.spacing_md);
-    const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
     const float row_h = px(240.0f);   // legacy fixed band height (4 rows: the
                                       // universal Fullscreen row joined scale/
                                       // filter/widescreen on the legacy surface)
+
+    /*
+     * Two columns, until half the window is too narrow to hold a settings row.
+     *
+     * A row is a label plus a control anchored to the card's right edge, so
+     * the card has a real floor: below it the label and the control collide
+     * (row_label_right's minimum gap wins and the control overhangs), which
+     * is worse than reading the same rows one column at a time. Past that
+     * floor AUDIO drops to a full-width card UNDER DISPLAY rather than being
+     * squeezed beside it, and every SIDE card follows it down the same
+     * single column.
+     *
+     * The floor is measured, not guessed: the longest label the shared cards
+     * draw, plus the control column, plus the card's own padding.
+     */
+    const float full_w = ImGui::GetContentRegionAvail().x;
+    const float col_floor = ImGui::CalcTextSize("Affine background smoothing").x +
+                            px(SETTINGS_CTRL_W) + px(th.spacing_md) * 3.0f;
+    const bool two_col = (full_w - gap) * 0.5f >= col_floor;
+    const float half = two_col ? (full_w - gap) * 0.5f : full_w;
+    g_settings_two_col = two_col;   // read by panel_video_draw/panel_audio_draw
 
     const bool deep_display = video_card_grows(m);   // superset of any_deep_display: folds in NES + widescreen (N64 covered too)
     const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
@@ -3984,23 +4286,34 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
     // full-width content (HOTKEYS) below both columns must resume.
     const float content_left_x = ImGui::GetCursorScreenPos().x;
 
+    /* The legacy fixed band exists ONLY so the two side-by-side cards share a
+     * height. Stacked, there is nothing to line up with, and pinning the band
+     * would leave a tall empty region under a two-row AUDIO card — so in one
+     * column both cards hug their content instead. */
+    const bool pin_band = two_col;
     float left_bottom = 0.0f;   // DISPLAY's bottom edge (screen space)
     if (video_p) {
-        if (deep_display) begin_container("set_l", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
+        if (deep_display || !pin_band) begin_container("set_l", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
         else               begin_container("set_l", ImVec2(half, row_h));
         video_p->draw(m, &th);
         end_container();
         left_bottom = ImGui::GetItemRectMax().y;
     }
-    if (video_p && audio_p) ImGui::SameLine(0, gap);
-    // Capture the right column's SCREEN x BEFORE opening AUDIO's child, so
-    // additional SIDE cards (INPUT/SYSTEM/…) can reopen at the same x once
-    // AUDIO's child ends (a finished child returns the cursor to the LEFT
-    // edge of the row on the next line, not to its own column).
+    if (video_p && audio_p) {
+        if (two_col) ImGui::SameLine(0, gap);
+        // One column: put AUDIO under DISPLAY with the same gap the columns
+        // would have had, instead of leaving it to item spacing.
+        else ImGui::SetCursorScreenPos(ImVec2(content_left_x, left_bottom + gap));
+    }
+    // Capture the column's SCREEN x BEFORE opening AUDIO's child, so additional
+    // SIDE cards (INPUT/SYSTEM/…) can reopen at the same x once AUDIO's child
+    // ends (a finished child returns the cursor to the LEFT edge of the row on
+    // the next line, not to its own column). In one-column mode this is simply
+    // the content's left edge, so the stacking code below needs no second case.
     const float right_x = ImGui::GetCursorScreenPos().x;
     float audio_bottom = 0.0f;   // AUDIO's bottom edge (screen space)
     if (audio_p) {
-        if (deep_audio) begin_container("set_r", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
+        if (deep_audio || !pin_band) begin_container("set_r", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
         else             begin_container("set_r", ImVec2(half, row_h));
         audio_p->draw(m, &th);
         end_container();
@@ -4243,26 +4556,29 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(1);
             bool capture_key = m->capturing && m->capture_assist &&
                                !m->capture_pad && m->capture_btn == action;
-            /* "##key" / "##pad": both columns can read "(unbound)" at once
-             * (a freshly added shortcut), which would give the two buttons
-             * the same ImGui ID inside this row's PushID scope. */
-            char key_lbl[96];
-            snprintf(key_lbl, sizeof key_lbl, "%s##key",
-                     capture_key ? "[ press a key... ]"
-                                 : settings_key_label(m->s.assist_key_bind[action]));
-            if (ImGui::Button(key_lbl, ImVec2(px(170), 0)))
+            /* The two cells of a row are both Buttons whose ID is their
+             * label, and a row with nothing bound in either column showed
+             * "(unbound)" twice -- the same ID, and Dear ImGui's conflict
+             * warning over the Fast-forward toggle row. Scope each column. */
+            ImGui::PushID("key");
+            if (ImGui::Button(
+                    capture_key ? "[ press a key... ]" :
+                        settings_key_label(m->s.assist_key_bind[action]),
+                    ImVec2(px(170), 0)))
                 launcher_model_begin_assist_capture(m, action, false);
+            ImGui::PopID();
             if (pad_col) {
                 ImGui::TableSetColumnIndex(2);
                 bool capture_pad = m->capturing && m->capture_assist &&
                                    m->capture_pad && m->capture_btn == action;
                 char pad[112];
                 assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
-                char pad_lbl[128];
-                snprintf(pad_lbl, sizeof pad_lbl, "%s##pad",
-                         capture_pad ? "[ press a button... ]" : pad);
-                if (ImGui::Button(pad_lbl, ImVec2(px(170), 0)))
+                ImGui::PushID("pad");
+                if (ImGui::Button(
+                        capture_pad ? "[ press a button... ]" : pad,
+                        ImVec2(px(170), 0)))
                     launcher_model_begin_assist_capture(m, action, true);
+                ImGui::PopID();
             }
             ImGui::PopID();
         }
@@ -4270,14 +4586,12 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     }
     if (pad_col) draw_assist_pad_chord_hint(m, th);
     else         draw_assist_pad_unavailable_hint(m, th);
-    if (m->capturing && m->capture_assist)
-        ImGui::TextColored(col(th.text_muted), "Backspace clears the binding.");
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
                                         : "Reset Host Shortcuts"))
         launcher_model_reset_assist_bindings(m);
     if (m->capturing && m->capture_assist)
-        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels)");
+        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
 }
 
 void draw_controller_assist_shortcuts(LauncherModel* m,
@@ -4311,24 +4625,25 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
             ImGui::TableSetColumnIndex(1);
             bool capture_key = m->capturing && m->capture_assist &&
                                !m->capture_pad && m->capture_btn == action;
-            /* "##key" / "##pad": see draw_assist_binding_editor. */
-            char key_lbl[96];
-            snprintf(key_lbl, sizeof key_lbl, "%s##key",
-                     capture_key ? "[ key... ]"
-                                 : settings_key_label(m->s.assist_key_bind[action]));
-            if (ImGui::Button(key_lbl, ImVec2(-FLT_MIN, 0)))
+            /* Per-column IDs: see draw_assist_binding_editor. */
+            ImGui::PushID("key");
+            if (ImGui::Button(
+                    capture_key ? "[ key... ]" :
+                        settings_key_label(m->s.assist_key_bind[action]),
+                    ImVec2(-FLT_MIN, 0)))
                 launcher_model_begin_assist_capture(m, action, false);
+            ImGui::PopID();
             if (pad_col) {
                 ImGui::TableSetColumnIndex(2);
                 bool capture_pad = m->capturing && m->capture_assist &&
                                    m->capture_pad && m->capture_btn == action;
                 char pad[112];
                 assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
-                char pad_lbl[128];
-                snprintf(pad_lbl, sizeof pad_lbl, "%s##pad",
-                         capture_pad ? "[ button... ]" : pad);
-                if (ImGui::Button(pad_lbl, ImVec2(-FLT_MIN, 0)))
+                ImGui::PushID("pad");
+                if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
+                                  ImVec2(-FLT_MIN, 0)))
                     launcher_model_begin_assist_capture(m, action, true);
+                ImGui::PopID();
             }
             ImGui::PopID();
         }
@@ -4337,8 +4652,7 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
     if (pad_col) draw_assist_pad_chord_hint(m, th);
     else         draw_assist_pad_unavailable_hint(m, th);
     if (m->capturing && m->capture_assist)
-        ImGui::TextColored(col(th.warn),
-                           "Listening... (Esc cancels, Backspace clears)");
+        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
 }
 
 void draw_assist_tools(LauncherModel* m, const LauncherTheme& th) {
@@ -4429,6 +4743,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
     const SystemProfile* cfg_prof = (const SystemProfile*)m->profile;
     const bool cfg_psx = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "psx");
     const bool cfg_snes = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "snes");
+    const bool cfg_n64 = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "n64");
     if (cfg_psx && m->s.player_src[p] == 2 &&
         m->s.player_gamepad_guid[p][0] && !m->player_pad_name[p][0])
         launcher_binds_hydrate_psx_pad_names(m);
@@ -4514,6 +4829,80 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             }
         }
 
+        /* N64: the same three actions, on the per-GUID input.ini store that
+         * n64lle's host reads. Every capture already writes the mapping;
+         * Save commits the name and deadzone beside it, Rename pins a name
+         * the driver's reconnect must not overwrite, Delete forgets the
+         * section and releases the slots that pointed at it. */
+        if (cfg_n64) {
+            static bool s_n64_rename_open = false;
+            static char s_n64_rename_buf[64] = {};
+            static double s_n64_saved_until = 0.0;
+            const bool can_pad = m->s.player_src[p] == 2 &&
+                                 m->s.player_gamepad_guid[p][0];
+
+            ImGui::SameLine();
+            if (!can_pad) ImGui::BeginDisabled();
+            if (ImGui::Button(ui_text("Save Profile"))) {
+                launcher_binds_save_n64_gamepad(m, p + 1);
+                s_n64_saved_until = ImGui::GetTime() + 2.5;
+            }
+            if (ImGui::IsItemHovered() && can_pad)
+                ImGui::SetTooltip("Store this controller's mapping, name and "
+                                  "deadzone so it comes back next time it is "
+                                  "selected");
+            ImGui::SameLine();
+            if (ImGui::Button(ui_text("Rename Gamepad"))) {
+                std::snprintf(s_n64_rename_buf, sizeof(s_n64_rename_buf),
+                              "%s", m->player_pad_name[p]);
+                s_n64_rename_open = true;
+            }
+            {
+                const float del_w = px(130.0f);
+                const float right = ImGui::GetWindowContentRegionMax().x;
+                if (right - del_w > ImGui::GetCursorPosX())
+                    ImGui::SameLine(right - del_w);
+                else
+                    ImGui::SameLine();
+                if (ImGui::Button(ui_text("Delete Gamepad"), ImVec2(del_w, 0)))
+                    launcher_binds_delete_n64_gamepad(m, p + 1);
+                if (ImGui::IsItemHovered() && can_pad)
+                    ImGui::SetTooltip("Forget this controller's saved mapping, "
+                                      "name and deadzone.");
+            }
+            if (!can_pad) ImGui::EndDisabled();
+            if (ImGui::GetTime() < s_n64_saved_until)
+                ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
+
+            if (s_n64_rename_open) ImGui::OpenPopup(ui_text("Rename Gamepad"));
+            ImVec2 c3 = ImGui::GetMainViewport()->GetCenter();
+            ImGui::SetNextWindowPos(c3, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            if (ImGui::BeginPopupModal(ui_text("Rename Gamepad"), &s_n64_rename_open,
+                                       ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextUnformatted(ui_text("Display name for this gamepad:"));
+                ImGui::SetNextItemWidth(px(320));
+                const bool enter = ImGui::InputText(
+                    "##n64_rename_pad", s_n64_rename_buf,
+                    sizeof(s_n64_rename_buf),
+                    ImGuiInputTextFlags_EnterReturnsTrue);
+                ImGui::Spacing();
+                if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+                    s_n64_rename_open = false;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                const bool ok = s_n64_rename_buf[0] != '\0';
+                ImGui::BeginDisabled(!ok);
+                if ((ImGui::Button("OK", ImVec2(px(120), 0)) || enter) && ok) {
+                    launcher_binds_rename_n64_gamepad(m, p + 1, s_n64_rename_buf);
+                    s_n64_rename_open = false;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndDisabled();
+                ImGui::EndPopup();
+            }
+        }
+
         if (cfg_psx) {
             static bool s_rename_open = false;
             static char s_rename_buf[64] = {};
@@ -4566,9 +4955,24 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndPopup();
             }
         }
+        // Deadzone: a drag slider, not a stepper. The stepper moves in 5%
+        // steps, which is the wrong granularity for a stick whose resting
+        // noise a player is trying to just clear -- 8% and 12% are different
+        // controllers. Whole percent, because the runner consumes a raw stick
+        // radius derived from this and a fraction would not survive the trip.
         row_label("Deadzone", th);
-        int dz = 0; stepper("dz", m->s.deadzone[p], "%", &dz);
-        if (dz) launcher_model_deadzone_delta(m, p, dz);
+        {
+            int dz = m->s.deadzone[p];
+            // 0-50% is the whole useful range -- half a stick's travel is
+            // already absurd -- but a settings file carrying more than that
+            // gets the full scale rather than a handle pinned at the end
+            // showing a number the slider would silently rewrite.
+            const int hi = dz > 50 ? 100 : 50;
+            ImGui::SetNextItemWidth(px(240));
+            if (ImGui::SliderInt("##dz", &dz, 0, hi, "%d%%",
+                                 ImGuiSliderFlags_AlwaysClamp))
+                launcher_model_set_deadzone(m, p, dz);
+        }
     } end_panel();
 
     // Transfer Pak for THIS controller port (N64 tpak games), so it's reachable
@@ -4798,7 +5202,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 launcher_binds_reset_camera(m);
             if (m->camera_capturing)
                 ImGui::TextColored(
-                    col(th.warn), "Listening... (Esc cancels)");
+                    col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
         } end_panel();
     }
 
@@ -4965,7 +5369,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                          m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
                             ? spec.buttons[m->capture_btn].label : "?";
                     ImGui::TextColored(col(th.warn),
-                        "Map %s to %s (Esc cancels)%s",
+                        "Map %s to %s (Esc cancels, Backspace unbinds)%s",
                         m->capture_slot == 1 ? "an alternate key / mouse button"
                                              : "a key",
                         label,
@@ -5051,11 +5455,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                             ? spec.buttons[m->capture_btn].label : "?";
                     if (m->map_all_wait_release) {
                         ImGui::TextColored(col(th.warn),
-                            "Release Button (Esc cancels)%s",
+                            "Release Button (Esc cancels, Backspace unbinds)%s",
                             m->map_all_active ? " — Map All" : "");
                     } else {
                         ImGui::TextColored(col(th.warn),
-                            "Map an input to %s (Esc cancels)%s",
+                            "Map an input to %s (Esc cancels, Backspace unbinds)%s",
                             label,
                             m->map_all_active ? " — Map All" : "");
                     }
@@ -5335,7 +5739,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                    pad_src ? " on the controller" : "");
             }
         } else if (m->capturing) {
-            ImGui::TextColored(col(th.warn), "Listening... (Esc cancels)");
+            ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
         }
         } // !is_psx
     } end_panel();
@@ -5660,11 +6064,99 @@ static bool np_name_refused(LauncherModel* m, const char* name) {
     return np->name_rejected(np->ctx, name) != 0;
 }
 
+/* Signing in is optional, and this draws the whole of it.
+ *
+ * A build with no account callbacks, a lobby server whose operator never set
+ * Discord up, and a player who simply does not sign in are all ordinary cases:
+ * the section is not drawn, the name field below is the locally-typed player
+ * name, and everything behaves as it did before Discord existed. Guest is not
+ * a lesser state here -- it is the original one.
+ *
+ * Returns true when the player is signed in, which is what decides whether the
+ * name field edits a LOCAL name or the server-owned handle. */
+static bool draw_account_section(LauncherModel* m, const LauncherTheme& th) {
+    const auto* np = np_cb(m);
+    if (!np || !np->account_state || !np->account_available) return false;
+    /* The server answers 503 to a login start when its operator has not
+     * configured Discord. Offering a button that cannot work is worse than
+     * offering none. */
+    if (!np->account_available(np->ctx)) return false;
+
+    const int st = np->account_state(np->ctx);
+    const bool signed_in = st == RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN;
+
+    if (signed_in) {
+        const char* handle = np->account_handle ? np->account_handle(np->ctx) : "";
+        const char* uname = np->account_username ? np->account_username(np->ctx) : "";
+        char disp[128];
+        emoji_display(handle && handle[0] ? handle : "Signed in", disp, sizeof(disp));
+        ImGui::TextColored(col(th.text_muted), "Signed in as");
+        ImGui::SameLine(0, px(6));
+        ImGui::TextColored(col(th.good), "%s", disp);
+        if (uname && uname[0]) {
+            /* Discord display names are NOT unique, so the @handle is what
+             * tells two players with the same name apart. */
+            ImGui::SameLine(0, px(6));
+            ImGui::TextColored(col(th.text_muted), "@%s", uname);
+        }
+        if (ImGui::Button("Sign out", ImVec2(px(120), 0)) && np->account_sign_out) {
+            np->account_sign_out(np->ctx);
+            m->netplay_name_error[0] = '\0';
+        }
+    } else if (st == RECOMP_LAUNCHER_ACCOUNT_WAITING) {
+        ImGui::TextColored(col(th.accent2), "Waiting for Discord…");
+        ImGui::PushTextWrapPos(px(360));
+        ImGui::TextColored(col(th.text_muted),
+                           "Finish signing in on the page that opened in your "
+                           "browser, then come back here.");
+        ImGui::PopTextWrapPos();
+    } else {
+        ImGui::PushTextWrapPos(px(360));
+        ImGui::TextColored(col(th.text_muted),
+                           "Sign in with Discord so your name is yours across "
+                           "sessions. Optional — you can play as a guest.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Sign in with Discord", ImVec2(px(200), 0)) &&
+            np->account_login_begin) {
+            if (np->account_login_begin(np->ctx) != 0) {
+                const char* e = np->account_error ? np->account_error(np->ctx) : nullptr;
+                std::snprintf(m->netplay_name_error, sizeof(m->netplay_name_error),
+                              "%s", e && e[0] ? e : "Could not start the sign-in.");
+            } else {
+                m->netplay_name_error[0] = '\0';
+            }
+        }
+        if (st == RECOMP_LAUNCHER_ACCOUNT_FAILED && np->account_error) {
+            const char* e = np->account_error(np->ctx);
+            if (e && e[0]) {
+                ImGui::PushTextWrapPos(px(360));
+                ImGui::TextColored(col(th.warn), "%s", e);
+                ImGui::PopTextWrapPos();
+            }
+        }
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    return signed_in;
+}
+
+/* Defined with the other account helpers, below; used from here on. */
+static const char* np_effective_name(LauncherModel* m);
+static void np_open_name_modal(LauncherModel* m);
+
 void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
     if (m->netplay_name_modal_open) ImGui::OpenPopup("Player Name");
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Player Name", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool signed_in = draw_account_section(m, th);
+        /* Signed in, the field edits the handle the SERVER owns; as a guest it
+         * edits the local player name. The box is seeded by whoever opened
+         * this (np_open_name_modal), so it always starts on the right one. */
+        ImGui::TextColored(col(th.text_muted),
+                           signed_in ? "Display name (other players see this)"
+                                     : "Player name");
         ImGui::SetNextItemWidth(px(320));
         bool save = ImGui::InputText("##player_name", m->netplay_name_edit,
                                      sizeof(m->netplay_name_edit),
@@ -5680,9 +6172,16 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
         }
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
-            const bool required_name = m->s.netplay_player_name[0] == '\0';
+            /* "Do they still have no name?" must ask the EFFECTIVE name. A
+             * signed-in player's name is the account handle; s.netplay_player_name
+             * is only the guest/LAN fallback and is routinely empty for them. Asking
+             * the fallback made Cancel read as "no name yet, netplay is not usable"
+             * and bounce them to the dashboard — losing the lobby page behind the
+             * modal — even though they were signed in as someone. */
+            const char* effective = np_effective_name(m);
+            const bool required_name = !effective || effective[0] == '\0';
             std::snprintf(m->netplay_name_edit, sizeof(m->netplay_name_edit), "%s",
-                          m->s.netplay_player_name);
+                          effective ? effective : "");
             m->netplay_name_modal_open = false;
             m->netplay_name_error[0] = '\0';
             if (required_name) {
@@ -5705,6 +6204,36 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndPopup();
                 return;
             }
+            if (signed_in) {
+                /* The server owns an account's name, so this is a request, not
+                 * a local write: it can be refused for the same reason a typed
+                 * name is, and the player picks another. */
+                const auto* npa = np_cb(m);
+                if (npa && npa->account_set_handle &&
+                    npa->account_set_handle(npa->ctx, m->netplay_name_edit) != 0) {
+                    std::snprintf(m->netplay_name_error, sizeof(m->netplay_name_error),
+                                  "That name can't be used. Please pick another one.");
+                    ImGui::EndDisabled();
+                    ImGui::EndPopup();
+                    return;
+                }
+                /* Tell the lobby too. account_set_handle only changes what the
+                 * ACCOUNT server holds; the players-online list is lobby presence,
+                 * which keeps the name from the first hello until something
+                 * re-announces it. snes_lobby_set_display_name re-queues hello
+                 * exactly for this, but nothing on this path ever called it, so a
+                 * signed-in rename showed the new name in this dialog and the old
+                 * one in the list beside it until reconnect. The guest branch below
+                 * has always done this; only the signed-in early-return skipped it. */
+                if (npa && npa->set_player_name)
+                    npa->set_player_name(npa->ctx, m->netplay_name_edit);
+                m->netplay_name_modal_open = false;
+                m->netplay_name_error[0] = '\0';
+                ImGui::CloseCurrentPopup();
+                ImGui::EndDisabled();
+                ImGui::EndPopup();
+                return;
+            }
             char previous_default[96];
             std::snprintf(previous_default, sizeof(previous_default), "%s's Lobby",
                           m->s.netplay_player_name);
@@ -5714,7 +6243,7 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
                           m->netplay_name_edit);
             if (update_lobby_name)
                 std::snprintf(m->netplay_host_name, sizeof(m->netplay_host_name),
-                              "%s's Lobby", m->s.netplay_player_name);
+                              "%s's Lobby", np_effective_name(m));
             const auto* np = np_cb(m);
             if (np && np->set_player_name) np->set_player_name(np->ctx, m->s.netplay_player_name);
             m->netplay_name_modal_open = false;
@@ -5812,6 +6341,316 @@ static int np_clamp_host_max_players(LauncherModel* m) {
     if (n > sync_max) n = sync_max;
     m->netplay_host_max_players = n;
     return n;
+}
+
+/* Join the queue. A refusal lands in netplay_status the way every other
+ * lobby op's does -- the server's own line when it gave one (need_account,
+ * cooldown, mods_not_pooled), because it says more than "failed" can. */
+static void np_automatch_queue(LauncherModel* m, const char* ruleset_id) {
+    const auto* np = np_cb(m);
+    if (!np || !np->automatch_queue) return;
+    if (np->automatch_queue(np->ctx, ruleset_id ? ruleset_id : "") == 0) {
+        m->netplay_status[0] = '\0';
+        return;
+    }
+    const char* why = np->automatch_error ? np->automatch_error(np->ctx) : nullptr;
+    std::snprintf(m->netplay_status, sizeof(m->netplay_status), "%s",
+                  why && why[0] ? why : "Could not join the automatch queue.");
+}
+
+static int np_automatch_state(const RecompLauncherCNetplayCallbacks* np) {
+    return (np && np->automatch_state) ? np->automatch_state(np->ctx)
+                                       : RECOMP_LAUNCHER_AUTOMATCH_IDLE;
+}
+
+/* The accept gate, and the queue-type picker when a server offers more than
+ * one. Both live here rather than in the footer so they draw at root and are
+ * not clipped by the page's child windows. */
+void draw_netplay_automatch_modal(LauncherModel* m, const LauncherTheme& th) {
+    const auto* np = np_cb(m);
+    if (!np) return;
+
+    /* ---- queue-type picker ---------------------------------------------- */
+    if (m->netplay_automatch_picker_open) ImGui::OpenPopup("Automatch");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Automatch", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped(
+            "Pick a queue. The server owns these settings for the whole match "
+            "-- both players agreed to them by queueing here, so neither side "
+            "can change them once a pair is found.");
+        ImGui::Spacing();
+        const int n = np->automatch_ruleset_count ? np->automatch_ruleset_count(np->ctx) : 0;
+        for (int i = 0; i < n; ++i) {
+            RecompLauncherCNetplayRuleset r;
+            std::memset(&r, 0, sizeof(r));
+            if (!np->automatch_ruleset_get || !np->automatch_ruleset_get(np->ctx, i, &r))
+                continue;
+            ImGui::PushID(i);
+            if (ImGui::Button(r.label[0] ? r.label : r.id, ImVec2(px(280), px(34)))) {
+                np_automatch_queue(m, r.id);
+                m->netplay_automatch_picker_open = false;
+                ImGui::CloseCurrentPopup();
+            }
+            if (r.caps_summary[0])
+                ImGui::TextColored(col(th.text_muted), "%s", r.caps_summary);
+            if (r.game_version[0])
+                ImGui::TextColored(col(th.text_muted), "Release %s", r.game_version);
+            ImGui::PopID();
+            ImGui::Spacing();
+        }
+        if (n == 0)
+            ImGui::TextColored(col(th.warn), "This server has no automatch queues.");
+        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
+            m->netplay_automatch_picker_open = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    /* ---- accept gate ----------------------------------------------------
+     * Opened and closed by automatch_state, not by a click: a peer that
+     * declines, or a deadline that lapses, has to take this down on its own.
+     * The flag only stops OpenPopup being called every frame. */
+    const int st = np_automatch_state(np);
+    const bool gate = st == RECOMP_LAUNCHER_AUTOMATCH_FOUND ||
+                      st == RECOMP_LAUNCHER_AUTOMATCH_ACCEPTED;
+    if (gate && !m->netplay_automatch_gate_open) {
+        m->netplay_automatch_gate_open = true;
+        ImGui::OpenPopup("Match found");
+    }
+    if (!gate) m->netplay_automatch_gate_open = false;
+
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Match found", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (!gate) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        RecompLauncherCNetplayFound f;
+        std::memset(&f, 0, sizeof(f));
+        const bool have = np->automatch_found_get &&
+                          np->automatch_found_get(np->ctx, &f);
+
+        if (have) {
+            np_draw_country_flag(th, f.country);
+            ImGui::TextUnformatted(f.handle[0] ? f.handle : "Opponent");
+            /* Discord display names are not unique. The @handle is the
+             * disambiguator, which is the whole reason it is carried. */
+            if (f.username[0])
+                ImGui::TextColored(col(th.text_muted), "@%s", f.username);
+            ImGui::Spacing();
+            if (f.ruleset_label[0])
+                ImGui::TextColored(col(th.text_muted), "Queue: %s", f.ruleset_label);
+            /* An estimate, and labelled as one: it is each peer's round trip
+             * to the relay added together, not a measured peer-to-peer ping. */
+            if (f.est_rtt_ms >= 0)
+                ImGui::TextColored(col(th.text_muted), "Estimated latency: ~%d ms",
+                                   f.est_rtt_ms);
+            else
+                ImGui::TextColored(col(th.text_muted), "Estimated latency: unknown");
+        } else {
+            ImGui::TextUnformatted("An opponent is ready.");
+        }
+        ImGui::Spacing();
+
+        if (st == RECOMP_LAUNCHER_AUTOMATCH_ACCEPTED) {
+            ImGui::TextColored(col(th.accent2), "Waiting for %s to accept...",
+                               have && f.handle[0] ? f.handle : "the other player");
+            ImGui::Spacing();
+            ImGui::TextColored(col(th.text_muted),
+                               "If they decline you go back to the front of the "
+                               "queue, not the back.");
+        } else {
+            /* "Accepting in 15s" said the opposite of what happens. Letting
+             * this lapse DECLINES -- and takes the same cooldown strike a
+             * click on Decline does -- so a player who read it as "it will
+             * accept for me" and walked away was told the machine would do
+             * the one thing it will not. Say which way it falls. */
+            if (have)
+                ImGui::TextColored(f.accept_secs_left <= 5 ? col(th.warn) : col(th.text),
+                                   "Auto-declines in %ds", f.accept_secs_left);
+            ImGui::Spacing();
+            if (ImGui::Button("Accept", ImVec2(px(140), px(34)))) {
+                if (np->automatch_accept) np->automatch_accept(np->ctx, 1);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Decline", ImVec2(px(140), px(34)))) {
+                if (np->automatch_accept) np->automatch_accept(np->ctx, 0);
+            }
+            /* Say the cost before it is paid. Declining is allowed; being
+             * surprised by the cooldown afterwards is what is not. */
+            ImGui::TextColored(col(th.text_muted),
+                               "Declining or letting this lapse puts you on a "
+                               "short queue cooldown.");
+        }
+        ImGui::EndPopup();
+    }
+}
+
+/*
+ * The review list. Without it the only way to undo a block is editing a file
+ * by hand, which is not an undo -- and a moderation feature whose effects are
+ * invisible is one you stop trusting.
+ */
+void draw_netplay_moderation_modal(LauncherModel* m, const LauncherTheme& th) {
+    if (m->netplay_moderation_modal_open) ImGui::OpenPopup("Ignored & Blocked");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(520), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Ignored & Blocked", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    const int n = recomp_moderation_count();
+    if (n <= 0) {
+        ImGui::TextColored(col(th.text_muted),
+                           "Nobody is ignored or blocked.");
+        ImGui::TextColored(col(th.text_muted),
+                           "Right-click a player's name to add one.");
+    } else {
+        ImGui::TextColored(col(th.text_muted),
+                           "Names are only labels -- the list follows the "
+                           "account, so renaming does not escape it.");
+        ImGui::Spacing();
+        if (ImGui::BeginTable("##mod_list", 3,
+                              ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Player", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, px(90));
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, px(90));
+            for (int i = 0; i < n; ++i) {
+                char key[RECOMP_MOD_KEY_CAP], name[RECOMP_MOD_NAME_CAP];
+                RecompModLevel lvl = RECOMP_MOD_NONE;
+                if (!recomp_moderation_get(i, key, sizeof(key), name, sizeof(name), &lvl))
+                    continue;
+                ImGui::PushID(i);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                char disp[96];
+                emoji_display(name[0] ? name : "(unknown)", disp, sizeof(disp));
+                ImGui::TextUnformatted(disp);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextColored(col(lvl == RECOMP_MOD_BLOCKED ? th.warn : th.text_muted),
+                                   "%s", lvl == RECOMP_MOD_BLOCKED ? "Blocked" : "Ignored");
+                ImGui::TableSetColumnIndex(2);
+                if (ImGui::Button("Remove", ImVec2(px(84), 0))) {
+                    recomp_moderation_set(key, name, RECOMP_MOD_NONE);
+                    ImGui::PopID();
+                    break;   /* the list shifted under us */
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Close", ImVec2(px(120), 0))) {
+        m->netplay_moderation_modal_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+/* The report dialog. A category and an optional sentence -- and NOT the text
+ * of the line, which the server already has and is the only copy that can be
+ * trusted (docs/MODERATION.md, "The one design decision that matters"). */
+void draw_netplay_report_modal(LauncherModel* m, const LauncherTheme& th) {
+    static const struct { const char* id; const char* label; } kReasons[] = {
+        { RECOMP_LAUNCHER_REPORT_HARASSMENT,     "Harassment" },
+        { RECOMP_LAUNCHER_REPORT_HATE_SPEECH,    "Hate speech" },
+        { RECOMP_LAUNCHER_REPORT_THREATS,        "Threats" },
+        { RECOMP_LAUNCHER_REPORT_SEXUAL_CONTENT, "Sexual content" },
+        { RECOMP_LAUNCHER_REPORT_SPAM,           "Spam" },
+        { RECOMP_LAUNCHER_REPORT_CHEATING,       "Cheating claim" },
+        { RECOMP_LAUNCHER_REPORT_OTHER,          "Something else" },
+    };
+    const int kReasonCount = (int)(sizeof(kReasons) / sizeof(kReasons[0]));
+
+    if (m->netplay_report_modal_open) ImGui::OpenPopup("Report Message");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(520), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Report Message", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+
+    char who[96];
+    emoji_display(m->netplay_report_who, who, sizeof(who));
+    ImGui::TextColored(col(th.text_muted), "Reporting a message from");
+    ImGui::SameLine(0, px(5));
+    ImGui::TextUnformatted(who);
+    ImGui::Spacing();
+
+    if (m->netplay_report_reason < 0 || m->netplay_report_reason >= kReasonCount)
+        m->netplay_report_reason = 0;
+    ImGui::TextColored(col(th.text_muted), "Reason");
+    ImGui::SetNextItemWidth(px(260));
+    if (ImGui::BeginCombo("##report_reason",
+                          kReasons[m->netplay_report_reason].label)) {
+        for (int i = 0; i < kReasonCount; ++i)
+            if (ImGui::Selectable(kReasons[i].label,
+                                  i == m->netplay_report_reason))
+                m->netplay_report_reason = i;
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextColored(col(th.text_muted), "Anything to add (optional)");
+    ImGui::SetNextItemWidth(px(460));
+    ImGui::InputTextWithHint("##report_note",
+                             "What happened, in a sentence",
+                             m->netplay_report_note,
+                             sizeof(m->netplay_report_note));
+
+    ImGui::Spacing();
+    /* Said plainly, because a reporter who thinks they are attaching their own
+     * copy of the words will word the note as though the message were not
+     * already in the record. */
+    ImGui::PushTextWrapPos(px(460));
+    ImGui::TextColored(col(th.text_muted),
+                       "The server already has the message and records its own "
+                       "copy, along with a little of the conversation around "
+                       "it. Nothing is sent from here except the reason and "
+                       "your note.");
+    ImGui::PopTextWrapPos();
+
+    if (m->netplay_report_status[0]) {
+        ImGui::Spacing();
+        ImGui::TextColored(col(th.warn), "%s", m->netplay_report_status);
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
+        m->netplay_report_modal_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    const auto* np = np_cb(m);
+    const bool can_send = np && np->chat_report && m->netplay_report_mid[0];
+    ImGui::BeginDisabled(!can_send);
+    if (ImGui::Button("Send Report", ImVec2(px(150), 0))) {
+        const char* mids[1] = { m->netplay_report_mid };
+        const int rc = np->chat_report(np->ctx, mids, 1,
+                                       kReasons[m->netplay_report_reason].id,
+                                       m->netplay_report_note);
+        if (rc == 0) {
+            /* Handed over, which is not the same as accepted -- the server
+             * still refuses an expired line, a guest's line, your own, and
+             * anything over the rate limit. Saying "sent" rather than
+             * "received" is the honest half of that. */
+            m->netplay_report_modal_open = false;
+            ImGui::CloseCurrentPopup();
+            std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                          "Report sent to the moderation queue.");
+        } else {
+            std::snprintf(m->netplay_report_status,
+                          sizeof(m->netplay_report_status),
+                          "Could not send the report. Are you still connected?");
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::EndPopup();
 }
 
 void draw_netplay_direct_modal(LauncherModel* m, const LauncherTheme& th) {
@@ -6038,14 +6877,17 @@ void draw_netplay_host_modal(LauncherModel* m, const LauncherTheme& th) {
                                RECOMP_LAUNCHER_NETPLAY_MAX_SPECTATORS);
         }
         ImGui::Spacing();
-        bool lan = m->netplay_lan_only;
-        if (ImGui::Checkbox("LAN/Direct IP Only", &lan)) {
-            m->netplay_lan_only = lan;
-            /* Keep the enumerated interfaces + selection; only the enabled
-             * state changes. Refresh if we somehow have no list yet. */
-            if (m->netplay_local_address_count == 0)
-                np_refresh_host_ip(m);
-        }
+        /* No LAN/Direct-IP checkbox. The player already answered this question
+         * on the way in -- the mode page is literally "LAN / Direct IP" or
+         * "Online Netplay" -- and asking again inside the dialog offered them
+         * a third answer that contradicts the first. It defaulted to OFF in
+         * both modes, so hosting from the LAN page published an ONLINE room
+         * nobody on the LAN could see. open_host() sets the flag from the mode
+         * now, and this dialog only shows what follows from it.
+         *
+         * Spectators disappear with it in LAN mode, by the gate above: a
+         * peer-to-peer room has no server between the peers to drop a
+         * spectator's packets at, so the control was never honest there. */
         /* Advertised IP/Port: which NIC + port peers should use for LAN RTT /
          * Direct IP. Online still STUNs for a public endpoint; this pick is the
          * preferred LAN advertise / bind address. */
@@ -6424,7 +7266,19 @@ static void np_ingest_last_error(LauncherModel* m, const RecompLauncherCNetplayC
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Too many mods installed to announce to the lobby. "
                       "Remove some and try again.");
-    else
+    else if (std::strcmp(err, "cooldown") == 0) {
+        /* A matchmaking cooldown is not a lobby fault, and "Lobby error:
+         * cooldown" reads as one -- a bare protocol code in front of a player
+         * who declined a match thirty seconds ago and has no way to connect
+         * the two. The automatch layer has already phrased it WITH the
+         * server's own retry_secs in it, so prefer that over anything
+         * reconstructed here; the fallback only covers a server that sent no
+         * number. */
+        const char* am = np->automatch_error ? np->automatch_error(np->ctx) : "";
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Matchmaking: %s",
+                      (am && am[0]) ? am : "Cooldown For Declining");
+    } else
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Lobby error: %s", err);
     if (np->clear_last_error) np->clear_last_error(np->ctx);
@@ -6769,6 +7623,12 @@ static void draw_lobby_seat_row(LauncherModel* m,
         ImGui::TextUnformatted(occ ? row.display_name
                                    : view.spectator ? "Open seat" : "Open slot");
         if (!occ) ImGui::PopStyleColor();
+        /* The third surface: a seat in the room. Blocked players are NOT
+         * hidden here -- you are already in a lobby with them, and a seat
+         * that silently vanishes is a room you cannot reason about. Their
+         * chat still goes, and the menu is how you get here from a name you
+         * only meet once you are seated. */
+        if (occ && !row.is_local) np_player_menu(m, th, row.account, row.display_name);
         /* Seat 1 (P2) — by seat, not by who hosts: seat 0 is always the sim
          * authority whose cards are the match cards. */
         if (!view.spectator && wire == 1 && occ && np->memcard_offer_set &&
@@ -8021,11 +8881,22 @@ static void draw_chat_panel(LauncherModel* m, const LauncherTheme& th,
                 ImGui::TextColored(col(th.text_muted), "%s", sys_disp);
                 continue;
             }
+            /* An ignored player's line is not drawn at all -- not greyed,
+             * not collapsed to "message hidden". The point of ignoring
+             * somebody is to stop seeing them, and a placeholder per line is
+             * still a conversation you are being made to watch. `newest` is
+             * updated above regardless, so a hidden line does not keep
+             * re-scrolling the log. Never your own. */
+            if (!msg.is_local && recomp_moderation_is_ignored(msg.account))
+                continue;
             char from_disp[128];
             char text_disp[640];
             emoji_display(msg.from[0] ? msg.from : "?", from_disp, sizeof(from_disp));
             emoji_display(msg.text, text_disp, sizeof(text_disp));
             ImGui::TextColored(col(msg.is_local ? th.good : th.accent), "%s", from_disp);
+            /* Right-click the NAME on a chat line, same as in the player
+             * list: it is the thing you point at when you mean "them". */
+            if (!msg.is_local) np_player_menu(m, th, msg.account, msg.from, msg.mid);
             ImGui::SameLine(0, px(6));
             ImGui::TextUnformatted(text_disp);
         }
@@ -8411,6 +9282,9 @@ static void draw_netplay_online_panel(LauncherModel* m, const LauncherTheme& th,
         for (int i = 0; i < n; ++i) {
             RecompLauncherCNetplayOnlinePlayer p{};
             if (!np->online_get(np->ctx, i, &p)) continue;
+            /* Blocked players are not shown at all -- that is what block
+             * means here. Never the local row, whatever the file says. */
+            if (!p.is_local && recomp_moderation_is_blocked(p.account)) continue;
             ImGui::PushID(i);
             ImGui::TableNextRow(ImGuiTableRowFlags_None, row_h);
             ImGui::TableSetColumnIndex(0);
@@ -8425,6 +9299,13 @@ static void draw_netplay_online_panel(LauncherModel* m, const LauncherTheme& th,
                 ImGui::TextColored(col(th.text_muted), "(you)");
             } else {
                 ImGui::TextUnformatted(disp);
+                /* Right-click the NAME, which is the thing a player points at
+                 * when they mean "that person". Never on your own row. */
+                np_player_menu(m, th, p.account, p.display_name);
+                if (recomp_moderation_is_ignored(p.account)) {
+                    ImGui::SameLine(0, px(4));
+                    ImGui::TextColored(col(th.text_muted), "(ignored)");
+                }
             }
             ImGui::TableSetColumnIndex(1);
             table_row_vcenter(row_h, text_h);
@@ -8448,6 +9329,317 @@ static void draw_netplay_online_panel(LauncherModel* m, const LauncherTheme& th,
     ImGui::PopStyleVar();
 }
 
+/* ---- the netplay fork --------------------------------------------------
+ * NETPLAY lands here, not on the lobby browser. The two kinds of netplay
+ * want different things and always did -- a LAN player has no use for a
+ * lobby list, and an online player has no use for a direct-IP box -- but the
+ * page used to show both to everyone and let them work it out.
+ *
+ * Signing in belongs on THIS side of the fork: it is only needed for online
+ * play, so a LAN player is never asked for a Discord account, and neither is
+ * anyone whose server offers no logins. */
+
+/* The name other players actually see for THIS client -- and it is not one
+ * value.
+ *
+ * Online it is the handle the SERVER owns, tied to the Discord account and
+ * defaulted from the Discord name; that is what appears in the seat table,
+ * the players-online panel and every chat line, because the server publishes
+ * it rather than trusting whatever the client sent. On LAN there is no
+ * account and no server, so it is the locally typed player name.
+ *
+ * Keeping them apart is the point: signing in must not overwrite the name
+ * somebody uses for LAN games, and renaming for LAN must not rename the
+ * account. The online one is stored server-side rather than here, which is
+ * also what lets it follow the player to another device with their key. */
+static const char* np_effective_name(LauncherModel* m) {
+    const auto* np = np_cb(m);
+    if (np && np->account_state && np->account_handle &&
+        np->account_state(np->ctx) == RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN) {
+        const char* h = np->account_handle(np->ctx);
+        if (h && h[0]) return h;
+    }
+    return m->s.netplay_player_name;
+}
+
+/* Open the name editor seeded from whichever name it is about to edit. The
+ * openers used to stuff the LAN name in unconditionally, so a signed-in
+ * player opening it saw their LAN name over the top of their account. */
+static void np_open_name_modal(LauncherModel* m) {
+    std::snprintf(m->netplay_name_edit, sizeof(m->netplay_name_edit), "%s",
+                  np_effective_name(m));
+    m->netplay_name_error[0] = '\0';
+    m->netplay_name_modal_open = true;
+}
+
+/* True when the player is already signed in, so the sign-in page is skipped. */
+static bool np_account_signed_in(LauncherModel* m) {
+    const auto* np = np_cb(m);
+    return np && np->account_state &&
+           np->account_state(np->ctx) == RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN;
+}
+
+/* True when this build and this server can sign anybody in at all. When they
+ * cannot, ONLINE still works -- as a guest, exactly as it always has. */
+static bool np_account_offered(LauncherModel* m) {
+    const auto* np = np_cb(m);
+    return np && np->account_state && np->account_login_begin &&
+           np->account_available && np->account_available(np->ctx);
+}
+
+/* Go to the lobby browser, in the mode the player chose. */
+static void np_enter_netplay(LauncherModel* m, int mode) {
+    m->netplay_mode = mode;
+    m->netplay_list_fresh = false;
+    if (mode == 2) {
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Connecting to lobby server…");
+    } else {
+        m->netplay_status[0] = '\0';
+    }
+    launcher_model_set_view(m, LNG_VIEW_NETPLAY);
+}
+
+/* One big choice card. Sized to be hit with a controller, not just a mouse. */
+static bool np_mode_card(const LauncherTheme& th, const char* id, const char* title,
+                         const char* body, float w, bool accent) {
+    ImGui::PushID(id);
+    const float h = px(150);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const bool pressed = ImGui::InvisibleButton("##card", ImVec2(w, h));
+    const bool hot = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                      imcol(hot ? th.panel_hovered : th.panel), px(10));
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h),
+                imcol(hot ? (accent ? th.accent : th.focus_ring) : th.border),
+                px(10), 0, hot ? 2.0f : 1.0f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + px(20), p.y + px(18)));
+    ImGui::PushStyleColor(ImGuiCol_Text, col(accent ? th.accent2 : th.text));
+    ImGui::PushFont(nullptr);
+    ImGui::TextUnformatted(title);
+    ImGui::PopFont();
+    ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos(ImVec2(p.x + px(20), p.y + px(50)));
+    /* PushTextWrapPos takes a WINDOW-LOCAL x, and this was handing it a screen
+     * one (p.x is from GetCursorScreenPos). The two differ by the window's
+     * origin, so the wrap boundary sat that many pixels to the RIGHT of the
+     * card and the body text ran to the border and past it.
+     *
+     * Derived from the cursor instead, which is already local, so it cannot
+     * drift from where the text actually starts. The right inset is a little
+     * wider than the left on purpose: a wrap point is where a word may still
+     * begin, so the last glyph of a long word lands beyond it. */
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (w - px(20) - px(28)));
+    ImGui::TextColored(col(th.text_muted), "%s", body);
+    ImGui::PopTextWrapPos();
+    ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + px(14)));
+    ImGui::PopID();
+    return pressed;
+}
+
+void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
+    /* Pump here too, not only on the browser page. The backend does its own
+     * lazy setup from the pump -- parsing the lobby host, loading a stored
+     * device key, redeeming it -- and this page asks it questions ("is
+     * sign-in offered?", "are we signed in?") before the browser page has
+     * ever been drawn. Without this the first visit answered from an
+     * uninitialised backend. */
+    {
+        const auto* npp = np_cb(m);
+        if (npp && npp->pump) npp->pump(npp->ctx);
+    }
+    const float avail_w = ImGui::GetContentRegionAvail().x;
+    const float card_w = avail_w > px(900) ? px(420) : (avail_w - px(30)) * 0.5f;
+
+    ImGui::TextColored(col(th.accent2), "NETPLAY");
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(avail_w > px(760) ? px(760) : avail_w);
+    ImGui::TextColored(col(th.text_muted),
+                       "How do you want to play? You can change this any time "
+                       "by coming back here.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0, px(18)));
+
+    const ImVec2 row = ImGui::GetCursorScreenPos();
+    if (np_mode_card(th, "lan", "LAN / Direct IP",
+                     "Play with someone on your network, or connect straight to "
+                     "an address they give you. No account, no lobby server.",
+                     card_w, false)) {
+        np_enter_netplay(m, 1);
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(row.x + card_w + px(24), row.y));
+    const bool offered = np_account_offered(m);
+    const auto* npa = np_cb(m);
+    const int acct = (npa && npa->account_state) ? npa->account_state(npa->ctx)
+                                                 : RECOMP_LAUNCHER_ACCOUNT_GUEST;
+
+    /* Hold ONLINE until the quiet sign-in has actually answered.
+     *
+     * The pump above redeems a stored netplay_secret in the background, and
+     * that takes a round-trip. Clicking during it read as "not signed in" and
+     * sent the player to the Discord sign-in page -- to sign in again, on a
+     * machine that already had a valid credential and was a moment away from
+     * using it. WAITING is exactly "an answer is coming"; GUEST after the
+     * pump means there was no secret to redeem, and that needs no wait.
+     *
+     * Bounded, because an unanswerable network must not lock anyone out of
+     * netplay entirely. Five seconds is generous for one HTTP round-trip with
+     * nobody in the loop -- unlike the sign-in page's ten, which is waiting on
+     * a human in a browser. After that the card unlocks and says the sign-in
+     * is still going; the player can go on as a guest, and if it lands later
+     * the lobby picks up the name from the pump anyway. */
+    static double quiet_signin_since = 0.0;
+    const double now_t = ImGui::GetTime();
+    const bool awaiting = offered && acct == RECOMP_LAUNCHER_ACCOUNT_WAITING;
+    if (!awaiting) quiet_signin_since = 0.0;
+    else if (quiet_signin_since <= 0.0) quiet_signin_since = now_t;
+    const bool stalled = awaiting && (now_t - quiet_signin_since > 5.0);
+    const bool hold_online = awaiting && !stalled;
+
+    const char* online_body =
+        !offered ? "Find players on the lobby server. This server does not "
+                   "offer sign-in, so you will play as a guest."
+        : hold_online ? "Checking your saved sign-in\u2026"
+        : "Find players on the lobby server. Sign in with Discord "
+          "so your name is yours across sessions.";
+
+    ImGui::BeginDisabled(hold_online);
+    const bool online_hit = np_mode_card(th, "online", "Online Netplay",
+                                         online_body, card_w, true);
+    ImGui::EndDisabled();
+    if (online_hit) {
+        /* Skip the sign-in page when there is nothing to sign in to, or when
+         * this machine is already signed in -- which is the normal case after
+         * the first time, because the stored device key is redeemed silently
+         * at startup. */
+        if (!offered || np_account_signed_in(m)) {
+            np_enter_netplay(m, 2);
+        } else {
+            launcher_model_set_view(m, LNG_VIEW_NETPLAY_SIGNIN);
+        }
+    }
+
+    /* Say which of the three it is, rather than only the happy one. A player
+     * who is a guest because the redemption FAILED was previously told
+     * nothing at all, and had no way to tell that apart from never having
+     * signed in. */
+    ImGui::SetCursorScreenPos(ImVec2(row.x, row.y + px(190)));
+    if (offered && acct == RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN) {
+        const char* h = npa->account_handle ? npa->account_handle(npa->ctx) : "";
+        char disp[128];
+        emoji_display(h && h[0] ? h : "", disp, sizeof(disp));
+        ImGui::TextColored(col(th.text_muted), "Signed in as");
+        ImGui::SameLine(0, px(6));
+        ImGui::TextColored(col(th.good), "%s", disp);
+    } else if (awaiting) {
+        ImGui::TextColored(col(th.text_muted),
+                           stalled ? "Still checking your saved sign-in \u2014 you can "
+                                     "continue as a guest."
+                                   : "Checking your saved sign-in\u2026");
+    } else if (offered && acct == RECOMP_LAUNCHER_ACCOUNT_FAILED) {
+        const char* err = npa->account_error ? npa->account_error(npa->ctx) : "";
+        ImGui::PushTextWrapPos(px(760));
+        ImGui::TextColored(col(th.warn), "Not signed in%s%s",
+                           (err && err[0]) ? " \u2014 " : "",
+                           (err && err[0]) ? err : "");
+        ImGui::PopTextWrapPos();
+    }
+}
+
+/* The sign-in page. Only ever reached on the way to online play. */
+/* When the current "waiting for Discord" began, so the page can offer a way
+ * out if it drags. Zero means "not waiting". */
+static double s_signin_waiting_since = 0.0;
+
+void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
+    const auto* np = np_cb(m);
+    /* Same reason as the chooser, plus this page needs the backend live to
+     * notice the sign-in completing. */
+    if (np && np->pump) np->pump(np->ctx);
+    const int st = (np && np->account_state) ? np->account_state(np->ctx)
+                                             : RECOMP_LAUNCHER_ACCOUNT_GUEST;
+    const float wrap = px(640);
+
+    /* Signed in -- by this page, or by the device key redeeming in the
+     * background while the player was reading it. Either way there is nothing
+     * left to do here. */
+    if (st == RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN) {
+        np_enter_netplay(m, 2);
+        return;
+    }
+
+    ImGui::TextColored(col(th.accent2), "SIGN IN");
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(wrap);
+    ImGui::TextColored(col(th.text),
+                       "Signing in with Discord gives you a name that is yours "
+                       "across sessions and devices, on this server and any "
+                       "other that uses it.");
+    ImGui::Spacing();
+    ImGui::TextColored(col(th.text_muted),
+                       "Online play on this server needs an account. LAN and "
+                       "Direct IP do not — go back and pick those to play "
+                       "without signing in.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0, px(16)));
+
+    if (st == RECOMP_LAUNCHER_ACCOUNT_WAITING) {
+        /* Offer a way out after a few seconds, but keep waiting underneath:
+         * a person needs longer than this to actually sign in, so the button
+         * is an escape from a login that went wrong, not a deadline. */
+        const double now = ImGui::GetTime();
+        if (s_signin_waiting_since <= 0.0) s_signin_waiting_since = now;
+        const bool stalled = now - s_signin_waiting_since > 10.0;
+
+        ImGui::TextColored(col(th.accent2), "Waiting for Discord…");
+        ImGui::PushTextWrapPos(wrap);
+        ImGui::TextColored(col(th.text_muted),
+                           "Finish signing in on the page that opened in your "
+                           "browser. This screen will move on by itself.");
+        if (stalled) {
+            ImGui::Spacing();
+            ImGui::TextColored(col(th.text_muted),
+                               "Still waiting. If the browser never opened, or "
+                               "you closed the page, start again:");
+        }
+        ImGui::PopTextWrapPos();
+        if (stalled) {
+            ImGui::Spacing();
+            if (ImGui::Button("Retry Discord Sign In", ImVec2(px(240), px(36))) &&
+                np && np->account_login_begin) {
+                s_signin_waiting_since = now; /* the new attempt gets its own clock */
+                np->account_login_begin(np->ctx);
+            }
+        }
+    } else {
+        /* Not waiting: reset the clock so the next attempt starts fresh. */
+        s_signin_waiting_since = 0.0;
+        if (ImGui::Button("Sign in with Discord", ImVec2(px(240), px(40))) &&
+            np && np->account_login_begin) {
+            np->account_login_begin(np->ctx);
+        }
+        if (st == RECOMP_LAUNCHER_ACCOUNT_FAILED && np && np->account_error) {
+            const char* e = np->account_error(np->ctx);
+            if (e && e[0]) {
+                ImGui::Spacing();
+                ImGui::PushTextWrapPos(wrap);
+                ImGui::TextColored(col(th.warn), "%s", e);
+                ImGui::PopTextWrapPos();
+            }
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0, px(20)));
+    /* No "continue as guest". Online play means signing in, when this server
+     * offers sign-in at all -- a server with no Discord configured never
+     * reaches this page, because the chooser sends it straight through. Back
+     * is the way out, and it leads to LAN, which needs no account. */
+    if (ImGui::Button("Back", ImVec2(px(120), px(34))))
+        launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
+}
+
 void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     const auto* np = np_cb(m);
     if (!np) return;
@@ -8457,9 +9649,13 @@ void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
         np_load_network_settings(m);
         np_refresh_host_ip(m);
     }
-    if (!m->s.netplay_player_name[0] && !m->netplay_name_modal_open && !m->netplay_name_prompted) {
+    /* Only nag for a name when there is genuinely none. A signed-in player
+     * already has one -- the server's -- so asking them to invent a second is
+     * the bug this used to cause. */
+    if (!np_effective_name(m)[0] && !m->netplay_name_modal_open &&
+        !m->netplay_name_prompted) {
         m->netplay_name_prompted = true;
-        m->netplay_name_modal_open = true;
+        np_open_name_modal(m);
     }
     if (!m->netplay_list_fresh)
         np_refresh_lobby_list(m);
@@ -8483,7 +9679,12 @@ void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     /* Two columns when the backend reports who is online: the lobby table
      * on the left, the players panel on the right. A LAN-only backend has
      * no presence and keeps the full width. */
-    const bool has_online = np->online_count && np->online_get;
+    /* A LAN player picked LAN. The lobby server's half of this page -- the
+     * players-online panel and the per-game server chat -- is about people on
+     * a server they are not using, so it is not drawn. The lobby list, Host
+     * Lobby and Join Direct stay: those are how a LAN room is made. */
+    const bool lan_mode = m->netplay_mode == 1;
+    const bool has_online = !lan_mode && np->online_count && np->online_get;
     const float avail_w = ImGui::GetContentRegionAvail().x;
     const float side_gap = px(20);
     const float side_w = px(300);
@@ -8491,7 +9692,7 @@ void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     const float list_w = two_col ? avail_w - side_w - side_gap : avail_w;
     /* The per-game server chat takes a band across the bottom; the list and
      * the players panel share what is above it. */
-    const bool has_schat = np_server_chat_available(np);
+    const bool has_schat = !lan_mode && np_server_chat_available(np);
     const float schat_h = px(230);
     const float schat_gap = px(10);
     const float avail_h = ImGui::GetContentRegionAvail().y;
@@ -8510,6 +9711,17 @@ void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     if (m->netplay_status[0])
         ImGui::TextColored(col(th.warn), "%s", m->netplay_status);
     ImGui::Spacing();
+    np_push_blocks(m);
+    /* Tell the backend which fork the player took before asking it anything.
+     * It merges its LAN registry and beacon rows with the server's list and
+     * has no other way to know: a LAN player was being shown online rooms
+     * they had no connection for, and an online player was shown LAN rooms
+     * from their own machine. */
+    if (np->list_scope_set) {
+        np->list_scope_set(np->ctx,
+                           m->netplay_mode == 1 ? RECOMP_LAUNCHER_LIST_SCOPE_LAN
+                                                : RECOMP_LAUNCHER_LIST_SCOPE_ONLINE);
+    }
     int rows = np->list_count ? np->list_count(np->ctx) : 0;
     /* Slim rows: a browser is a list to scan, not a form. The Join button
      * sets the floor. */
@@ -9834,6 +11046,79 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         return;
     }
     if (m->view == LNG_VIEW_NETPLAY) {
+        /* Same split as draw_netplay's page body (netplay_mode: 1 = LAN /
+         * Direct IP, 2 = online). Join Direct is how a LAN room is reached
+         * and stays there; online replaces it with Automatch, which is the
+         * online-only way to reach a room without picking one. */
+        const bool lan_mode = m->netplay_mode == 1;
+        const auto* np_am = np_cb(m);
+        /* Two different "no", and the button must not confuse them.
+         *
+         * A NULL automatch_available means THIS BUILD has no automatch
+         * backend wired -- the launcher never asks the server anything, and
+         * would answer the same way against a server running the feature
+         * perfectly. Reporting that as "the server does not offer automatch"
+         * sends whoever reads it to go and check a server that was never
+         * consulted. A present callback answering 0 is the real server
+         * answer: reachable, asked, and it has no rulesets loaded for this
+         * title. */
+        const bool am_wired = np_am && np_am->automatch_available != NULL;
+        const bool automatch_ok = am_wired &&
+                                  np_am->automatch_available(np_am->ctx);
+        const int am_state = np_automatch_state(np_am);
+        const bool am_queued = am_state == RECOMP_LAUNCHER_AUTOMATCH_QUEUED;
+        /* While the accept gate is up the modal owns the interaction; the
+         * footer must not offer a second way to leave underneath it. */
+        const bool am_gated = am_state == RECOMP_LAUNCHER_AUTOMATCH_FOUND ||
+                              am_state == RECOMP_LAUNCHER_AUTOMATCH_ACCEPTED;
+        const int am_pool = (np_am && np_am->automatch_pool)
+                                ? np_am->automatch_pool(np_am->ctx) : 0;
+        const int am_secs = (np_am && np_am->automatch_queued_secs)
+                                ? np_am->automatch_queued_secs(np_am->ctx) : 0;
+        /* The label owns text the launcher itself writes, so the ⚡ goes
+         * through the atlas the same way a chat line's emoji does -- without
+         * this it draws as the merged OpenMoji outline. The emoji is kept out
+         * of the translated string so a translator carries words, not a
+         * codepoint. */
+        char automatch_label[80];
+        {
+            char raw[64];
+            if (am_queued) {
+                /* The elapsed time IS the button: a queue with no visible
+                 * clock reads as a hang, and this is also the only control
+                 * that leaves the queue. */
+                std::snprintf(raw, sizeof(raw), "⚡ %s %d:%02d", ui_text("Queued"),
+                              am_secs / 60, am_secs % 60);
+            } else {
+                std::snprintf(raw, sizeof(raw), "⚡ %s", ui_text("Automatch"));
+            }
+            emoji_display(raw, automatch_label, sizeof(automatch_label));
+        }
+        /* Queued: leave. Otherwise pick a queue when there is a choice, and
+         * skip straight past the picker when there is only one. */
+        auto automatch_click = [&]() {
+            if (!np_am) return;
+            if (am_queued) {
+                if (np_am->automatch_cancel) np_am->automatch_cancel(np_am->ctx);
+                return;
+            }
+            const int n = np_am->automatch_ruleset_count
+                              ? np_am->automatch_ruleset_count(np_am->ctx) : 0;
+            if (n > 1) {
+                m->netplay_automatch_picker_open = true;
+                return;
+            }
+            np_automatch_queue(m, "");
+        };
+        auto automatch_tip = [&]() {
+            if (!am_wired)    return "This build has no automatch support yet";
+            if (!automatch_ok) return "This lobby server does not offer automatch";
+            if (am_gated)     return "Answer the match offer to continue";
+            if (am_queued)    return am_pool > 0
+                                  ? "Others are waiting in this queue - click to leave"
+                                  : "Nobody else is waiting yet - click to leave";
+            return "Queue for a match against anyone else waiting";
+        };
         const float action_w = px(190.0f);
         const float settings_w = px(170.0f);
         const float refresh_w = px(120.0f);
@@ -9850,16 +11135,20 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                 std::snprintf(m->netplay_status, sizeof(m->netplay_status), "%s", why);
                 return;
             }
-            if (!m->s.netplay_player_name[0]) {
-                m->netplay_name_modal_open = true;
+            if (!np_effective_name(m)[0]) {
+                np_open_name_modal(m);
                 return;
             }
-            np_connect_and_list(m);
-            m->netplay_lan_only = false;
+            /* The mode IS the answer: LAN hosts a LAN room, online hosts an
+             * online one. Connecting is online-only -- a LAN host dialling the
+             * lobby server would advertise the same room twice, once in the
+             * file registry and once on the server. */
+            m->netplay_lan_only = (m->netplay_mode == 1);
+            if (!m->netplay_lan_only) np_connect_and_list(m);
             np_refresh_host_ip(m);
             if (!m->netplay_host_name[0]) {
                 std::snprintf(m->netplay_host_name, sizeof(m->netplay_host_name),
-                              "%s's Lobby", m->s.netplay_player_name);
+                              "%s's Lobby", np_effective_name(m));
             }
             m->netplay_host_password[0] = '\0';
             m->netplay_host_modal_open = true;
@@ -9874,7 +11163,14 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 
         if (!compact) {
             ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y));
-            if (ImGui::Button(ui_text("Host Lobby"), ImVec2(action_w, play_h)))
+            /* Host Lobby and Automatch carry the CTA treatment: on this page
+             * they ARE the two ways to get into a game, and drawing them in
+             * the same neutral grey as Refresh made the screen read as four
+             * equal utilities with no obvious way in. Network Settings and
+             * Refresh stay neutral, which is what gives the other two their
+             * weight -- accenting everything would say nothing. */
+            if (neon_cta("##np_host", ui_text("Host Lobby"),
+                         ImVec2(action_w, play_h), true, /*arrow*/false))
                 open_host();
             ImGui::SetCursorScreenPos(ImVec2(origin.x + action_w + gap, cta_y));
             if (ImGui::Button(ui_text("Network Settings"), ImVec2(settings_w, play_h)))
@@ -9886,8 +11182,38 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Reload server lobbies and rescan LAN/Direct IP");
             ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - action_w, cta_y));
-            if (ImGui::Button(ui_text("Join Direct"), ImVec2(action_w, play_h)))
-                m->netplay_direct_modal_open = true;
+            if (lan_mode) {
+                if (ImGui::Button(ui_text("Join Direct"), ImVec2(action_w, play_h)))
+                    m->netplay_direct_modal_open = true;
+            } else {
+                if (neon_cta("##np_automatch", automatch_label,
+                             ImVec2(action_w, play_h),
+                             automatch_ok && !am_gated, /*arrow*/false))
+                    automatch_click();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", automatch_tip());
+                /* The population sits under the button rather than in the
+                 * tooltip: it is the number that says whether waiting is
+                 * worth it, and a tooltip is not where you look for that. */
+                if (am_queued) {
+                    /* Painted straight onto the draw list rather than placed
+                     * as a widget. The footer is a fixed-height band whose
+                     * controls are positioned by hand, and an ImGui item below
+                     * the button still counts toward the window's content
+                     * size -- so this one line pushed the content past the
+                     * band and the whole page grew a scrollbar for the sake of
+                     * eight characters. There is room to draw it; there was no
+                     * room to lay it out. */
+                    char pool_text[32];
+                    std::snprintf(pool_text, sizeof(pool_text), "%d waiting",
+                                  am_pool);
+                    const float tw = ImGui::CalcTextSize(pool_text).x;
+                    ImGui::GetWindowDrawList()->AddText(
+                        ImVec2(origin.x + fullw - action_w + (action_w - tw) * 0.5f,
+                               cta_y + play_h + px(2)),
+                        imcol(th.text_muted), pool_text);
+                }
+            }
         } else {
             /* Narrow window: collapse into a scrollable Actions menu. */
             const float menu_btn_w = px(160.0f);
@@ -9912,8 +11238,16 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
                             "Reload server lobbies and rescan LAN/Direct IP");
-                    if (ImGui::Selectable(ui_text("Join Direct"))) {
-                        m->netplay_direct_modal_open = true;
+                    if (lan_mode) {
+                        if (ImGui::Selectable(ui_text("Join Direct"))) {
+                            m->netplay_direct_modal_open = true;
+                        }
+                    } else {
+                        ImGui::BeginDisabled(!automatch_ok || am_gated);
+                        if (ImGui::Selectable(automatch_label)) automatch_click();
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                            ImGui::SetTooltip("%s", automatch_tip());
                     }
                 }
                 ImGui::EndChild();
@@ -9930,9 +11264,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     // game by accident — the launch is the activate button (A/Cross) on the
     // focused PLAY, or a mouse click. SetKeyboardFocusHere() targets the NEXT
     // submitted item — PLAY's button.
-    if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false) ||
-        ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+    // Not while the player is typing, and not over an open modal --
+    // rui_nav_rehome_to_play() carries the why.
+    if (rui_nav_rehome_to_play())
         ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
     if (m->netplay_supported &&
@@ -9941,14 +11275,18 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         const float net_w = px(170.0f);
         ImGui::SetCursorScreenPos(ImVec2(play_x - net_w - px(12.0f), cta_y));
         if (ImGui::Button(ui_text("NETPLAY"), ImVec2(net_w, play_h))) {
-            /* Open the page immediately; connect/list runs on first draw
-             * (and continues off-thread) so Windows DNS/TCP never freezes UI. */
-            m->netplay_list_fresh = false;
-            std::snprintf(m->netplay_status, sizeof(m->netplay_status),
-                          "Connecting to lobby server…");
-            launcher_model_set_view(m, LNG_VIEW_NETPLAY);
+            /* The fork first. Connecting used to start here, which meant a LAN
+             * player dialled a lobby server they were never going to use --
+             * np_enter_netplay does it now, and only for online. */
+            launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
         }
     }
+    /* The netplay MODE picker is a fork in the road, not a launch screen: the
+     * player is answering "LAN or online?", and a PLAY button there offers to
+     * start the game instead of answering it -- which is both the wrong action
+     * and the most prominent thing on the page. Every other view keeps it. */
+    if (m->view == LNG_VIEW_NETPLAY_MODE) return;
+
     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
@@ -10485,9 +11823,12 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
             game);
         ImGui::PopTextWrapPos();
     } else if (media_confirm) {
+        // "Confirm disc" on a cartridge console asked a SNES player to confirm
+        // a disc. The profile's rom_noun names the medium ("ROM", "Disc").
+        const char* medium = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
         ImGui::TextColored(col(th.accent),
-                           m->has_bios ? "Confirm BIOS and disc"
-                                       : "Confirm disc");
+                           m->has_bios ? "Confirm BIOS and %s" : "Confirm %s",
+                           medium);
         ImGui::PushTextWrapPos(wrap_x);
         if (plat == SETUP_PLAT_PSX && m->has_bios) {
             ImGui::TextColored(col(th.text_muted),
@@ -10844,10 +12185,13 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         ImGui::SameLine();
     } else if (!m->prepare_required_before_continue) {
         const bool ready = launcher_model_can_finish_setup(m);
-        const char* continue_lbl =
-            media_confirm
-                ? (m->has_bios ? "Confirm BIOS and disc" : "Confirm disc")
-                : "Continue to launcher";
+        char confirm_lbl[64];
+        {
+            const char* medium = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+            snprintf(confirm_lbl, sizeof(confirm_lbl),
+                     m->has_bios ? "Confirm BIOS and %s" : "Confirm %s", medium);
+        }
+        const char* continue_lbl = media_confirm ? confirm_lbl : "Continue to launcher";
         if (!ready) ImGui::BeginDisabled();
         if (ImGui::Button(continue_lbl, ImVec2(px(220), px(34)))) {
             launcher_model_finish_setup(m);
@@ -10892,7 +12236,7 @@ static const char* generate_disabled_reason(const LauncherModel* m) {
         m->prepare_with_progress_cb != nullptr || m->prepare_disc_cb != nullptr;
     if (!has_prep) {
         return "Generate is unavailable (project/SDK not found).\n"
-               "Launch from RetComM, or run the game from its source tree "
+               "Launch from Retro Launcher, or run the game from its source tree "
                "(src/current).";
     }
     if (!m->rom_present || !m->rom_full[0])
@@ -11223,16 +12567,17 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         } else {
             const float w = px(110.0f);
             const float name_w = px(170.0f);
-            if (m->view == LNG_VIEW_NETPLAY && m->netplay_supported) {
+            if ((m->view == LNG_VIEW_NETPLAY ||
+                 m->view == LNG_VIEW_NETPLAY_MODE) && m->netplay_supported) {
                 ImGui::SetCursorPos(ImVec2(right - w - name_w - gap, y));
-                const char* player_label = m->s.netplay_player_name[0]
-                    ? m->s.netplay_player_name : ui_text("Set player name");
-                if (ImGui::Button(player_label, ImVec2(name_w, px(34)))) {
-                    std::snprintf(m->netplay_name_edit,
-                                  sizeof(m->netplay_name_edit), "%s",
-                                  m->s.netplay_player_name);
-                    m->netplay_name_modal_open = true;
-                }
+                /* Signed in, this is the account's handle, not the LAN name:
+                 * it is what other players are actually seeing. */
+                const char* eff = np_effective_name(m);
+                char lbl[96];
+                emoji_display(eff && eff[0] ? eff : ui_text("Set player name"),
+                              lbl, sizeof(lbl));
+                if (ImGui::Button(lbl, ImVec2(name_w, px(34))))
+                    np_open_name_modal(m);
             }
             if (m->view == LNG_VIEW_LOBBY) {
                 /* No Back: you are seated, and the only way out of a seat is
@@ -11249,8 +12594,16 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
                 (void)w;
             } else {
                 ImGui::SetCursorPos(ImVec2(right - w, y));
-                if (ImGui::Button(ui_text("< Back"), ImVec2(w, px(34))))
-                    launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
+                if (ImGui::Button(ui_text("< Back"), ImVec2(w, px(34)))) {
+                    /* Retrace the netplay fork rather than dropping to the
+                     * dashboard from the middle of it: the browser and the
+                     * sign-in page were both reached through the chooser. */
+                    if (m->view == LNG_VIEW_NETPLAY ||
+                        m->view == LNG_VIEW_NETPLAY_SIGNIN)
+                        launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
+                    else
+                        launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
+                }
             }
         }
         // Absolute placement prevents three dashboard buttons from mutating
@@ -11282,6 +12635,8 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         case LNG_VIEW_SETTINGS:   draw_settings(m, th);             break;
         case LNG_VIEW_CONTROLLER: draw_controller(m, th);           break;
         case LNG_VIEW_NETPLAY:    draw_netplay(m, th);              break;
+        case LNG_VIEW_NETPLAY_MODE:   draw_netplay_mode_page(m, th);   break;
+        case LNG_VIEW_NETPLAY_SIGNIN: draw_netplay_signin_page(m, th); break;
         case LNG_VIEW_MODS:       draw_mods(m, th);                 break;
         case LNG_VIEW_ASSIST_TOOLS: draw_assist_tools(m, th);        break;
         case LNG_VIEW_CREDITS:      draw_credits(m, th);             break;
@@ -11302,6 +12657,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     draw_netplay_host_modal(m, th);
     draw_netplay_password_modal(m, th);
     draw_netplay_direct_modal(m, th);
+    draw_netplay_automatch_modal(m, th);
+    draw_netplay_moderation_modal(m, th);
+    draw_netplay_report_modal(m, th);
     draw_restore_defaults_modal(m);
     // Transfer Pak config modal (N64): opened by any tile, dashboard or
     // Controller page. Drawn at root so it isn't clipped by a card child.
@@ -11341,6 +12699,51 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         return true;
     }
 
+    /* Backspace UNBINDS the input being captured -- every capture kind, so a
+     * mapping button never needs a separate clear gesture. Each branch is the
+     * same commit path a real press takes, handed the store's own "nothing"
+     * value: scancode 0 for a keyboard slot, LNG_PADBIND_NONE for a pad slot,
+     * keycode 0 for a hotkey. Inside a Map All / Auto Map run this clears the
+     * current input and moves to the next, which is how you skip one. */
+    if (ev.type == SDL_EVENT_KEY_DOWN && LNG_EVKEY(ev) == SDLK_BACKSPACE &&
+        !LNG_EVKEYREPEAT(ev)) {
+        if (m->camera_capturing) {
+            launcher_binds_set_camera(m, m->capture_camera, 0);
+            launcher_model_cancel_camera_capture(m);
+            return true;
+        }
+        if (m->hk_capturing) {
+            launcher_binds_set_hotkey(m, m->capture_hk, 0, 0);
+            launcher_model_cancel_hk_capture(m);
+            return true;
+        }
+        if (m->capturing && m->capture_pad) {
+            if (m->capture_assist)
+                launcher_model_set_captured_pad(m, 0);
+            else
+                launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
+                                              LNG_PADBIND_NONE, 0, 0);
+        } else if (m->capturing) {
+            const SystemProfile* prof = (const SystemProfile*)m->profile;
+            if (m->capture_assist)
+                launcher_model_set_captured_key(m, 0);
+            else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
+                     !strcmp(prof->id, "psx"))
+                launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
+                                               m->capture_slot, 0);
+            else if (prof && prof->controller.binds_per_input >= 2)
+                launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn,
+                                         m->capture_slot, RUI_N64_FIELD_NONE, -1);
+            else
+                launcher_binds_set_button(m, m->cfg_player + 1, m->capture_btn, 0);
+        } else {
+            return true;
+        }
+        if (m->map_all_active) launcher_model_map_all_advance(m);
+        else                   launcher_model_cancel_capture(m);
+        return true;
+    }
+
     if (m->camera_capturing) {
         if (ev.type != SDL_EVENT_KEY_DOWN) return true;
         launcher_binds_set_camera(
@@ -11356,13 +12759,6 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     // the player's selected Input source device.
     if (m->capturing && m->capture_pad) {
         if (m->settings_bindings && m->capture_assist) {
-            // Backspace while listening clears the shortcut (0 = unbound);
-            // there is no other way to remove a host shortcut from the UI.
-            if (ev.type == SDL_EVENT_KEY_DOWN && LNG_EVKEY(ev) == SDLK_BACKSPACE) {
-                launcher_model_set_captured_pad(m, 0);
-                launcher_model_cancel_capture(m);
-                return true;
-            }
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int button = (int)LNG_EVGBTN(ev);
                 uint32_t mask = launcher_input_gamepad_button_mask(
@@ -11574,8 +12970,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // (capture_slot is always 0 for them).
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         if (m->settings_bindings && m->capture_assist)
-            launcher_model_set_captured_key(
-                m, LNG_EVKEY(ev) == SDLK_BACKSPACE ? 0 : (int)LNG_EVSCAN(ev));
+            launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
         else if (prof && prof->controller.binds_per_input >= 2 && prof->id && !strcmp(prof->id, "psx"))
             launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                            m->capture_slot, (int)LNG_EVSCAN(ev));
@@ -11590,12 +12985,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     }
     // hotkey capture: wait past a bare modifier press for the real key
     if (is_modifier_scancode((SDL_Scancode)LNG_EVSCAN(ev))) return true;
-    // Backspace unbinds: launcher_binds_set_hotkey writes "None", which the
-    // PSX runtime honours as an explicit unbind (no default fallback).
-    if (LNG_EVKEY(ev) == SDLK_BACKSPACE)
-        launcher_binds_set_hotkey(m, m->capture_hk, 0, 0);
-    else
-        launcher_binds_set_hotkey(m, m->capture_hk, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
+    launcher_binds_set_hotkey(m, m->capture_hk, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
     launcher_model_cancel_hk_capture(m);
     return true;
 }
@@ -11790,6 +13180,11 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         asset("assets/fonts/OpenMoji-black-glyf.ttf");
     float applied_scale = 0.0f;
     launcher_debug_init();
+    /* The ignore/block list, from beside the executable. Loaded once here
+     * rather than lazily on the netplay page: the file is the authority for
+     * whether a chat line is drawn, and a page that renders before the first
+     * load would show a line the player has already asked never to see. */
+    recomp_moderation_load(asset("").c_str());
 
     long smoke_frames = 0, frame = 0;
     if (const char* sf = SDL_getenv("LNG_SMOKE_FRAMES")) smoke_frames = SDL_atoi(sf);

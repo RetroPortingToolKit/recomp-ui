@@ -170,7 +170,14 @@ static int  dl_spectator_slot(void* c, int index) { (void)c; return DEMO_SPEC_BA
 static int  dl_connected(void* c) { (void)c; return 1; }
 static void dl_pump(void* c) { (void)c; demo_lobby_pump(); }
 static void dl_set_player_name(void* c, const char* n) { (void)c; (void)n; }
-static const char* dl_player_name(void* c) { (void)c; return demo_lobby_host ? "Alex" : "Marisa"; }
+static int demo_acct_preview = 0; /* LNG_DEMO_ACCOUNT set: leave the name empty
+                                   * so the Player Name modal opens by itself
+                                   * and the sign-in section is screenshottable */
+static const char* dl_player_name(void* c) {
+    (void)c;
+    if (demo_acct_preview) return "";
+    return demo_lobby_host ? "Alex" : "Marisa";
+}
 static void dl_request_list(void* c) { (void)c; }
 static int  dl_list_count(void* c) { (void)c; return 1; }
 static int  dl_list_get(void* c, int i, RecompLauncherCNetplayLobby* o) {
@@ -308,6 +315,41 @@ static int dl_chat_get(void* c, int i, RecompLauncherCNetplayChatMessage* out) {
     out->seq = (uint32_t)(i + 1);
     return 1;
 }
+/* ---- LNG_DEMO_ACCOUNT: preview the Discord sign-in states -----------------
+ * guest | waiting | in | failed | off  (off = server offers no logins, so no
+ * sign-in affordance is drawn at all). No network: the launcher never does the
+ * HTTP itself, so a fake host is enough to exercise every state. */
+static int  demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_GUEST;
+static int  demo_acct_avail = 1;
+static char demo_acct_handle[64] = "Reimu";
+static int  dl_account_available(void* c) { (void)c; return demo_acct_avail; }
+static int  dl_account_state(void* c) { (void)c; return demo_acct_state; }
+static const char* dl_account_handle(void* c) { (void)c; return demo_acct_handle; }
+static const char* dl_account_username(void* c) { (void)c; return "reimu_h"; }
+static const char* dl_account_error(void* c) {
+    (void)c;
+    return "Discord did not complete the sign-in. Try again.";
+}
+static int dl_account_login_begin(void* c) {
+    (void)c;
+    demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_WAITING;
+    fprintf(stderr, "[demo] would open the browser at the server's authorize URL\n");
+    return 0;
+}
+static int dl_account_sign_out(void* c) {
+    (void)c;
+    demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_GUEST;
+    return 0;
+}
+static int dl_account_set_handle(void* c, const char* h) {
+    (void)c;
+    /* The real host asks the server, which refuses a name on the word list. */
+    if (!h || !h[0]) return -1;
+    snprintf(demo_acct_handle, sizeof(demo_acct_handle), "%s", h);
+    fprintf(stderr, "[demo] handle -> %s\n", demo_acct_handle);
+    return 0;
+}
+
 static RecompLauncherCNetplayCallbacks demo_lobby_cb;
 
 static void demo_lobby_install(RecompLauncherCGameInfo* gi, const char* mode) {
@@ -330,6 +372,24 @@ static void demo_lobby_install(RecompLauncherCGameInfo* gi, const char* mode) {
     demo_lobby_cb.server_chat_send = dl_schat_send;
     demo_lobby_cb.server_chat_count = dl_schat_count;
     demo_lobby_cb.server_chat_get = dl_schat_get;
+    {
+        const char* a = SDL_getenv("LNG_DEMO_ACCOUNT");
+        if (a && a[0]) {
+            demo_acct_preview = 1;
+            if (strcmp(a, "in") == 0) demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_SIGNED_IN;
+            else if (strcmp(a, "waiting") == 0) demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_WAITING;
+            else if (strcmp(a, "failed") == 0) demo_acct_state = RECOMP_LAUNCHER_ACCOUNT_FAILED;
+            else if (strcmp(a, "off") == 0) demo_acct_avail = 0;
+        }
+    }
+    demo_lobby_cb.account_available = dl_account_available;
+    demo_lobby_cb.account_login_begin = dl_account_login_begin;
+    demo_lobby_cb.account_state = dl_account_state;
+    demo_lobby_cb.account_handle = dl_account_handle;
+    demo_lobby_cb.account_username = dl_account_username;
+    demo_lobby_cb.account_error = dl_account_error;
+    demo_lobby_cb.account_sign_out = dl_account_sign_out;
+    demo_lobby_cb.account_set_handle = dl_account_set_handle;
     demo_schat_push("Sakuya", "anyone up for a set? \xF0\x9F\x94\xA5", 0);
     demo_schat_push("Reimu", "hosting now, come in", 0);
     demo_lobby_cb.leave = dl_leave;

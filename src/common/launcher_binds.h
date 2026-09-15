@@ -75,6 +75,17 @@ void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
 // (N64: resets the whole device TABLE the player's source selects.)
 void launcher_binds_reset_player(LauncherModel* m, int player);
 
+// ---- N64 gamepad profiles (input.ini, per GUID) ----------------------------
+// Same three actions PSX and SNES offer, on the per-GUID store n64lle's host
+// reads. Every pad capture already writes the section; Save commits the
+// name, custom-name flag and deadzone with it. Rename marks the name custom
+// so a reconnect does not overwrite it with the driver's. Delete empties the
+// section and releases every player slot that pointed at the GUID.
+void launcher_binds_save_n64_gamepad(LauncherModel* m, int player /*1-based*/);
+void launcher_binds_rename_n64_gamepad(LauncherModel* m, int player /*1-based*/,
+                                       const char* name);
+void launcher_binds_delete_n64_gamepad(LauncherModel* m, int player /*1-based*/);
+
 // ---- SNES gamepad profiles (config.ini [Controller.<guid>]) ---------------
 // Per-device layout, name and deadzone kept in the game's own config.ini, so
 // two controllers can hold different mappings instead of sharing the single

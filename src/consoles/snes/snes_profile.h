@@ -71,7 +71,27 @@ static const SystemProfile kSystemProfileSnes = {
         /*bios*/0, /*deadzone*/0,
     },
     /* verify */  { 0, NULL },
-    /* hotkeys_mask */ LNG_HOTKEYS_ALL,
+    /* hotkeys_mask */ (uint32_t)(LNG_HOTKEYS_ALL |
+                                   /* Save-state slot browser: the SNES runner
+                                    * has had snes_savestate_menu.c for a while,
+                                    * but the bind was unreachable here because
+                                    * LNG_HOTKEYS_ALL stops at bit 10 and this
+                                    * one is bit 15 — ports hardcoded a key
+                                    * instead. Note the framework leaves it
+                                    * UNBOUND by default (F1..F10 are the ten
+                                    * LoadState slots on SNES), so this row
+                                    * shows "(unbound)" until a player picks a
+                                    * key or a port's config.ini names one. */
+                                   (1u << LNG_HK_SAVE_STATE_MENU) |
+                                   /* Rewind: added now that snes_rewind.c
+                                    * exists behind it. It was deliberately
+                                    * withheld while there was nothing to
+                                    * bind, on the same principle as
+                                    * n64_profile.h's debug-tools note -- a
+                                    * control that does nothing is worse than
+                                    * an absent one. Unbound by default here
+                                    * too: F8 is LoadState slot 8. */
+                                   (1u << LNG_HK_REWIND)),
     /* panels_dashboard  */ kPanelsDashboardCommon,
     /* panels_settings   */ kPanelsSettingsSnes,
     /* panels_controller */ kPanelsControllerCommon,

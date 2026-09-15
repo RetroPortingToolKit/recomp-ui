@@ -179,6 +179,12 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     // game-controller sensor API; USB controllers already use this mode.
     SDL_SetHintWithPriority("SDL_JOYSTICK_HIDAPI_PS5_RUMBLE", "1",
                             SDL_HINT_DEFAULT);
+#ifdef SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS
+    // Launcher navigation is positional: the lower face button accepts and the
+    // right face button cancels, matching ImGui's gamepad navigation model.
+    SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0",
+                            SDL_HINT_DEFAULT);
+#endif
 #ifdef LNG_GLES2
     // The host links ANGLE's libGLESv2/libEGL; SDL must create the context
     // through that same ES library (via EGL), or the directly-linked ANGLE
@@ -190,6 +196,13 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
                  SDL_INIT_SENSOR) != 0) {   // SDL2: 0 == success
         fprintf(stderr, "[launcher] SDL_Init failed: %s\n", SDL_GetError());
         return false;
+    }
+    {
+        SDL_version version;
+        SDL_GetVersion(&version);
+        fprintf(stderr, "[launcher] SDL runtime %u.%u.%u (%s)\n",
+                (unsigned)version.major, (unsigned)version.minor,
+                (unsigned)version.patch, SDL_GetRevision());
     }
 
     // GL dialect. Default: desktop GL 3.3 core (matches the vendored ImGui
