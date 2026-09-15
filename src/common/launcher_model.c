@@ -52,7 +52,7 @@ static const char* kHotkeyNames[LNG_HK_COUNT] = {
     "Window bigger", "Window smaller", "Volume up", "Volume down",
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
-    "Rewind", "Save states menu"
+    "Rewind", "Save states menu", "Fast-forward toggle"
 };
 static const char* kViewNames[8] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
@@ -276,6 +276,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_texture_filter   = game->has_texture_filter != 0;
         m->has_fmv_filter       = game->has_fmv_filter != 0;
         m->has_screen_kind      = game->has_screen_kind != 0;
+        m->has_scanlines        = game->has_scanlines != 0;
         m->has_frame_interp     = game->has_frame_interp != 0;
         m->has_spu_hq           = game->has_spu_hq != 0;
         m->has_rewind_depth     = game->has_rewind_depth != 0;
@@ -1750,6 +1751,26 @@ const char* launcher_model_screen_kind_label(const LauncherModel* m) {
     int n = 4;
     const char* const* names = screen_kind_vocab(m, &n);
     return names[clampi(m->s.screen_kind, 0, n - 1)];
+}
+
+void launcher_model_toggle_scanlines(LauncherModel* m) {
+    if (!m || !m->has_scanlines) return;
+    m->s.scanlines = !m->s.scanlines;
+    /* First time on with no persisted strength: seed the default so the slider
+     * has a value to show (and the effect is visible). */
+    if (m->s.scanlines && m->s.scanline_strength_pct == 0)
+        m->s.scanline_strength_pct = 50;
+}
+
+void launcher_model_set_scanline_strength_pct(LauncherModel* m, int pct) {
+    if (!m || !m->has_scanlines) return;
+    m->s.scanline_strength_pct = clampi(pct, 1, 100);
+}
+
+int launcher_model_scanline_strength_pct(const LauncherModel* m) {
+    if (!m) return 50;
+    int p = m->s.scanline_strength_pct;
+    return (p >= 1 && p <= 100) ? p : 50;   /* 0 = unset -> default 50 */
 }
 
 void launcher_model_toggle_frame_interp(LauncherModel* m) {

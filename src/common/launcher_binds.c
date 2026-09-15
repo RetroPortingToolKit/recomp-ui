@@ -203,7 +203,7 @@ static const char* kHotkeyKey[LNG_HK_COUNT] = {
     "WindowBigger", "WindowSmaller", "VolumeUp", "VolumeDown",
     "DisplayPerf", "ToggleRenderer",
     "SolarBrighter", "SolarDimmer", "SolarLive",
-    "Rewind", "SaveStateMenu"
+    "Rewind", "SaveStateMenu", "TurboToggle"
 };
 // Built-in defaults (shown when config.ini has no line; "" = unbound).
 static const char* kHotkeyDef[LNG_HK_COUNT] = {
@@ -212,7 +212,7 @@ static const char* kHotkeyDef[LNG_HK_COUNT] = {
      * (psxrecomp host_keymap reads these from [KeyMap]). */
     "", "", "Keypad +", "Keypad -", "F", "R",
     "", "", "",
-    "F8", "F7"
+    "F8", "F7", "F9"
 };
 
 static void copy_str(char* d, size_t cap, const char* s) {
@@ -411,7 +411,12 @@ static void reload_hotkey_display(LauncherModel* m) {
         char* hash = strchr(v, '#'); if (hash) *hash = 0;
         size_t vl = strlen(v); while (vl && (v[vl-1] == ' ' || v[vl-1] == '\t')) v[--vl] = 0;
         for (int h = 0; h < LNG_HK_COUNT; ++h)
-            if (ieq(p, klen, kHotkeyKey[h])) { copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), v); break; }
+            if (ieq(p, klen, kHotkeyKey[h])) {
+                const int unbound = !v[0] || ieq(v, strlen(v), "None") ||
+                                    ieq(v, strlen(v), "(unbound)");
+                copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), unbound ? "(unbound)" : v);
+                break;
+            }
     }
     free(text);
 }
@@ -1564,6 +1569,10 @@ void launcher_binds_set_hotkey(LauncherModel* m, LngHotkey h, int keycode, int k
     if (h < 0 || h >= LNG_HK_COUNT) return;
     char val[64];
     format_hotkey(keycode, kmod, val, sizeof(val));
-    keymap_write(kHotkeyKey[h], val);
+    // keycode 0 = explicit unbind. Write the literal "None" rather than an
+    // empty value: the PSX runtime treats a present-but-empty/None line as
+    // "the user cleared this" and skips its built-in default, whereas a
+    // missing line keeps the default.
+    keymap_write(kHotkeyKey[h], val[0] ? val : "None");
     copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), val[0] ? val : "(unbound)");
 }

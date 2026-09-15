@@ -1268,6 +1268,15 @@ struct RecompLauncherCSettings {
      * against the roster, falling back to disc 1. Appended additively. */
     int  disc_index;
 
+    /* Scanline post-process on/off (GameInfo.has_scanlines consoles). 0 = off
+     * (also the unset default, like rewind_enabled — the host default is off, so
+     * a zero-initialized host predating this field gets the right answer), 1 =
+     * on. Appended additively. */
+    int  scanlines;
+    /* Scanline dark-gap depth as a percent. 0 = unset -> the model seeds 50; the
+     * effective range is 1..100. Stored as a percent (not 0..1) so the whole
+     * settings struct stays plain-int. Appended additively. */
+    int  scanline_strength_pct;
     /* NDS virtual stylus overlay. 0 is unset and means the launcher default
      * for the console, which is enabled; 1 is explicitly enabled, -1 is
      * explicitly disabled. Bindings live in assist_key_bind/assist_pad_bind so
@@ -1325,6 +1334,10 @@ struct RecompLauncherCSettings {
 
 /* Hosts can #ifdef on this to stay source-compatible with older recomp-ui. */
 #define RECOMP_LAUNCHER_HAS_FRAME_BLEND 1
+/* Scanline post-process (Settings.scanlines / scanline_strength_pct,
+ * GameInfo.has_scanlines). Hosts #ifdef on this to stay source-compatible with
+ * older recomp-ui that lacks the fields. */
+#define RECOMP_LAUNCHER_HAS_SCANLINES 1
 
 // ---- host verification/inspection results (filled by the callbacks below) ----
 // Plain-C structs so a host can implement the callbacks with zero launcher
@@ -1895,6 +1908,11 @@ typedef struct RecompLauncherCGameInfo {
     int (*persist_setup_discs)(void* ctx, const char* const* disc_paths,
                                int disc_count, const char* bios_path);
 
+    /* Display row for Settings.scanlines / scanline_strength_pct: a present-time
+     * scanline post-process (a checkbox plus a strength slider). Only meaningful
+     * for a console whose runtime implements it (PSX); everything else leaves
+     * this 0 and the rows are absent. Appended for ABI stability. */
+    int has_scanlines;
     /* NDS input convenience setting. When set, Settings shows a Virtual Stylus
      * opt-out and the Controller page may expose host-owned bindings for it. */
     int has_virtual_stylus;

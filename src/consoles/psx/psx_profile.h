@@ -119,7 +119,8 @@ static const SystemProfile kSystemProfilePsx = {
                                    (1u << LNG_HK_VOLUME_DOWN)    |
                                    (1u << LNG_HK_DISPLAY_PERF)   |
                                    RUI_PSX_REWIND_HOTKEY_MASK    |
-                                   (1u << LNG_HK_SAVE_STATE_MENU)),
+                                   (1u << LNG_HK_SAVE_STATE_MENU) |
+                                   (1u << LNG_HK_TURBO_TOGGLE)),
     /* panels_dashboard  */ kPanelsDashboardPsx,
     /* panels_settings   */ kPanelsSettingsPsx,
     /* panels_controller */ kPanelsControllerCommon,
@@ -161,6 +162,7 @@ static inline void launcher_profile_apply_psx(RecompLauncherCGameInfo* gi) {
     gi->has_fmv_filter = 1;    /* MDEC decodes video at native res; how it is
                                 * scaled to the window is a player choice. */
     gi->has_frame_interp = 0; gi->has_spu_hq = 1; gi->has_skip_fmv = 0;
+    gi->has_scanlines = 1;     /* present-time CRT scanline post-process */
     gi->has_turbo_loads = 1; gi->has_bios = 1;
     gi->has_deadzone_pct = 1;
     gi->has_rewind_depth = RECOMP_UI_PSX_HAS_REWIND ? 1 : 0;
