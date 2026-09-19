@@ -77,11 +77,124 @@ static int launcher_reject_if_pattern_mismatch(const char* title,
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 extern char** environ;
+
+/* --- environment handed to the spawned picker -----------------------------
+ * zenity and kdialog are HOST programs: they link the host's GTK/Qt stack.
+ * An AppImage AppRun prepends the bundle's usr/lib to LD_LIBRARY_PATH, and a
+ * child spawned with our own environ inherits it — so the host zenity loads
+ * OUR glib/pcre2/freetype/png, which do not match the host GTK it is linked
+ * against, and it dies before it can draw anything. linuxdeploy's plugin-path
+ * variables (GTK_PATH, GDK_PIXBUF_MODULE_FILE, QT_PLUGIN_PATH, ...) break the
+ * same way, and LD_PRELOAD/LD_AUDIT are never ours to pass on.
+ *
+ * So: copy our environment MINUS those, and restore the pre-AppRun value of
+ * LD_LIBRARY_PATH when the launcher script saved one for us in
+ * RECOMP_HOST_LD_LIBRARY_PATH. A host tool gets a host environment. */
+static const char* const kLinuxSpawnDropPrefixes[] = {
+    "LD_LIBRARY_PATH=",
+    "LD_PRELOAD=",
+    "LD_AUDIT=",
+    "GTK_PATH=",
+    "GTK_EXE_PREFIX=",
+    "GTK_DATA_PREFIX=",
+    "GTK_IM_MODULE_FILE=",
+    "GDK_PIXBUF_MODULE_FILE=",
+    "GDK_PIXBUF_MODULEDIR=",
+    "GIO_MODULE_DIR=",
+    "GSETTINGS_SCHEMA_DIR=",
+    "GST_PLUGIN_SYSTEM_PATH=",
+    "GST_PLUGIN_SYSTEM_PATH_1_0=",
+    "GST_PLUGIN_PATH=",
+    "QT_PLUGIN_PATH=",
+    "QML2_IMPORT_PATH=",
+    "QML_IMPORT_PATH=",
+    "FONTCONFIG_FILE=",
+    "FONTCONFIG_PATH=",
+    "PYTHONHOME=",
+    "PYTHONPATH=",
+    "PERLLIB=",
+    "PERL5LIB=",
+    /* injected by the AppImage runtime / our AppRun */
+    "APPDIR=",
+    "APPIMAGE=",
+    "ARGV0=",
+    "OWD=",
+    "RECOMP_HOST_LD_LIBRARY_PATH=",
+};
+
+#define LINUX_HOST_LDPATH_VAR "RECOMP_HOST_LD_LIBRARY_PATH"
+
+static int linux_env_should_drop(const char* entry) {
+    if (!entry) return 1;
+    const size_t n = sizeof(kLinuxSpawnDropPrefixes) /
+                     sizeof(kLinuxSpawnDropPrefixes[0]);
+    for (size_t i = 0; i < n; i++) {
+        const char* pre = kLinuxSpawnDropPrefixes[i];
+        if (strncmp(entry, pre, strlen(pre)) == 0) return 1;
+    }
+    return 0;
+}
+
+static void linux_free_spawn_env(char** env) {
+    if (!env) return;
+    for (char** e = env; *e; e++) free(*e);
+    free(env);
+}
+
+/* NULL on allocation failure — callers then fall back to `environ`, which is
+ * still better than not opening a dialog at all. */
+static char** linux_build_spawn_env(void) {
+    size_t n = 0;
+    for (char** e = environ; e && *e; e++) n++;
+
+    char** out = (char**)calloc(n + 2, sizeof(char*));
+    if (!out) return NULL;
+
+    size_t k = 0;
+    for (char** e = environ; e && *e; e++) {
+        if (linux_env_should_drop(*e)) continue;
+        out[k] = strdup(*e);
+        if (!out[k]) {
+            linux_free_spawn_env(out);
+            return NULL;
+        }
+        k++;
+    }
+
+    const char* host = getenv(LINUX_HOST_LDPATH_VAR);
+    if (host && host[0]) {
+        const size_t len = strlen("LD_LIBRARY_PATH=") + strlen(host) + 1;
+        char* v = (char*)malloc(len);
+        if (!v) {
+            linux_free_spawn_env(out);
+            return NULL;
+        }
+        snprintf(v, len, "LD_LIBRARY_PATH=%s", host);
+        out[k++] = v;
+    }
+
+    out[k] = NULL;
+    return out;
+}
+
+/* One line, on stderr, whenever a backend is declared unusable — so a bug
+ * report carries the reason instead of "the button does nothing". */
+static void linux_picker_unusable(const char* backend, const char* why,
+                                  const char* detail) {
+    fprintf(stderr,
+            "[launcher] file picker: %s %s; falling back to the built-in "
+            "browser%s%s\n",
+            backend ? backend : "(picker)", why ? why : "is unusable",
+            (detail && detail[0]) ? " — " : "",
+            (detail && detail[0]) ? detail : "");
+    fflush(stderr);
+}
 
 static int linux_str_has_ci(const char* hay, const char* needle) {
     if (!hay || !needle || !needle[0]) return 0;
@@ -125,69 +238,184 @@ static int linux_have_cmd(const char* name) {
     return 0;
 }
 
-/* Read one line (path) from fd; strips trailing newline. */
-static int linux_read_path_line(int fd, char* out, size_t out_cap) {
-    if (!out || out_cap == 0) return 0;
-    out[0] = '\0';
-    size_t n = 0;
-    while (n + 1 < out_cap) {
-        char c;
-        ssize_t r = read(fd, &c, 1);
-        if (r == 0) break;
-        if (r < 0) {
-            if (errno == EINTR) continue;
-            return 0;
-        }
-        if (c == '\n' || c == '\r') break;
-        out[n++] = c;
-    }
-    out[n] = '\0';
-    return n > 0;
+static void linux_trim_trailing_ws(char* s) {
+    if (!s) return;
+    size_t n = strlen(s);
+    while (n && (s[n - 1] == '\n' || s[n - 1] == '\r' || s[n - 1] == ' ' ||
+                 s[n - 1] == '\t'))
+        s[--n] = '\0';
 }
 
-/* Spawn argv[0] via posix_spawnp, capture stdout line.
- * Returns: 1 = path selected, 0 = dialog ran but cancelled, -1 = spawn/wait fail
- * (only -1 should fall through to another backend). */
+/* Drain both pipes until EOF. Polling rather than reading stdout to EOF first
+ * matters: a backend that writes a long diagnostic to stderr would otherwise
+ * block on a full stderr pipe while we waited for a stdout line that never
+ * comes. */
+static void linux_drain_pipes(int out_fd, int err_fd,
+                              char* sout, size_t sout_cap, size_t* sout_n,
+                              char* serr, size_t serr_cap, size_t* serr_n) {
+    struct pollfd pfd[2];
+    pfd[0].fd = out_fd;
+    pfd[0].events = POLLIN;
+    pfd[0].revents = 0;
+    pfd[1].fd = err_fd;
+    pfd[1].events = POLLIN;
+    pfd[1].revents = 0;
+
+    int open_fds = 2;
+    while (open_fds > 0) {
+        const int pr = poll(pfd, 2, -1);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (pfd[i].fd < 0) continue;
+            if (!(pfd[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            char buf[1024];
+            const ssize_t r = read(pfd[i].fd, buf, sizeof(buf));
+            if (r > 0) {
+                char* dst = (i == 0) ? sout : serr;
+                const size_t cap = (i == 0) ? sout_cap : serr_cap;
+                size_t* used = (i == 0) ? sout_n : serr_n;
+                /* Keep the FIRST bytes: the opening line of a loader failure
+                 * ("zenity: symbol lookup error: ...") is the diagnostic. */
+                size_t room = (cap ? cap - 1 : 0) - *used;
+                if (room > (size_t)r) room = (size_t)r;
+                if (room) {
+                    memcpy(dst + *used, buf, room);
+                    *used += room;
+                    dst[*used] = '\0';
+                }
+            } else if (r == 0) {
+                pfd[i].fd = -1;
+                open_fds--;
+            } else if (errno != EINTR && errno != EAGAIN) {
+                pfd[i].fd = -1;
+                open_fds--;
+            }
+        }
+    }
+}
+
+/* Spawn argv[0] via posix_spawnp with a sanitised (host) environment and
+ * capture its first stdout line.
+ *
+ * Returns:
+ *    1  path selected (out filled)
+ *    0  the dialog really ran and the user cancelled — stop, do NOT try
+ *       another backend, because the user already said no
+ *   -1  the backend is UNUSABLE: exec failed, it died on a signal, it exited
+ *       with anything other than 0 or 1, or it "succeeded" while printing no
+ *       path. Only -1 falls through to another backend / the built-in browser.
+ *
+ * Exit 1 is the documented cancel code for both zenity and kdialog, and it is
+ * the ONLY non-zero code that means cancel. Treating every non-zero exit as a
+ * cancel (as this did before) turns a backend that cannot start at all — e.g.
+ * a host zenity poisoned by an AppImage LD_LIBRARY_PATH, which exits 127 — into
+ * a silent no-op: the click appears to do nothing and the built-in browser is
+ * never reached. */
 static int linux_spawn_capture(char* const argv[], char* out, size_t out_cap) {
-    int pipefd[2];
-    if (pipe(pipefd) != 0) return -1;
+    const char* backend = (argv && argv[0]) ? argv[0] : "(picker)";
+    if (out && out_cap) out[0] = '\0';
+
+    int op[2] = {-1, -1};
+    int ep[2] = {-1, -1};
+    if (pipe(op) != 0) {
+        linux_picker_unusable(backend, "could not be piped", strerror(errno));
+        return -1;
+    }
+    if (pipe(ep) != 0) {
+        const int e = errno;
+        close(op[0]);
+        close(op[1]);
+        linux_picker_unusable(backend, "could not be piped", strerror(e));
+        return -1;
+    }
 
     posix_spawn_file_actions_t actions;
     if (posix_spawn_file_actions_init(&actions) != 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
+        close(op[0]);
+        close(op[1]);
+        close(ep[0]);
+        close(ep[1]);
+        linux_picker_unusable(backend, "could not be prepared", NULL);
         return -1;
     }
-    posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null",
-                                     O_WRONLY, 0);
-    posix_spawn_file_actions_addclose(&actions, pipefd[0]);
-    posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+    posix_spawn_file_actions_adddup2(&actions, op[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, ep[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, op[0]);
+    posix_spawn_file_actions_addclose(&actions, op[1]);
+    posix_spawn_file_actions_addclose(&actions, ep[0]);
+    posix_spawn_file_actions_addclose(&actions, ep[1]);
 
+    char** spawn_env = linux_build_spawn_env();
     pid_t pid = 0;
-    const int rc = posix_spawnp(&pid, argv[0], &actions, NULL, argv, environ);
+    const int rc = posix_spawnp(&pid, argv[0], &actions, NULL, argv,
+                                spawn_env ? spawn_env : environ);
     posix_spawn_file_actions_destroy(&actions);
-    close(pipefd[1]);
+    close(op[1]);
+    close(ep[1]);
 
     if (rc != 0) {
-        close(pipefd[0]);
+        close(op[0]);
+        close(ep[0]);
+        linux_free_spawn_env(spawn_env);
+        linux_picker_unusable(backend, "could not be started", strerror(rc));
         return -1;
     }
 
-    const int got = linux_read_path_line(pipefd[0], out, out_cap);
-    close(pipefd[0]);
+    char sout[4096];
+    char serr[512];
+    size_t sout_n = 0;
+    size_t serr_n = 0;
+    sout[0] = '\0';
+    serr[0] = '\0';
+    linux_drain_pipes(op[0], ep[0], sout, sizeof(sout), &sout_n, serr,
+                      sizeof(serr), &serr_n);
+    close(op[0]);
+    close(ep[0]);
+    linux_free_spawn_env(spawn_env);
 
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return -1;
+        if (errno != EINTR) {
+            linux_picker_unusable(backend, "could not be waited on",
+                                  strerror(errno));
+            return -1;
+        }
     }
-    /* Dialog process ran. Non-zero exit or empty path = user cancel — stop. */
-    if (!WIFEXITED(status)) return -1;
-    if (WEXITSTATUS(status) != 0 || !got) {
-        if (out && out_cap) out[0] = '\0';
-        return 0;
+
+    linux_trim_trailing_ws(serr);
+    const char* detail = serr[0] ? serr : NULL;
+
+    if (!WIFEXITED(status)) {
+        char why[64];
+        snprintf(why, sizeof(why), "was killed by signal %d",
+                 WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+        linux_picker_unusable(backend, why, detail);
+        return -1;
     }
-    return 1;
+
+    const int code = WEXITSTATUS(status);
+    if (code == 0) {
+        char* nl = strpbrk(sout, "\r\n");
+        if (nl) *nl = '\0';
+        if (!sout[0]) {
+            linux_picker_unusable(backend, "exited 0 without printing a path",
+                                  detail);
+            return -1;
+        }
+        if (out && out_cap) snprintf(out, out_cap, "%s", sout);
+        return 1;
+    }
+    if (code == 1) return 0; /* documented cancel for zenity and kdialog */
+
+    {
+        char why[64];
+        snprintf(why, sizeof(why), "exited %d", code);
+        linux_picker_unusable(backend, why, detail);
+    }
+    return -1;
 }
 
 static void linux_append_patterns(char* dst, size_t dst_cap,
@@ -523,6 +751,27 @@ bool launcher_pick_file(const char* title, const char* const* patterns, int num_
     const int r = launcher_try_pick_file(title, patterns, num_patterns, desc,
                                          out_path, out_cap);
     return r == 1;
+}
+
+bool launcher_file_picker_selftest(void) {
+    const char* req = getenv("RECOMP_UI_PICKER_SELFTEST");
+    if (!req || !req[0] || strcmp(req, "0") == 0 || strcmp(req, "false") == 0)
+        return false;
+
+    const int available = launcher_native_file_picker_available() ? 1 : 0;
+    printf("[picker-selftest] native_available=%d\n", available);
+
+    char path[4096];
+    path[0] = '\0';
+    int r = -1;
+    if (available)
+        r = launcher_try_pick_file("Select game file", NULL, 0, NULL, path,
+                                   sizeof(path));
+
+    printf("[picker-selftest] result=%d path=[%s]\n", r, path);
+    printf("[picker-selftest] builtin_fallback=%s\n", r == -1 ? "yes" : "no");
+    fflush(stdout);
+    return true;
 }
 
 bool launcher_pick_save_file(const char* title, const char* const* patterns, int num_patterns,

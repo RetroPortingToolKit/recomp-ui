@@ -85,6 +85,23 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-flash-guard
              COMMAND $<TARGET_FILE:recomp-ui-flash-guard-test>)
 
+    # What the Linux native file picker hands to the zenity/kdialog it spawns,
+    # and how it reads that backend's exit code. Uses stub backends on a
+    # private PATH -- no display, no GTK, no real zenity -- so it runs
+    # wherever the others do. Guards the AppImage bug where the bundle's
+    # LD_LIBRARY_PATH leaked into the host zenity and its failure exit was
+    # read back as "the user cancelled".
+    add_executable(recomp-ui-launcher-files-spawn-test
+        tests/launcher_files_spawn_test.c
+        src/common/launcher_files.c
+        src/third_party/tinyfiledialogs.c)
+    target_include_directories(recomp-ui-launcher-files-spawn-test PRIVATE
+        src src/common)
+    add_test(
+        NAME recomp-ui-launcher-files-spawn
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-files-spawn-test>
+                "${CMAKE_CURRENT_BINARY_DIR}")
+
     add_executable(recomp-ui-rom-patch-tool
         tools/rom_patch_tool.c
         src/common/ips_patch.c

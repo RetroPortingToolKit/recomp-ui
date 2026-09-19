@@ -70,6 +70,20 @@ int launcher_try_pick_file(const char* title, const char* const* patterns,
 bool launcher_pick_save_file(const char* title, const char* const* patterns, int num_patterns,
                              const char* desc, char* out_path, size_t out_cap);
 
+// Test hook. When RECOMP_UI_PICKER_SELFTEST is set to something other than
+// "0"/"false", run ONE native file pick and print the outcome to stdout as
+//   [picker-selftest] native_available=<0|1>
+//   [picker-selftest] result=<1|0|-1> path=[...]
+//   [picker-selftest] builtin_fallback=<yes|no>
+// then return true. Returns false (and does nothing) otherwise.
+//
+// This exists so a packaged build can be checked end to end — real binary,
+// real AppRun environment, a stub zenity/kdialog on PATH — without a human
+// clicking Browse. A picker that cannot start is invisible by nature: the
+// button simply does nothing. Having the shipped binary able to exercise and
+// report its own picker is what makes that testable at all.
+bool launcher_file_picker_selftest(void);
+
 #ifdef __cplusplus
 }
 #endif

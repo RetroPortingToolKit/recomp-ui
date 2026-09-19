@@ -12,6 +12,7 @@
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_boot_timing.h"
+#include "launcher_files.h"
 #include "launcher_model.h"
 #include "launcher_platform.h"
 #include "launcher_theme.h"
@@ -40,6 +41,13 @@ int recomp_launcher_run_window(const char* window_title,
                              char* out_rom_path, size_t out_rom_path_len) {
     (void)assets_dir;   // launcher_ng resolves assets next to the exe (SDL base path)
     g_last_relaunch_exe[0] = '\0';
+
+    /* Packaging self-test (RECOMP_UI_PICKER_SELFTEST): exercise the native
+     * file picker and report the outcome, before any window/GL work so it
+     * runs headless. Then take the no-launcher path, exactly as if the
+     * launcher window had been unavailable. */
+    if (launcher_file_picker_selftest())
+        return RECOMP_LAUNCHER_RESULT_UNAVAILABLE;
 
     launcher_boot_timing_mark("rui:run_window:enter");
 

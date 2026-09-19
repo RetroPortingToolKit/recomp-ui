@@ -504,6 +504,18 @@ static void apply_builtin_picker_selection(LauncherModel* m, const char* path) {
     }
 }
 
+/* Set once a native backend has reported itself unusable (-1). The ROM row
+ * then keeps an explicit "Use the built-in browser" control visible, so the
+ * player is never left with a button whose only native backend is broken. */
+static bool g_native_picker_failed = false;
+
+/* True when the ROM row should show that explicit control: either the host has
+ * no zenity/kdialog at all, or the one it has has already failed on us. */
+static bool builtin_file_picker_should_be_offered(void) {
+    if (prefer_builtin_file_picker()) return false;
+    return g_native_picker_failed || !launcher_native_file_picker_available();
+}
+
 static void request_file_picker(LauncherModel* m, BuiltinPickerKind kind,
                                 const char* title, const char* const* patterns,
                                 int pattern_count, const char* description,
@@ -519,7 +531,10 @@ static void request_file_picker(LauncherModel* m, BuiltinPickerKind kind,
             return;
         }
         if (r == 0) return; /* user cancelled */
-        /* r == -1: fall through to built-in browser */
+        /* r == -1: the backend is unusable (it could not start, died, or
+         * exited with something other than 0/1 — launcher_files.c has already
+         * logged which and why). Remember that, and browse in-app. */
+        g_native_picker_failed = true;
     }
     open_builtin_file_picker(m, kind, title, patterns, pattern_count,
                              description, from_setup);
@@ -2047,6 +2062,35 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
                                prof->rom_filter.desc, false);
         else
             request_rom_picker(m, title, NULL, 0, NULL, false);
+    }
+
+    // No desktop file-picker service, or the one this host has just failed:
+    // say so and give the in-app browser its own control, rather than leaving
+    // the player with a Browse button whose backend cannot run.
+    if (builtin_file_picker_should_be_offered()) {
+        ImGui::TextColored(col(th.text_muted), "%s",
+                           g_native_picker_failed
+                               ? "The desktop file picker could not run."
+                               : "No desktop file picker (zenity/kdialog) found.");
+        char builtin_label[64];
+        snprintf(builtin_label, sizeof(builtin_label), "%s %s",
+                 ui_text("Browse For"), ui_text(noun));
+        std::strncat(builtin_label, " (built-in)",
+                     sizeof(builtin_label) - std::strlen(builtin_label) - 1);
+        if (ImGui::Button(builtin_label, ImVec2(availw, px(28)))) {
+            const SystemProfile* prof = (const SystemProfile*)m->profile;
+            char title[64];
+            snprintf(title, sizeof(title), "Select %s", noun);
+            if (prof && prof->rom_filter.patterns &&
+                prof->rom_filter.pattern_count > 0)
+                open_builtin_file_picker(m, BuiltinPickerKind::Rom, title,
+                                         prof->rom_filter.patterns,
+                                         prof->rom_filter.pattern_count,
+                                         prof->rom_filter.desc, false);
+            else
+                open_builtin_file_picker(m, BuiltinPickerKind::Rom, title, NULL,
+                                         0, NULL, false);
+        }
     }
 
     if (m->setup_error[0]) {
