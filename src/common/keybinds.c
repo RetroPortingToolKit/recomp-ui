@@ -22,6 +22,14 @@
  *   L/R (shoulders):   C / V
  */
 
+/* Optional host-target defaults, also used by Reset to Defaults. */
+#ifndef RECOMP_DEFAULT_KEY_L
+#define RECOMP_DEFAULT_KEY_L SDL_SCANCODE_C
+#endif
+#ifndef RECOMP_DEFAULT_KEY_R
+#define RECOMP_DEFAULT_KEY_R SDL_SCANCODE_V
+#endif
+
 /* One literal for the default layout, shared by the boot state and the
  * launcher's Reset-to-Defaults (recompui_keybinds_reset_player). */
 #define KEYBINDS_DEFAULTS { \
@@ -30,8 +38,8 @@
         .b      = SDL_SCANCODE_Z, \
         .x      = SDL_SCANCODE_S, \
         .y      = SDL_SCANCODE_A, \
-        .l      = SDL_SCANCODE_C, \
-        .r      = SDL_SCANCODE_V, \
+        .l      = RECOMP_DEFAULT_KEY_L, \
+        .r      = RECOMP_DEFAULT_KEY_R, \
         .start  = SDL_SCANCODE_RETURN, \
         .select = SDL_SCANCODE_RSHIFT, \
         .up     = SDL_SCANCODE_UP, \
@@ -59,8 +67,8 @@
         .b      = SDL_SCANCODE_Z, \
         .x      = SDL_SCANCODE_S, \
         .y      = SDL_SCANCODE_A, \
-        .l      = SDL_SCANCODE_C, \
-        .r      = SDL_SCANCODE_V, \
+        .l      = RECOMP_DEFAULT_KEY_L, \
+        .r      = RECOMP_DEFAULT_KEY_R, \
         .start  = SDL_SCANCODE_RETURN, \
         .select = SDL_SCANCODE_RSHIFT, \
         .up     = SDL_SCANCODE_UP, \
