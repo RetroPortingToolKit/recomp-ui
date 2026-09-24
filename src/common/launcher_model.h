@@ -162,6 +162,8 @@ typedef struct {
     bool        widescreen_supported;
     bool        msu1_supported;      // sram-like: show the MSU-1 module when true
     const char* msu1_note;           // borrowed; which patch, shown in the card
+    const RecompLauncherCMsuPack* msu1_packs;
+    int num_msu1_packs;
     // ---- MSU-1 IPS auto-patching (dashboard "Patch ROM"/"Skip" flow) ----
     // Borrowed IPS file path; NULL => this game has no auto-patch (msu1_note-only
     // games still show the Settings->Audio MSU-1 toggle, just no dashboard prompt).
@@ -944,7 +946,11 @@ bool launcher_model_tpak_enabled(const LauncherModel* m, int slot);
 void launcher_model_set_audio_device(LauncherModel* m, const char* name);
 const char* launcher_model_audio_device_label(const LauncherModel* m);
 
+// ---- Optional host-defined presets ----
+int launcher_model_preset_count(const LauncherModel* m);
+int launcher_model_apply_preset(LauncherModel* m, const char* id);
 // ---- MSU-1 (only when msu1_supported) ----
+int launcher_model_set_msu1_pack(LauncherModel* m, const char* id);
 void launcher_model_toggle_msu1(LauncherModel* m);
 void launcher_model_set_msu1_dir(LauncherModel* m, const char* dir);
 

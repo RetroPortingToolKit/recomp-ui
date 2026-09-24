@@ -928,6 +928,19 @@ typedef struct RecompLauncherCModResource {
     char format[64];
 } RecompLauncherCModResource;
 
+/* Optional host-defined settings recipes. IDs are stable; empty current ID
+ * means Custom. Apply only the settings owned by the recipe. */
+typedef struct RecompLauncherCModPreset {
+    char id[64];
+    char name[96];
+    char description[512];
+} RecompLauncherCModPreset;
+
+typedef struct RecompLauncherCMsuPack {
+    const char* id;
+    const char* name;
+} RecompLauncherCMsuPack;
+
 typedef struct RecompLauncherCModProvider {
     void* ctx;
     int (*package_count)(void* ctx);
@@ -1009,6 +1022,13 @@ typedef struct RecompLauncherCModProvider {
     int (*catalog_diagnostic_count)(void* ctx);
     int (*catalog_diagnostic_get)(void* ctx, int index,
                                   RecompLauncherCModDiagnostic* out);
+    /* Opt-in: all four callbacks and a positive count are required to show
+     * the picker. Existing hosts get no presets or UI by default. Apply is
+     * transactional on failure; normal provider commit persists mod changes. */
+    int (*preset_count)(void* ctx);
+    int (*preset_get)(void* ctx, int index, RecompLauncherCModPreset* out);
+    const char* (*preset_current)(void* ctx, const RecompLauncherCSettings* settings);
+    int (*preset_apply)(void* ctx, const char* id, RecompLauncherCSettings* settings);
 } RecompLauncherCModProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
@@ -1318,6 +1338,9 @@ struct RecompLauncherCSettings {
      * `renderer` is still maintained beside it for every existing host.
      * Appended for ABI stability; a zero-initialized host reads as unset. */
     char renderer_id[64];
+    /* Host-defined bundled MSU pack ID; empty means the custom path above.
+     * Only used by hosts supplying GameInfo.msu1_packs. */
+    char msu1_pack[64];
 };
 
 /* Largest run-ahead depth the launcher will offer for
@@ -1955,6 +1978,11 @@ typedef struct RecompLauncherCGameInfo {
      * console whose runtime cannot snapshot-and-restore a frame keeps
      * exactly today's settings surface. Appended for ABI stability. */
     int has_run_ahead;
+    /* Optional bundled soundtracks. NULL/0 retains the folder-only MSU UI.
+     * Hosts own defaults, persistence, paths and music adapters. Custom is
+     * appended by the UI and preserves Settings.msu1_dir when switching. */
+    const RecompLauncherCMsuPack* msu1_packs;
+    int num_msu1_packs;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

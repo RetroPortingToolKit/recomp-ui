@@ -4038,19 +4038,45 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndTooltip();
             }
         }
-        const float bw = px(78);
-        ImGui::SameLine(0, px(14));
-        float avail = ImGui::GetContentRegionAvail().x - bw - px(th.spacing_sm);
-        if (avail < px(50)) avail = px(50);
-        const char* dir = m->s.msu1_dir[0] ? m->s.msu1_dir : "(not set)";
-        char elided[192]; elide_left(dir, avail, elided, sizeof(elided));
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(col(th.text_muted), "%s", elided);
-        ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
-        if (ImGui::Button(ui_text("Browse"), ImVec2(bw, px(30)))) {  // px(30) matches the other settings buttons + the row's frame height (px(28) sat the label high)
-            ui_pick_folder(m, "Select MSU-1 music folder", [m](const char* path) {
-                if (path) launcher_model_set_msu1_dir(m, path);
-            });
+        if (m->num_msu1_packs > 0) {
+            const char* selected = "Custom...";
+            for (int i = 0; i < m->num_msu1_packs; ++i)
+                if (!std::strcmp(m->s.msu1_pack, m->msu1_packs[i].id)) selected = m->msu1_packs[i].name;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::BeginCombo("##msu_soundtrack", selected)) {
+                for (int i = 0; i < m->num_msu1_packs; ++i) {
+                    const auto& pack = m->msu1_packs[i];
+                    if (ImGui::Selectable(pack.name, !std::strcmp(m->s.msu1_pack, pack.id)))
+                        launcher_model_set_msu1_pack(m, pack.id);
+                }
+                if (ImGui::Selectable("Custom...", !m->s.msu1_pack[0])) {
+                    launcher_model_set_msu1_pack(m, "");
+                    ui_pick_file(m, "Select MSU-1 music file", {"*.msu"}, "MSU-1 music", [m](const char* path) {
+                        if (path) launcher_model_set_msu1_dir(m, path);
+                    });
+                }
+                ImGui::EndCombo();
+            }
+        }
+        if (!m->num_msu1_packs || !m->s.msu1_pack[0]) {
+            const float bw = px(78);
+            if (!m->num_msu1_packs) ImGui::SameLine(0, px(14));
+            float avail = ImGui::GetContentRegionAvail().x - bw - px(th.spacing_sm);
+            if (avail < px(50)) avail = px(50);
+            const char* dir = m->s.msu1_dir[0] ? m->s.msu1_dir : "(not set)";
+            char elided[192]; elide_left(dir, avail, elided, sizeof(elided));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(col(th.text_muted), "%s", elided);
+            ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
+            if (ImGui::Button(ui_text("Browse"), ImVec2(bw, px(30)))) {  // px(30) matches the other settings buttons + the row's frame height (px(28) sat the label high)
+                auto selected_path = [m](const char* path) {
+                    if (path) launcher_model_set_msu1_dir(m, path);
+                };
+                if (m->num_msu1_packs > 0)
+                    ui_pick_file(m, "Select MSU-1 music file", {"*.msu"}, "MSU-1 music", selected_path);
+                else
+                    ui_pick_folder(m, "Select MSU-1 music folder", selected_path);
+            }
         }
     }
 
@@ -4069,7 +4095,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
 // panel_video_draw, decided from the same "deep" predicate draw_settings used
 // to compute inline.
 void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
-    const bool deep_audio = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio = m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
     if (deep_audio || !g_settings_two_col) {
         if (begin_panel("audio", 0, false)) draw_audio_controls(m, *th);
         end_panel();
@@ -4488,7 +4514,7 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
     g_settings_two_col = two_col;   // read by panel_video_draw/panel_audio_draw
 
     const bool deep_display = video_card_grows(m);   // superset of any_deep_display: folds in NES + widescreen (N64 covered too)
-    const bool deep_audio   = m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio   = m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
 
     const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
     const LauncherPanel* audio_p   = find_composed(prof->panels_settings, "audio", m);
@@ -11074,6 +11100,34 @@ static void draw_rom_patch(LauncherModel* m, const LauncherTheme& th) {
     ImGui::EndChild();
 }
 
+static void draw_mod_presets(LauncherModel* m, const LauncherTheme& th) {
+    const int count = launcher_model_preset_count(m);
+    if (!count) return;
+    const char* current = m->mods->preset_current(m->mods->ctx, &m->s);
+    RecompLauncherCModPreset selected{};
+    std::snprintf(selected.name, sizeof(selected.name), "%s", "Custom");
+    for (int i = 0; i < count; ++i) {
+        RecompLauncherCModPreset item{};
+        if (m->mods->preset_get(m->mods->ctx, i, &item) && current && !std::strcmp(current, item.id)) selected = item;
+    }
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Preset");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(px(280));
+    if (ImGui::BeginCombo("##mod_preset", selected.name)) {
+        for (int i = 0; i < count; ++i) {
+            RecompLauncherCModPreset item{};
+            if (!m->mods->preset_get(m->mods->ctx, i, &item)) continue;
+            if (ImGui::Selectable(item.name, current && !std::strcmp(current, item.id)))
+                launcher_model_apply_preset(m, item.id);
+            if (ImGui::IsItemHovered() && item.description[0]) ImGui::SetTooltip("%s", item.description);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::TextColored(col(th.text_muted), "Individual options remain editable.");
+    ImGui::Spacing();
+}
+
 void draw_mods(LauncherModel* m, const LauncherTheme& th) {
     const auto* mods = m ? m->mods : nullptr;
     if (!m || (!mods && !m->rom_patch_supported)) return;
@@ -11085,6 +11139,7 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
     /* Above the Features/Packages switch: a package that failed to parse is
      * missing from BOTH views, so reporting it inside either one would leave
      * the other silent. */
+    draw_mod_presets(m, th);
     draw_mod_catalog_diagnostics(m, th);
 
     const bool feature_provider =

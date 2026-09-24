@@ -45,6 +45,13 @@ so behavior is identical across every game.
 
 ---
 
+## Optional experience presets
+
+Hosts may opt into a preset picker by supplying four mod-provider callbacks.
+No picker or default presets appear in games that omit them. Bundled MSU
+source choices are a separate optional capability; existing hosts retain the
+custom-folder UI. See [the API guide](docs/OPTIONAL_PRESETS.md).
+
 ## Consuming it
 
 ### 1. Vendor the repo (git submodule)

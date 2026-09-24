@@ -235,6 +235,20 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-video-pick
         COMMAND $<TARGET_FILE:recomp-ui-launcher-video-pick-test>)
 
+    add_executable(recomp-ui-launcher-presets-test
+        tests/launcher_presets_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-presets-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-presets-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-presets
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-presets-test>)
+
     # First-run wizard: staging a retail BIOS that has no linked backend.
     # Same include-the-TU shape as the discs test above.
     add_executable(recomp-ui-launcher-setup-bios-test

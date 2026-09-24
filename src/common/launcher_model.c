@@ -359,6 +359,9 @@ void launcher_model_init(LauncherModel* m,
         m->widescreen_supported = game->widescreen_supported != 0;
         m->msu1_supported       = game->msu1_supported != 0;
         m->msu1_note            = game->msu1_note;
+        m->msu1_packs           = game->msu1_packs;
+        m->num_msu1_packs       = game->msu1_packs && game->num_msu1_packs > 0
+                                      ? game->num_msu1_packs : 0;
         m->msu1_patch_path      = game->msu1_patch_path;
         m->saves_supported      = game->sram_path != NULL;
         m->sram_path            = game->sram_path;
@@ -3489,6 +3492,39 @@ void launcher_model_clear_sram(LauncherModel* m) {
     if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); remove(m->sram_path); }
 }
 
+int launcher_model_preset_count(const LauncherModel* m) {
+    const RecompLauncherCModProvider* p = m ? m->mods : NULL;
+    if (!p || !p->preset_count || !p->preset_get || !p->preset_current || !p->preset_apply)
+        return 0;
+    int n = p->preset_count(p->ctx);
+    return n > 0 && n <= 64 ? n : 0;
+}
+int launcher_model_apply_preset(LauncherModel* m, const char* id) {
+    if (!id) return 0;
+    int n = launcher_model_preset_count(m);
+    for (int i = 0; i < n; ++i) {
+        RecompLauncherCModPreset preset = {0};
+        if (!m->mods->preset_get(m->mods->ctx, i, &preset) || strcmp(preset.id, id)) continue;
+        if (m->mods->preset_apply(m->mods->ctx, id, &m->s)) {
+            m->mod_status[0] = 0;
+            return 1;
+        }
+        const char* error = m->mods->last_error ? m->mods->last_error(m->mods->ctx) : NULL;
+        safe_copy(m->mod_status, sizeof(m->mod_status), error && *error ? error : "Unable to apply preset");
+        return 0;
+    }
+    return 0;
+}
+int launcher_model_set_msu1_pack(LauncherModel* m, const char* id) {
+    if (!m || !m->msu1_supported || !id || !m->msu1_packs || m->num_msu1_packs <= 0) return 0;
+    if (!*id) { m->s.msu1_pack[0] = 0; return 1; }
+    for (int i = 0; i < m->num_msu1_packs; ++i)
+        if (m->msu1_packs[i].id && !strcmp(id, m->msu1_packs[i].id) && strlen(id) < sizeof(m->s.msu1_pack)) {
+            safe_copy(m->s.msu1_pack, sizeof(m->s.msu1_pack), id);
+            return 1;
+        }
+    return 0;
+}
 void launcher_model_toggle_msu1(LauncherModel* m) {
     if (!m->msu1_supported) return;
     m->s.msu1_enabled = !m->s.msu1_enabled;
