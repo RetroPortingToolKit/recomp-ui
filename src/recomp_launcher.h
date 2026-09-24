@@ -953,6 +953,7 @@ typedef struct RecompLauncherCModProvider {
     int (*version_get)(void* ctx, const char* package_id, int index,
                        RecompLauncherCModVersion* out);
     /* Mutations return 1 on success and 0 on failure. */
+    /* Optional. NULL hides installation in both feature and package views. */
     int (*install_archive)(void* ctx, const char* archive_path);
     int (*remove_package)(void* ctx, const char* package_id, const char* version);
     int (*set_enabled)(void* ctx, const char* package_id, int enabled);

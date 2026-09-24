@@ -10222,31 +10222,33 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
         mods->feature_option_get && mods->feature_enable &&
         mods->feature_set_option;
 
-    const char* archive_extension =
-        mods->archive_extension && mods->archive_extension[0]
-            ? mods->archive_extension : ".psxmod";
-    const char* archive_description =
-        mods->archive_description && mods->archive_description[0]
-            ? mods->archive_description
-            : "PSXRecomp mod package (.psxmod)";
-    char install_label[96];
-    char archive_pattern[64];
-    std::snprintf(install_label, sizeof(install_label),
-                  "%s %s", ui_text("Install"), archive_extension);
-    std::snprintf(archive_pattern, sizeof(archive_pattern),
-                  "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
-        ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
-                     archive_description, [m, mods](const char* path) {
-            if (!path) return;
-            if (!mods->install_archive || !mods->install_archive(mods->ctx, path))
-                mod_note_error(m);
-            else
-                std::snprintf(m->mod_status, sizeof(m->mod_status),
-                              "Package installed. Changes apply when you press PLAY.");
-        });
+    if (mods->install_archive) {
+        const char* archive_extension =
+            mods->archive_extension && mods->archive_extension[0]
+                ? mods->archive_extension : ".psxmod";
+        const char* archive_description =
+            mods->archive_description && mods->archive_description[0]
+                ? mods->archive_description
+                : "PSXRecomp mod package (.psxmod)";
+        char install_label[96];
+        char archive_pattern[64];
+        std::snprintf(install_label, sizeof(install_label),
+                      "%s %s", ui_text("Install"), archive_extension);
+        std::snprintf(archive_pattern, sizeof(archive_pattern),
+                      "*%s", archive_extension);
+        if (ImGui::Button(install_label)) {
+            ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
+                         archive_description, [m, mods](const char* path) {
+                if (!path) return;
+                if (!mods->install_archive || !mods->install_archive(mods->ctx, path))
+                    mod_note_error(m);
+                else
+                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                  "Package installed. Changes apply when you press PLAY.");
+            });
+        }
+        ImGui::SameLine();
     }
-    ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", "Search mods and options...",
                              m->mod_search, sizeof(m->mod_search));
@@ -10696,33 +10698,35 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     }
 
     const int feature_count = mods->feature_count(mods->ctx);
-    const char* archive_extension =
-        mods->archive_extension && mods->archive_extension[0]
-            ? mods->archive_extension : ".psxmod";
-    const char* archive_description =
-        mods->archive_description && mods->archive_description[0]
-            ? mods->archive_description
-            : "PSXRecomp mod package (.psxmod)";
-    char install_label[96];
-    char archive_pattern[64];
-    std::snprintf(install_label, sizeof(install_label),
-                  "Install %s", archive_extension);
-    std::snprintf(archive_pattern, sizeof(archive_pattern),
-                  "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
-        ui_pick_file(m, "Install Mod Package", {archive_pattern},
-                     archive_description, [m, mods](const char* path) {
-            if (!path) return;
-            if (!mods->install_archive ||
-                !mods->install_archive(mods->ctx, path)) {
-                mod_note_error(m);
-            } else {
-                std::snprintf(m->mod_status, sizeof(m->mod_status),
-                              "%s", ui_text("Package installed. Changes apply when you press PLAY."));
-            }
-        });
+    if (mods->install_archive) {
+        const char* archive_extension =
+            mods->archive_extension && mods->archive_extension[0]
+                ? mods->archive_extension : ".psxmod";
+        const char* archive_description =
+            mods->archive_description && mods->archive_description[0]
+                ? mods->archive_description
+                : "PSXRecomp mod package (.psxmod)";
+        char install_label[96];
+        char archive_pattern[64];
+        std::snprintf(install_label, sizeof(install_label),
+                      "Install %s", archive_extension);
+        std::snprintf(archive_pattern, sizeof(archive_pattern),
+                      "*%s", archive_extension);
+        if (ImGui::Button(install_label)) {
+            ui_pick_file(m, "Install Mod Package", {archive_pattern},
+                         archive_description, [m, mods](const char* path) {
+                if (!path) return;
+                if (!mods->install_archive ||
+                    !mods->install_archive(mods->ctx, path)) {
+                    mod_note_error(m);
+                } else {
+                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                  "%s", ui_text("Package installed. Changes apply when you press PLAY."));
+                }
+            });
+        }
+        ImGui::SameLine();
     }
-    ImGui::SameLine();
     if (ImGui::Button(ui_text("Enable all")))
         set_all_mod_features(m, true);
     if (ImGui::IsItemHovered())
