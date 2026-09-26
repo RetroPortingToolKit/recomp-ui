@@ -66,23 +66,35 @@ int main(int argc, char **argv)
     require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 1) == 0,
             "reset clears alternate binding");
 
-    /* A key belongs to one input: S is Circle's default; binding it to Cross
-     * must take it away from Circle, or one press asserts both buttons. */
+    /* A key MAY drive more than one input: S is Circle's default, and binding
+     * it to Cross keeps it on Circle too (the controls page highlights the
+     * duplicate instead of silently unbinding the other input). */
     require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == TEST_KEY_S,
             "Circle defaults to S");
     rui_psx_binds_set_slot(path, 0, TEST_CROSS, 0, TEST_KEY_S);
     require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 0) == TEST_KEY_S,
             "Cross now holds S");
-    require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == 0,
-            "binding S to Cross unbinds it from Circle");
-    require(file_contains(path, "circle    = None\ncross     = S"),
-            "the cleared Circle key is gone from disk too");
-    /* An alternate takes the key just the same. */
-    rui_psx_binds_set_slot(path, 0, TEST_CIRCLE, 1, TEST_KEY_S);
+    require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == TEST_KEY_S,
+            "binding S to Cross leaves it on Circle");
+    require(file_contains(path, "circle    = S\ncross     = S"),
+            "both inputs keep S on disk");
+    /* The same key in both slots of ONE input is redundant: that input's
+     * other slot is cleared, and nothing else. */
+    rui_psx_binds_set_slot(path, 0, TEST_CROSS, 1, TEST_KEY_S);
+    require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 1) == TEST_KEY_S,
+            "Cross's alternate holds S");
     require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 0) == 0,
-            "binding S as Circle's alternate takes it from Cross");
-    require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 1) == TEST_KEY_S,
-            "Circle's alternate holds S");
+            "S as Cross's alternate clears Cross's primary");
+    require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == TEST_KEY_S,
+            "Circle still holds S");
+    /* Right-click clear: scancode 0 unbinds just that slot. */
+    rui_psx_binds_set_slot(path, 0, TEST_CIRCLE, 0, 0);
+    require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == 0,
+            "clearing Circle's primary unbinds it");
+    require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 1) == TEST_KEY_S,
+            "clearing Circle leaves Cross's alternate");
+    require(file_contains(path, "circle    = None"),
+            "the cleared Circle key is gone from disk too");
 
     remove(path);
     puts("PSX dual-bind persistence tests passed");

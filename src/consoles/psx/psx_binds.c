@@ -264,18 +264,19 @@ int rui_psx_binds_get(const char* path, int player, int b) {
     return (int)s_psx_binds[player][b];
 }
 
-/* A key drives ONE input per player. Binding S to Cross while S is still
- * Circle's key made one press assert both -- and Cross-plus-Circle is a
- * cancelled press to most games, which reads as "the key does nothing".
- * Every other slot of this player that holds `sc` is cleared first. */
+/* A key MAY drive more than one input: one key on two shoulder buttons, or a
+ * combo on a single key, is a legitimate choice. Silently unbinding the other
+ * input would hide the change from the player; the controls page instead
+ * highlights a key bound more than once, so an accidental duplicate (S on
+ * both Cross and Circle) is visible and a deliberate one is kept.
+ * The only slot cleared is this input's OTHER slot: primary == alternate is
+ * redundant. */
 static void psx_kb_take_key(int player, int b, int slot, SDL_Scancode sc) {
     if (sc == SDL_SCANCODE_UNKNOWN) return;
-    for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
-        if (s_psx_binds[player][i] == sc && !(i == b && slot == 0))
-            s_psx_binds[player][i] = SDL_SCANCODE_UNKNOWN;
-        if (s_psx_binds_alt[player][i] == sc && !(i == b && slot == 1))
-            s_psx_binds_alt[player][i] = SDL_SCANCODE_UNKNOWN;
-    }
+    if (slot == 0 && s_psx_binds_alt[player][b] == sc)
+        s_psx_binds_alt[player][b] = SDL_SCANCODE_UNKNOWN;
+    if (slot == 1 && s_psx_binds[player][b] == sc)
+        s_psx_binds[player][b] = SDL_SCANCODE_UNKNOWN;
 }
 
 void rui_psx_binds_set(const char* path, int player, int b, int scancode) {

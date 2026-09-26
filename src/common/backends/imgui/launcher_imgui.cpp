@@ -5704,13 +5704,12 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             if (has_pad_src) ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
             else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
             ImGui::PopStyleColor();
-            // The alternate slot has no chip of its own (see the grid below);
-            // the heading carries its only discoverable mention, so the button
-            // row stays identical to the gamepad card's.
+            // Both slots have a visible chip (see the grid below), so the
+            // hint only has to say how to edit them.
             if (!has_pad_src) {
                 ImGui::SameLine();
                 ImGui::TextColored(col(th.text_muted),
-                    "  (right-click a bind for an alternate)");
+                    "  (click to rebind, right-click to clear; yellow = bound more than once)");
             }
             ImGui::Spacing();
 
@@ -5723,19 +5722,36 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 // Input source must not reshuffle the vocabulary under the
                 // player's cursor.
                 //
-                // The keyboard store keeps an ALTERNATE bind per input
-                // (slot 1, also where a mouse button goes) which this grid no
-                // longer shows -- one chip is what parity with the gamepad
-                // card costs. Existing alternates in keybinds.ini are left
-                // untouched and still assert at runtime; they are just not
-                // editable from here.
+                // Every input shows BOTH of its keyboard binds: the primary and
+                // the ALTERNATE (slot 1; a key or a mouse button). A hidden
+                // alternate still asserts at runtime, so an invisible second
+                // bind is a control the player cannot see or reason about --
+                // two visible chips make the whole mapping readable at a
+                // glance. Left-click a chip to rebind that slot, right-click
+                // it to clear it: without a per-slot clear the only way to
+                // drop one bind was Reset to Defaults, which wipes the whole
+                // player.
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
                     float w = ImGui::CalcTextSize(spec.buttons[i].label).x + px(20.0f);
                     if (w > label_col_w) label_col_w = w;
                 }
-                const float chip_w = px(140.0f);
-                const float cell_w = label_col_w + chip_w + px(16.0f);
+                const float chip_w = px(112.0f);
+                const float chip_gap = px(6.0f);
+                // Duplicate-bind detection across this player's table, both
+                // slots. Duplicates stay ALLOWED (one key on two inputs is a
+                // legitimate choice); the warn colour just makes an accidental
+                // one visible at a glance.
+                auto bind_dup_count = [&](const char* txt) -> int {
+                    if (!txt || !txt[0] || !strcmp(txt, "(unbound)")) return 0;
+                    int n = 0;
+                    for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+                        if (!strcmp(m->binds[p][i], txt)) ++n;
+                        if (!strcmp(m->binds_alt[p][i], txt)) ++n;
+                    }
+                    return n;
+                };
+                const float cell_w = label_col_w + 2.0f * chip_w + chip_gap + px(16.0f);
                 if (ImGui::BeginTable("psx_key_binds", LNG_PSX_GAMEPAD_BIND_COLS,
                                       ImGuiTableFlags_SizingFixedFit)) {
                     for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c)
@@ -5750,57 +5766,70 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                             bind_row_label(spec.buttons[b].label,
                                            col(th.text_muted), label_col_w,
                                            px(6.0f));
-                            const bool cap = m->capturing && !m->capture_pad &&
-                                             !m->capture_assist &&
-                                             m->capture_btn == b;
-                            const bool cap_alt = cap && m->capture_slot == 1;
-                            const char* lbl = m->binds[p][b];
-                            if (!lbl || !lbl[0]) lbl = "(unbound)";
-                            const char* alt = m->binds_alt[p][b];
-                            const bool has_alt = alt && alt[0] &&
-                                                 strcmp(alt, "(unbound)") != 0;
-                            const char* chip = cap_alt ? "[ press an alt... ]"
-                                             : cap     ? "[ press a key... ]"
-                                                       : lbl;
-                            if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
-                            if (ImGui::Button(chip, ImVec2(chip_w, 0))) {
-                                m->map_all_active = false;
-                                launcher_model_begin_capture_slot(m, b, 0);
-                            }
-                            if (cap) ImGui::PopStyleColor();
-                            // Right-click captures into slot 1 -- the ALTERNATE
-                            // bind, and the only slot a mouse button can go in.
-                            // Fire on RELEASE, not IsItemClicked (which fires on
-                            // press): try_capture swallows every mouse event once
-                            // capturing, so a press-triggered capture would eat
-                            // its own button-up and leave ImGui believing the
-                            // right button was held down forever.
-                            if (ImGui::IsItemHovered() &&
-                                ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
-                                m->map_all_active = false;
-                                launcher_model_begin_capture_slot(m, b, 1);
-                            }
-                            // A bind with an alternate carries an accent dot in
-                            // the chip's corner: without it the second bind is
-                            // invisible, and a chip with no alternate stays
-                            // pixel-identical to the gamepad card's.
-                            if (has_alt && !cap) {
-                                const ImVec2 mn = ImGui::GetItemRectMin();
-                                const ImVec2 mx = ImGui::GetItemRectMax();
-                                ImGui::GetWindowDrawList()->AddCircleFilled(
-                                    ImVec2(mx.x - px(6.0f), mn.y + px(6.0f)),
-                                    px(2.5f), ImGui::GetColorU32(col(th.accent2)));
-                            }
-                            if (ImGui::IsItemHovered()) {
-                                if (has_alt)
-                                    ImGui::SetTooltip(
-                                        "Alternate: %s\n"
-                                        "Right-click to rebind it (key or mouse button)",
-                                        alt);
-                                else
-                                    ImGui::SetTooltip(
-                                        "No alternate bound\n"
-                                        "Right-click to set one (key or mouse button)");
+                            for (int slot = 0; slot < 2; ++slot) {
+                                if (slot) ImGui::SameLine(0, chip_gap);
+                                ImGui::PushID(slot);
+                                const bool cap = m->capturing && !m->capture_pad &&
+                                                 !m->capture_assist &&
+                                                 m->capture_btn == b &&
+                                                 m->capture_slot == slot;
+                                const char* lbl = slot ? m->binds_alt[p][b]
+                                                       : m->binds[p][b];
+                                if (!lbl || !lbl[0]) lbl = "(unbound)";
+                                const bool unbound = strcmp(lbl, "(unbound)") == 0;
+                                const bool dup = !cap && bind_dup_count(lbl) > 1;
+                                const char* chip = cap ? "[ press... ]"
+                                                 : (slot && unbound) ? "-"
+                                                                     : lbl;
+                                if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                                else if (dup)
+                                    ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+                                else if (slot && unbound)
+                                    ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+                                if (ImGui::Button(chip, ImVec2(chip_w, 0))) {
+                                    m->map_all_active = false;
+                                    launcher_model_begin_capture_slot(m, b, slot);
+                                }
+                                if (cap || dup || (slot && unbound)) ImGui::PopStyleColor();
+                                // Clear on RELEASE, not IsItemClicked (press): a
+                                // capture in progress swallows mouse events, and
+                                // a press-triggered action would leave ImGui
+                                // believing the right button was still held.
+                                if (!m->capturing && ImGui::IsItemHovered() &&
+                                    ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+                                    !unbound) {
+                                    launcher_binds_set_button_slot(
+                                        m, m->cfg_player + 1, b, slot, 0);
+                                }
+                                if (ImGui::IsItemHovered() && !cap) {
+                                    // Name the other inputs sharing this key.
+                                    char also[160] = "";
+                                    if (dup) {
+                                        size_t used = 0;
+                                        for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+                                            const bool hit =
+                                                (i != b || slot != 0) && !strcmp(m->binds[p][i], lbl);
+                                            const bool hit_alt =
+                                                (i != b || slot != 1) && !strcmp(m->binds_alt[p][i], lbl);
+                                            if (!hit && !hit_alt) continue;
+                                            const int w = snprintf(also + used, sizeof also - used,
+                                                                   "%s%s", used ? ", " : "",
+                                                                   spec.buttons[i].label);
+                                            if (w < 0 || (size_t)w >= sizeof also - used) break;
+                                            used += (size_t)w;
+                                        }
+                                    }
+                                    if (dup && also[0])
+                                        ImGui::SetTooltip("%s bind: %s\n"
+                                            "Also bound to: %s\n"
+                                            "Click to rebind (key or mouse button), right-click to clear",
+                                            slot ? "Alternate" : "Primary", lbl, also);
+                                    else
+                                        ImGui::SetTooltip("%s bind: %s\n"
+                                            "Click to rebind (key or mouse button), right-click to clear",
+                                            slot ? "Alternate" : "Primary", lbl);
+                                }
+                                ImGui::PopID();
                             }
                             ImGui::PopID();
                         }
