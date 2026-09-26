@@ -98,6 +98,19 @@ both ends, since neither knows when the other is back:
 `RNetLanLobby.session_id`** (recomp-net `feat/lan-direct-rematch`, 8342229);
 an older recomp-net does not compile this backend.
 
+**Correction 2026-09-25 (later): the guest armed its launch on the host's
+ROOM refresh, not on START.** `cb_request_start` publishes the room (ROOM,
+`started=1`, no session id) and only then arms, which sends START with the
+fresh id. A Direct IP guest that read the ROOM first armed with the id it
+already held -- 0 after the re-join, launched as session 1 -- while the host
+ran the new id, so both timed out (`connect_timeout`). It passed or failed on
+which datagram a pump call happened to read first: nesrecomp's
+`tools/rb_lobby.sh lan 2` failed it every run, n64lle's passed. The guest now
+arms only once START has been read (`g_lan_start_seen`);
+`recomp-ui-netplay-host-test` sends ROOM-then-START as the real host does and
+fails without the fix. The "fresh session_id per START" claim below held for
+the HOST all along; it now holds for the guest too.
+
 Found 2026-09-25 by n64lle's headless lobby harness (`tools/rb_lobby.sh lan
 2`: host second match `connect_timeout_lan`, guest never launched) and fixed
 the same day; `recomp-ui-netplay-host-test` drives both halves on loopback.

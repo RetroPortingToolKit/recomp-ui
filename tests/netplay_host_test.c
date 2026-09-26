@@ -437,8 +437,19 @@ static void case_lan_rematch_as_guest(void)
     ck(strcmp(hroom.joiner_name, "Guesty") == 0, "in its seat at the host");
     ck(lan_chat_available() == 1, "chat is back");
 
+    /* What the backend's host really sends at START: the ROOM refresh
+     * (started=1, no session id) FIRST, then START. A guest that armed on
+     * ROOM launched with session 1 while the host ran a fresh id. */
     hroom.started = 1;
     hroom.session_id = 0x51000002u;
+    ck(rnet_lan_direct_host_notify_room(host, &hroom) == RNET_LAN_DIRECT_OK,
+       "match 2 ROOM refresh (started)");
+    for (i = 0; i < 50; ++i) {
+        cb_pump(NULL);
+        ck(!cb_launch_pending(NULL),
+           "ROOM alone does not launch (it carries no session id)");
+        usleep(1000);
+    }
     ck(rnet_lan_direct_host_notify_start(host, &hroom) == RNET_LAN_DIRECT_OK,
        "match 2 START");
     ck(backend_launches(), "the backend launches the rematch");

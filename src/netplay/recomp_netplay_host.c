@@ -795,6 +795,20 @@ static void direct_reopen_step(void)
                   "guest's seat is open for it to re-join\n", bind_hp);
 }
 
+/* Direct IP guest: 1 once THIS start's START message has been read. Only
+ * START carries the match's session id; the host's ROOM refresh also says
+ * "started" and is sent first (cb_request_start publishes the room, then
+ * arms, which sends START), so arming on ROOM launched the guest with the
+ * previous room's id -- 0, i.e. session 1 -- while the host ran a fresh one:
+ * every LAN rematch timed out (nesrecomp rb_lobby.sh lan, 2026-09-25). */
+static int g_lan_start_seen;
+
+static void direct_guest_note_event(int ev)
+{
+  if (ev == 1)
+    g_lan_start_seen = 1;
+}
+
 static void sync_lan_joiner(void)
 {
   RNetLanLobby state;
@@ -807,6 +821,7 @@ static void sync_lan_joiner(void)
   if (g_joined_direct) {
     int rtt = -1;
     ev = rnet_lan_direct_guest_pump(g_direct_guest, &g_lan_room, &rtt);
+    direct_guest_note_event(ev);
     if (ev == 2) /* KICK / CLOSE */
       clear_lan_joiner();
     else if (ev == 3 && rtt >= 0)
@@ -943,6 +958,7 @@ static void arm_lan_launch(const RNetLanLobby *state)
   if (g_hosting_lan)
     (void)rnet_lan_direct_host_notify_start(g_direct_host, state);
   close_direct_sockets();
+  g_lan_start_seen = 0;
   memset(&g_lan_launch, 0, sizeof(g_lan_launch));
   g_lan_launch.enabled = 1;
   /* Two seats, both occupied: the room does not start without the joiner. */
@@ -1056,6 +1072,7 @@ void recomp_netplay_host_shutdown(void)
 
 void recomp_netplay_host_prepare_rematch(void)
 {
+  g_lan_start_seen = 0;
   if (g_hosting_lan || g_joined_lan) {
     g_lan_room.started = 0;
     (void)rnet_lan_lobby_set_started(lan_path(), 0);
@@ -2292,9 +2309,10 @@ static int cb_launch_pending(void *ctx)
   if (g_joined_direct && g_direct_guest && !g_lan_launch.enabled) {
     int rtt = -1;
     ev = rnet_lan_direct_guest_pump(g_direct_guest, &g_lan_room, &rtt);
+    direct_guest_note_event(ev);
     if (ev == 3 && rtt >= 0)
       g_lan_guest_rtt_ms = rtt;
-    if (ev == 1 || g_lan_room.started)
+    if (g_lan_start_seen)
       arm_lan_launch(&g_lan_room);
   } else if (g_joined_lan && !g_joined_direct && !g_lan_launch.enabled &&
              read_lan(&state) && state.started) {
