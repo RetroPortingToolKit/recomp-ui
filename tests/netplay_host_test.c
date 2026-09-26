@@ -475,8 +475,20 @@ static void case_lan_rematch_as_guest(void)
     remove(registry);
 }
 
+/* A rematch launch that arrives while this peer is still draining the
+ * previous match must survive the soft return; the consumed one must not. */
+static void case_rematch_launch_kept(void)
+{
+    printf("  soft return: keep a launch for the NEXT session\n");
+    ck(launch_is_stale(0, 7, 1, 7) == 1, "nothing pending: clear");
+    ck(launch_is_stale(1, 7, 1, 7) == 1, "the consumed session's launch is stale");
+    ck(launch_is_stale(1, 8, 1, 7) == 0, "a newer session's launch is kept");
+    ck(launch_is_stale(1, 8, 0, 0) == 1, "no consumed launch: old behaviour");
+}
+
 int main(void)
 {
+    case_rematch_launch_kept();
     case_host_first_standard_and_swapped();
     case_host_first_sparse_four();
     case_host_first_host_in_gallery();

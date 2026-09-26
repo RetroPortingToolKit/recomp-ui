@@ -1070,6 +1070,27 @@ void recomp_netplay_host_shutdown(void)
   g_inited = 0;
 }
 
+/* The online launch this process last consumed (cb_fill_launch). */
+static uint32_t g_consumed_launch_sid;
+static int g_consumed_launch_valid;
+
+/* Is the pending online launch the one the match that just ended ran? A
+ * rematch's op:launch can arrive while a slow peer is still draining the
+ * previous match (the host starts as soon as the room reads all-ready); that
+ * launch belongs to the NEXT session and must survive the soft return.
+ * Clearing it unconditionally left the slow peer in the room forever
+ * (Genesis 4 players + 1 spectator, round 2: the last guest and the
+ * spectator timed out waiting for a launch that had already come). */
+static int launch_is_stale(int pending, uint32_t pending_sid,
+                           int consumed_valid, uint32_t consumed_sid)
+{
+  if (!pending)
+    return 1;
+  if (!consumed_valid)
+    return 1;          /* nothing consumed: keep the old behaviour */
+  return pending_sid == consumed_sid;
+}
+
 void recomp_netplay_host_prepare_rematch(void)
 {
   g_lan_start_seen = 0;
@@ -1098,7 +1119,19 @@ void recomp_netplay_host_prepare_rematch(void)
     rnet_lobby_set_ready(1);
   else
     rnet_lobby_set_ready(0);
-  rnet_lobby_clear_launch_pending();
+  {
+    const RNetLobbyJoinInfo *ji = rnet_lobby_join_info();
+    uint32_t pending_sid = ji ? ji->session_id : 0u;
+    if (launch_is_stale(rnet_lobby_launch_pending(), pending_sid,
+                        g_consumed_launch_valid, g_consumed_launch_sid)) {
+      rnet_lobby_clear_launch_pending();
+    } else {
+      fprintf(stderr, "netplay: soft return keeps the launch of session %u "
+                      "(it arrived during session %u)\n",
+              (unsigned)pending_sid, (unsigned)g_consumed_launch_sid);
+    }
+  }
+  g_consumed_launch_valid = 0;
   memset(&g_lan_launch, 0, sizeof(g_lan_launch));
 }
 
@@ -2617,6 +2650,8 @@ static int cb_fill_launch(void *ctx, RecompLauncherCNetplayLaunch *out)
            join.peer_hostport);
   if (g_h.apply_match_caps)
     g_h.apply_match_caps(g_h.ctx, caps, out);
+  g_consumed_launch_sid = join.session_id;
+  g_consumed_launch_valid = 1;
   return 1;
 }
 
