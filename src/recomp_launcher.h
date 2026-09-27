@@ -1984,6 +1984,10 @@ typedef struct RecompLauncherCGameInfo {
      * appended by the UI and preserves Settings.msu1_dir when switching. */
     const RecompLauncherCMsuPack* msu1_packs;
     int num_msu1_packs;
+    /* Opt-in host-managed discovery: show only the enable checkbox and note.
+     * The host resolves installed music; no soundtrack or file picker is shown.
+     * Zero preserves the existing folder/custom soundtrack UI. */
+    int msu1_managed;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

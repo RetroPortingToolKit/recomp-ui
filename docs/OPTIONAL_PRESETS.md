@@ -48,5 +48,11 @@ host. Leave the list absent to keep the existing custom-folder-only UI.
 These appended fields require hosts and the UI to be rebuilt together, like
 other changes to these shared C structs.
 
+Hosts that discover music from installed content can instead opt into
+`msu1_managed = 1`. The Audio panel then shows only the enable checkbox and
+help note; it omits the soundtrack dropdown and file/folder picker regardless
+of whether recordings are installed. The host owns discovery and persistence.
+The default is zero, preserving existing hosts' MSU controls.
+
 `launcher-presets` CTest covers the absent/incomplete capability, explicit
 application, unrelated settings, source selection and custom-path retention.

@@ -358,6 +358,7 @@ void launcher_model_init(LauncherModel* m,
         m->platform             = game->platform;   // NULL => no subtitle
         m->widescreen_supported = game->widescreen_supported != 0;
         m->msu1_supported       = game->msu1_supported != 0;
+        m->msu1_managed         = game->msu1_managed != 0;
         m->msu1_note            = game->msu1_note;
         m->msu1_packs           = game->msu1_packs;
         m->num_msu1_packs       = game->msu1_packs && game->num_msu1_packs > 0

@@ -4038,7 +4038,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndTooltip();
             }
         }
-        if (m->num_msu1_packs > 0) {
+        if (!m->msu1_managed && m->num_msu1_packs > 0) {
             const char* selected = "Custom...";
             for (int i = 0; i < m->num_msu1_packs; ++i)
                 if (!std::strcmp(m->s.msu1_pack, m->msu1_packs[i].id)) selected = m->msu1_packs[i].name;
@@ -4058,7 +4058,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndCombo();
             }
         }
-        if (!m->num_msu1_packs || !m->s.msu1_pack[0]) {
+        if (!m->msu1_managed && (!m->num_msu1_packs || !m->s.msu1_pack[0])) {
             const float bw = px(78);
             if (!m->num_msu1_packs) ImGui::SameLine(0, px(14));
             float avail = ImGui::GetContentRegionAvail().x - bw - px(th.spacing_sm);
