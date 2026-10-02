@@ -1679,6 +1679,9 @@ static void run_verify(LauncherModel* m) {
             m->verify.iso_ok  = dv.iso_ok != 0;
             m->verify.verdict = dv.verdict;
             m->verify.sbi_status = dv.sbi_status;
+            m->verify.serial_status = dv.serial_status;
+            safe_copy(m->verify.expected_serials, sizeof(m->verify.expected_serials),
+                      dv.expected_serials);
             m->verify.track_count = dv.track_count;
             m->verify.netplay_ok = dv.netplay_ok;
             safe_copy(m->verify.disc_fp, sizeof(m->verify.disc_fp), dv.disc_fp);
@@ -1705,6 +1708,40 @@ static void run_verify(LauncherModel* m) {
         m->verify.iso_ok  = false;
         m->verify.verdict = 0;   // none
     }
+}
+
+bool launcher_model_disc_serial_ok(const LauncherModel* m) {
+    if (!m || !m->verify.serial[0]) return false;
+    return m->verify.serial_status != RECOMP_SERIAL_NOT_LISTED;
+}
+
+const char* launcher_model_disc_note(const LauncherModel* m, char* buf, size_t cap,
+                                     bool* wrong_disc) {
+    if (wrong_disc) *wrong_disc = false;
+    if (!buf || !cap) return "";
+    buf[0] = '\0';
+    if (!m || !m->rom_present) return buf;
+    const VerifyResult* v = &m->verify;
+    if (v->serial_status == RECOMP_SERIAL_NOT_LISTED) {
+        if (wrong_disc) *wrong_disc = true;
+        const bool read = v->serial[0] != '\0';
+        const bool known = v->expected_serials[0] != '\0';
+        if (read && known)
+            snprintf(buf, cap, "This disc is %s. This build needs %s.",
+                     v->serial, v->expected_serials);
+        else if (read)
+            snprintf(buf, cap, "This disc is %s. This build is made for another disc.",
+                     v->serial);
+        else if (known)
+            snprintf(buf, cap, "No serial was found on this disc. This build needs %s.",
+                     v->expected_serials);
+        else
+            snprintf(buf, cap, "No serial was found on this disc.");
+        return buf;
+    }
+    if (m->netplay_supported && v->netplay_detail[0] && !v->netplay_ok)
+        safe_copy(buf, cap, v->netplay_detail);
+    return buf;
 }
 
 const char* launcher_model_rom_path(const LauncherModel* m) {

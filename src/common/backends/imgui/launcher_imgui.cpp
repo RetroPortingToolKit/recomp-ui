@@ -2275,8 +2275,10 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
             kv_row("Disc image", pending ? dash : (v.iso_ok ? "Matches" : "Mismatch"),
                    th, !pending, v.iso_ok);
         } else {
+        // A tick only for a serial the build lists: a disc of another release
+        // has a serial too, and a tick beside it told the player it was right.
         kv_row("Serial",     pending ? dash : (v.serial[0] ? v.serial : dash),
-               th, !pending, v.serial[0] != '\0');
+               th, !pending, launcher_model_disc_serial_ok(m));
         kv_row("Region",     pending ? dash : (v.region[0] ? v.region : dash),
                th, !pending, v.region[0] != '\0');
         kv_row("ISO header", pending ? dash : (v.iso_ok ? "OK" : "Mismatch"),
@@ -2301,11 +2303,17 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
         }
         ImGui::EndTable();
     }
-    if (m->netplay_supported && !pending &&
-        v.netplay_detail[0] && !v.netplay_ok) {
+    // One line of reason under the checklist: the serial mismatch in the
+    // headline's red when that is why the disc is refused, otherwise the
+    // host's online-play note in amber (launcher_model_disc_note).
+    char note_buf[256];
+    bool wrong_disc = false;
+    const char* note = launcher_model_disc_note(m, note_buf, sizeof(note_buf), &wrong_disc);
+    if (note[0]) {
         ImGui::Dummy(ImVec2(0, px(4)));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
-        ImGui::TextColored(col(th.warn), "%s", v.netplay_detail);
+        ImGui::TextColored(col(wrong_disc ? lng_rgba(0.945f, 0.322f, 0.322f, 1.0f) : th.warn),
+                           "%s", note);
         ImGui::PopTextWrapPos();
     }
 }
@@ -2397,6 +2405,13 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         float reserve = px(198.0f);
         if(disc_verdict)reserve+=px(54.0f);
         if (disc_verdict) reserve += px(120.0f);          // taller: icon+headline + tracks row
+        if (disc_verdict) {
+            // The wrong-disc reason under the checklist (wraps to two lines).
+            char note_buf[256];
+            bool wrong_disc = false;
+            launcher_model_disc_note(m, note_buf, sizeof(note_buf), &wrong_disc);
+            if (wrong_disc) reserve += px(48.0f);
+        }
         // Disc Selection label + combo + spacing, for a multi-image title.
         if (launcher_model_disc_count(m) > 1) reserve += px(62.0f);
         if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
