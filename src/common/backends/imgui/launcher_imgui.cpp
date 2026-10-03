@@ -3998,6 +3998,31 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         }
     }
 
+    if (m->has_dynamic_resolution && m->s.renderer == 1 &&
+        m->s.internal_resolution != 1) {
+        row_label_right("Dynamic resolution", th, px(SETTINGS_CTRL_W));
+        bool enabled = m->s.dynamic_resolution != 0;
+        if (ImGui::Checkbox("##dynamic_resolution", &enabled))
+            m->s.dynamic_resolution = enabled ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Steps down when the game misses frame budgets, then returns to full resolution when there is room.");
+        if (enabled) {
+            static const int floors[] = {1, 720, 1080, 1440};
+            static const char* labels[] = {"Native", "720p", "1080p", "1440p"};
+            int cur = 1;
+            for (int i = 0; i < 4; ++i)
+                if (m->s.dynamic_resolution_min == floors[i]) cur = i;
+            row_label_right("Lowest resolution", th, px(SETTINGS_CTRL_W));
+            ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+            if (ImGui::BeginCombo("##dynamic_resolution_min", labels[cur])) {
+                for (int i = 0; i < 4; ++i)
+                    if (ImGui::Selectable(labels[i], cur == i))
+                        m->s.dynamic_resolution_min = floors[i];
+                ImGui::EndCombo();
+            }
+        }
+    }
+
     // Universal fullscreen row (every console — no longer gated on the
     // vestigial has_fullscreen_toggle). A tri-state dropdown, so Exclusive is
     // both reachable and visible without pressing through the other two.

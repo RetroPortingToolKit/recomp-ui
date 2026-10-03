@@ -337,6 +337,7 @@ typedef struct {
     const int*         internal_resolution_values;
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
+    bool               has_dynamic_resolution;
 
     // ---- rebind-page opt-out (GameInfo.hide_rebind) ------------------------
     bool hide_rebind;
