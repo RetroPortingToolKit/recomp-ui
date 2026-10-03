@@ -18,6 +18,14 @@
 #include "recomp_net/chat_filter.h"
 #include "recomp_net/address.h"
 #include "recomp_net/host_relay.h"
+/* Host relay over ICE needs a recomp-net that carries it (host_ice.h). Older
+ * pins keep compiling: the ICE wiring drops out and the legacy path stays. */
+#if defined(__has_include)
+#  if __has_include("recomp_net/host_ice.h")
+#    include "recomp_net/host_ice.h"
+#    define RUI_HAVE_ICE_HUB 1
+#  endif
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -655,6 +663,11 @@ static RNetLobbyMatchCaps default_caps(const RecompLauncherCSettings *settings)
    * lobby client drives the port / probe / reports from this cap once the
    * server echoes it back to the room. */
   caps.relay_host = rnet_lobby_relay_host_pref() ? 1 : 0;
+#ifdef RUI_HAVE_ICE_HUB
+  /* The lobby client publishes match_caps.relay_via only when this is on AND
+   * the build has ICE; it owns that decision. */
+  caps.relay_via_ice = rnet_lobby_relay_via_ice() ? 1 : 0;
+#endif
   fill_caps_mods(&caps);
   return caps;
 }
@@ -2647,6 +2660,108 @@ static int cb_relay_host_set(void *ctx, int on)
   return 0;
 }
 
+#ifdef RUI_HAVE_ICE_HUB
+static int cb_relay_via_ice_get(void *ctx)
+{
+  const RNetLobbyMatchCaps *caps;
+  (void)ctx;
+  if (g_hosting_lan || g_joined_lan || !rnet_host_ice_available())
+    return 0;
+  caps = rnet_lobby_match_caps();
+  if (caps && caps->valid && rnet_lobby_in_lobby())
+    return (caps->relay_host && caps->relay_via_ice) ? 1 : 0;
+  return rnet_lobby_relay_via_ice();
+}
+
+static int cb_relay_via_ice_set(void *ctx, int on)
+{
+  (void)ctx;
+  rnet_lobby_set_relay_via_ice(on);
+  if (g_hosting_lan || g_joined_lan)
+    return 0;
+  if (rnet_lobby_in_lobby() && rnet_lobby_is_host()) {
+    RNetLobbyMatchCaps caps = default_caps(NULL);
+    return rnet_lobby_set_match_caps(&caps);
+  }
+  return 0;
+}
+
+/* One line (guest) or one line per seat (host) for the waiting room, from the
+ * agents' own state. Never says "port": no port is held in this mode. */
+static const char *ice_state_word(int state)
+{
+  switch (state) {
+  case RNET_ICE_STATE_COMPLETED: return "connected";
+  case RNET_ICE_STATE_FAILED: return "failed";
+  default: return "connecting";
+  }
+}
+
+static void ice_peer_text(const RNetHostIcePeerStatus *p, char *out, size_t cap)
+{
+  if (p->state == RNET_ICE_STATE_COMPLETED && p->path[0])
+    snprintf(out, cap, "connected (%s)", p->path);
+  else
+    snprintf(out, cap, "%s", ice_state_word(p->state));
+}
+
+static int recomp_netplay_ice_status_line(const RNetHostIceStatus *st, char *out,
+                                   size_t out_cap)
+{
+  size_t n = 0;
+  int i;
+  if (!out || !out_cap)
+    return 0;
+  out[0] = '\0';
+  if (!st || st->role == 0)
+    return 0;
+  if (st->role == 2) {
+    char w[40];
+    if (st->peer_count < 1) {
+      snprintf(out, out_cap, "Connecting to the host...");
+      return 1;
+    }
+    ice_peer_text(&st->peer[0], w, sizeof(w));
+    if (st->peer[0].state == RNET_ICE_STATE_FAILED)
+      snprintf(out, out_cap,
+               "Connection to the host failed. Check that your firewall allows "
+               "the game, then rejoin.");
+    else
+      snprintf(out, out_cap, "Connection to the host: %s.", w);
+    return 1;
+  }
+  if (st->peer_count < 1) {
+    snprintf(out, out_cap, "Waiting for guests to connect through you...");
+    return 1;
+  }
+  for (i = 0; i < st->peer_count && i < RNET_HOST_ICE_MAX_PEERS; ++i) {
+    char w[40];
+    int k;
+    ice_peer_text(&st->peer[i], w, sizeof(w));
+    k = snprintf(out + n, out_cap - n, "%sSeat %d: %s", i ? "\n" : "",
+                 st->peer[i].slot + 1, w);
+    if (k < 0 || (size_t)k >= out_cap - n)
+      break;
+    n += (size_t)k;
+  }
+  if (st->completed < st->peer_count && n < out_cap)
+    snprintf(out + n, out_cap - n,
+             "\nPlay starts once every seat is connected. A seat that "
+             "stays on failed can't reach you; check its firewall.");
+  return 1;
+}
+
+/* 1 = the room runs ICE agents and `out` holds the line. */
+static int ice_relay_status(char *out, size_t out_cap)
+{
+  RNetHostIceStatus st;
+  memset(&st, 0, sizeof(st));
+  if (!rnet_lobby_host_ice_status(&st))
+    return 0;
+  return recomp_netplay_ice_status_line(&st, out, out_cap);
+}
+#endif /* RUI_HAVE_ICE_HUB */
+
 static int cb_relay_status(void *ctx, char *out, size_t out_cap)
 {
   RNetHostRelayStatus st;
@@ -2656,6 +2771,17 @@ static int cb_relay_status(void *ctx, char *out, size_t out_cap)
   out[0] = '\0';
   if (g_hosting_lan || g_joined_lan || !rnet_lobby_in_lobby())
     return 0;
+#ifdef RUI_HAVE_ICE_HUB
+  /* ICE mode replaces the port/reachability guidance entirely: the legacy
+   * status would talk about a forwarded port that this room never opens. */
+  if (ice_relay_status(out, out_cap))
+    return 1;
+  {
+    const RNetLobbyMatchCaps *c = rnet_lobby_match_caps();
+    if (c && c->valid && c->relay_host && c->relay_via_ice)
+      return 0; /* ICE room, agents not up yet: say nothing, never port text */
+  }
+#endif
   if (!rnet_lobby_host_relay_status(&st))
     return 0;
   if (st.role == 1) {
@@ -2820,6 +2946,9 @@ static int cb_fill_launch(void *ctx, RecompLauncherCNetplayLaunch *out)
    * arrives before we get here. See RNetLobbyJoinInfo::force_input_relay. */
   out->force_input_relay = join.force_input_relay ? 1 : 0;
   out->transport_host = join.transport_host ? 1 : 0;
+#ifdef RUI_HAVE_ICE_HUB
+  out->transport_ice_hub = join.transport_ice_hub ? 1 : 0;
+#endif
   out->max_slots = join.max_slots >= 2 ? clamp_lobby_max_slots(join.max_slots)
                                        : clamp_lobby_max_slots(g_lobby_max_slots);
   out->player_count = join.player_count > 0 ? join.player_count : out->max_slots;
@@ -3708,6 +3837,10 @@ static RecompLauncherCNetplayCallbacks g_callbacks = {
     .relay_host_set = cb_relay_host_set,
     .relay_status = cb_relay_status,
     .local_launch_gate_set = cb_local_launch_gate_set,
+#ifdef RUI_HAVE_ICE_HUB
+    .relay_via_ice_get = cb_relay_via_ice_get,
+    .relay_via_ice_set = cb_relay_via_ice_set,
+#endif
     .input_prediction_get = cb_input_prediction_get,
     .input_prediction_set = cb_input_prediction_set,
     .connecting = cb_connecting,

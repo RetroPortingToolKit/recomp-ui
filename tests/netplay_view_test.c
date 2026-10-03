@@ -1,3 +1,4 @@
+#include <string.h>
 #include "launcher_model.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,5 +28,25 @@ int main(void) {
     game.netplay_supported=0;
     launcher_model_init(&model,&settings,&game,"");
     CHECK(model.num_netplay_view_labels==0 && model.s.netplay_view_index==0);
+    /* Host-relay error text: ICE wording never advises port forwarding, legacy
+     * relay_unavailable keeps it, unrelated errors are not claimed. */
+    {
+        const char* t;
+        t=launcher_model_relay_error_text("ice_not_connected",true);
+        CHECK(t && strstr(t,"connection to the host") && !strstr(t,"forward"));
+        t=launcher_model_relay_error_text("host_relay_unproven",true);
+        CHECK(t && strstr(t,"proven") && !strstr(t,"forward"));
+        t=launcher_model_relay_error_text("host_relay_spectators",true);
+        CHECK(t && strstr(t,"spectators"));
+        t=launcher_model_relay_error_text("relay_unavailable",false);
+        CHECK(t && strstr(t,"port forwarding"));
+        t=launcher_model_relay_error_text("relay_unavailable",true);
+        CHECK(t && !strstr(t,"forward"));
+        CHECK(!launcher_model_relay_error_text("need_players",true));
+        CHECK(!launcher_model_relay_error_text("",true));
+        CHECK(!launcher_model_relay_error_text(NULL,true));
+        launcher_model_init(&model,&settings,&game,"");
+        CHECK(model.netplay_relay_via_ice);
+    }
     return 0;
 }

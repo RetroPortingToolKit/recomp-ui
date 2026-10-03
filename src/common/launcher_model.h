@@ -654,6 +654,10 @@ typedef struct {
      * lobby server's relay. Persisted in the network settings file (relay=);
      * published by the host in match_caps.relay; guests read the host's. */
     bool      netplay_relay_host;
+    /* With netplay_relay_host: guests reach the host through ICE (no port
+     * forward) rather than the legacy advertised port. Persisted as
+     * relay_via=ice|port; default ice. */
+    bool      netplay_relay_via_ice;
     /* One line of live host-relay state from the backend, for the ROOM panel. */
     char      netplay_relay_status[200];
     /* True = rollback invent path. The title may set the initial room mode. */
@@ -744,6 +748,12 @@ int  launcher_model_disc_selected(const LauncherModel* m);
 int  launcher_model_disc_number(const LauncherModel* m, int idx);
 // Dropdown row text for slot `idx` — the host's label when it gave one, else
 // "Disc <number>". Never NULL; "" when idx is out of range.
+/* User-facing text for a lobby/launch error that concerns the host relay, or
+ * NULL when `err` is not one. `ice_mode` selects ICE wording (no port forward
+ * advice) over the legacy-port wording; relay_unavailable from a legacy server
+ * keeps the legacy text. Pure; the returned string is static. */
+const char* launcher_model_relay_error_text(const char* err, bool ice_mode);
+
 const char* launcher_model_disc_label(const LauncherModel* m, int idx);
 // Effective image path for slot `idx`: this run's browse-in when the player
 // made one, otherwise the path the build was made against. "" out of range.

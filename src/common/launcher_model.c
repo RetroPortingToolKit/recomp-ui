@@ -704,6 +704,7 @@ void launcher_model_init(LauncherModel* m,
      * has to forward a port. The host relay needs a reachable UDP port and
      * has no fallback, so the launcher no longer offers it. */
     m->netplay_relay_host = false;
+    m->netplay_relay_via_ice = true;
     m->netplay_relay_status[0] = '\0';
     /* Rollback is the legacy default; a title may choose delay-sync for the
      * initial room size through create_default_rollback below. */
@@ -4621,4 +4622,30 @@ const char* launcher_hotkey_name(LngHotkey h) {
 const char* launcher_view_name(LngView v) {
     if (v < 0 || v > LNG_VIEW_LOBBY) return "?";
     return kViewNames[v];
+}
+
+const char* launcher_model_relay_error_text(const char* err, bool ice_mode) {
+    if (!err || !err[0]) return NULL;
+    if (strcmp(err, "ice_not_connected") == 0)
+        return "Couldn't start: not every player has a connection to the host "
+               "yet. Wait for each seat to show connected, remove anyone "
+               "stuck, and press Play again. Spectators can't join a match "
+               "carried by the host.";
+    if (strcmp(err, "host_relay_unproven") == 0)
+        return "Couldn't start through the host: a guest hasn't proven it "
+               "can reach you. Wait for every seat to show connected, then "
+               "press Play again.";
+    if (strcmp(err, "host_relay_spectators") == 0)
+        return "A match carried by the host can't include spectators. "
+               "Remove them, or turn off \"Host carries the match\".";
+    if (strcmp(err, "relay_unavailable") == 0) {
+        if (ice_mode)
+            return "Couldn't start through the host. A guest has no "
+                   "connection to you yet. Wait for each seat to show "
+                   "connected and remove any spectators.";
+        return "Couldn't start through the host. A guest can't reach "
+               "your port, or no public endpoint was found. Check "
+               "port forwarding/UPnP and remove any spectators.";
+    }
+    return NULL;
 }

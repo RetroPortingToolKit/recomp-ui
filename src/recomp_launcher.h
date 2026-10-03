@@ -345,6 +345,15 @@ typedef struct RecompLauncherCNetplayLaunch {
      * seats) or runs recomp-net's LAN hub (3+). 0 = the server's relay (SFU)
      * or a LAN / direct room. recomp-ui docs/HOST_NETPLAY.md "Host relay". */
     int      transport_host;
+    /* 1 = the launch said transport "host" AND relay_via "ice" (host-as-relay
+     * over ICE). transport_host is ALSO 1 in that case, so test this first.
+     * No port is bound and nothing is dialled: bind_hostport is a placeholder
+     * and peer_hostport is empty. The engine takes the connected ICE agents
+     * from recomp-net (host: rnet_lobby_ice_take_hub + rnet_session_start_
+     * ice_hub_adopt; guest: rnet_lobby_ice_take_guest_agent + rnet_session_
+     * adopt_ice_agent) BEFORE rnet_lobby_clear_launch_pending(). 0 = legacy
+     * endpoint relay, the server's relay, or LAN. */
+    int      transport_ice_hub;
 } RecompLauncherCNetplayLaunch;
 
 /* Dense position of session slot `slot` in LOBBY-SEAT order: the rank of its
@@ -393,6 +402,9 @@ typedef struct RecompLauncherCNetplayLocalAddress {
  * RecompLauncherCNetplayLaunch.transport_host only against a recomp-ui that
  * has them (older pins compile the wiring out). */
 #define RECOMP_LAUNCHER_HAS_HOST_RELAY 1
+/* Present since RecompLauncherCNetplayLaunch.transport_ice_hub and
+ * relay_via_ice_get/set were appended (host relay over ICE). */
+#define RECOMP_LAUNCHER_HAS_HOST_RELAY_ICE 1
 
 typedef struct RecompLauncherCNetplayCallbacks {
     void* ctx;
@@ -852,6 +864,14 @@ typedef struct RecompLauncherCNetplayCallbacks {
      * chosen; nothing launches into a match without one. NULL = the engine
      * cannot hold a seat back, and the launch backstop alone refuses. */
     void (*local_launch_gate_set)(void* ctx, int can_launch);
+    /* Optional (append-only): host relay over ICE. 1 (default) = with the host
+     * relay on, guests reach the host through ICE and nobody forwards a port;
+     * 0 = the legacy advertised-UDP-port relay. The host's preference,
+     * published in match_caps.relay_via; a guest's getter answers what the
+     * host published. Unavailable (always 0 effective) in a build without ICE.
+     * Servers that predate it simply keep the legacy path. */
+    int  (*relay_via_ice_get)(void* ctx);
+    int  (*relay_via_ice_set)(void* ctx, int on);
 } RecompLauncherCNetplayCallbacks;
 
 /* recomp_launcher_run_window honours RECOMP_NETPLAY_LAUNCH through
