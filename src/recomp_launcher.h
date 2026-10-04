@@ -2236,6 +2236,17 @@ typedef struct RecompLauncherCGameInfo {
     const char* bios_prepare_button;         /* "Prepare BIOS" */
     const char* bios_prepare_busy_status;    /* "Compiling your BIOS…" */
     const char* bios_prepare_success_status; /* "BIOS ready." */
+
+    /* Optional assist action index whose single-button capture is stored as
+     * an explicit one-button combination (RECOMP_LAUNCHER_PAD_BUTTON_COMBO of
+     * one bit) instead of the implicit-Select button encoding. The host
+     * decides what a one-button combination means at run time (e.g. a direct
+     * shortcut only while the title allows it, else Select+button); the
+     * launcher only keeps the two encodings distinct. Zero leaves the
+     * historical implicit-Select capture unchanged; otherwise the value is the
+     * action index plus one. The title supplies its defaults through
+     * assist_default_pad_bind. Appended for ABI stability. */
+    int                assist_direct_pad_bind_action;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
@@ -2245,6 +2256,8 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
+/* Host may #ifdef this when setting assist_direct_pad_bind_action. */
+#define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0
