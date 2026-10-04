@@ -2236,6 +2236,14 @@ typedef struct RecompLauncherCGameInfo {
     const char* bios_prepare_button;         /* "Prepare BIOS" */
     const char* bios_prepare_busy_status;    /* "Compiling your BIOS…" */
     const char* bios_prepare_success_status; /* "BIOS ready." */
+
+    /* Optional assist action index whose single-button capture is stored as
+     * an explicit one-button combination. The PSX runtime uses that encoding
+     * for a direct Rewind button while retaining Select chords for older saved
+     * button/axis values. Zero leaves the historical implicit-Select capture
+     * unchanged; otherwise the value is the action index plus one. Appended
+     * for ABI stability. */
+    int                assist_direct_pad_bind_action;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1

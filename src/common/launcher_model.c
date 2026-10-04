@@ -530,6 +530,10 @@ void launcher_model_init(LauncherModel* m,
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
+        m->assist_direct_pad_bind_action =
+            game->assist_direct_pad_bind_action > 0 &&
+            game->assist_direct_pad_bind_action <= m->assist_binding_count
+                ? game->assist_direct_pad_bind_action - 1 : -1;
         m->credits_text         = game->credits_text;
         m->assist_fast_forward_min = game->assist_fast_forward_min > 0
             ? game->assist_fast_forward_min : 2;
@@ -580,6 +584,7 @@ void launcher_model_init(LauncherModel* m,
         m->platform     = NULL;
         m->player_count = 2;
         m->rom_noun     = "ROM";
+        m->assist_direct_pad_bind_action = -1;
     }
 
     if (io) m->s = *io;
@@ -4432,6 +4437,14 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
             m->s.player_pad_bind[m->cfg_player][m->capture_btn] =
                 encoded_binding;
     }
+}
+
+int launcher_model_assist_pad_button_capture_binding(
+    const LauncherModel* m, int action, int button) {
+    if (button < 0 || button >= 32) return 0;
+    if (m && action == m->assist_direct_pad_bind_action)
+        return RECOMP_LAUNCHER_PAD_BUTTON_COMBO(1u << button);
+    return RECOMP_LAUNCHER_PAD_BUTTON(button);
 }
 void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
     if (!m || !m->settings_bindings || !m->has_default_settings) return;
