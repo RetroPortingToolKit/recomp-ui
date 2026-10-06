@@ -391,6 +391,7 @@ typedef struct {
     bool settings_bindings;
     const char* const* assist_binding_labels;
     int assist_binding_count;
+    int assist_direct_pad_bind_action;
     const char* credits_text;
     int assist_fast_forward_min;
     int assist_fast_forward_max;
@@ -1211,6 +1212,10 @@ void launcher_model_begin_assist_capture(LauncherModel* m, int action,
                                          bool gamepad);
 void launcher_model_set_captured_key(LauncherModel* m, int scancode);
 void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding);
+/* Encode a single captured assist button. One action may opt into a direct
+ * single-button encoding; other actions retain their implicit Select chord. */
+int launcher_model_assist_pad_button_capture_binding(
+    const LauncherModel* m, int action, int button);
 void launcher_model_reset_player_bindings(LauncherModel* m, int player);
 void launcher_model_reset_assist_bindings(LauncherModel* m);
 void launcher_model_cancel_capture(LauncherModel* m);

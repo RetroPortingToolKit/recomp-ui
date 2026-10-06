@@ -13587,7 +13587,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                 if (settings_pad_button_is_select(button))
                     return true;
                 launcher_model_set_captured_pad(
-                    m, RECOMP_LAUNCHER_PAD_BUTTON(button));
+                    m, launcher_model_assist_pad_button_capture_binding(
+                           m, m->capture_btn, button));
                 launcher_model_cancel_capture(m);
                 return true;
             }
