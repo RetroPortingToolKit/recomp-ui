@@ -6472,6 +6472,16 @@ void np_connect_and_list(LauncherModel* m) {
 
 /* Reload server lobby table + UDP-browse LAN hosts (BEACON) / file registry. */
 void np_refresh_lobby_list(LauncherModel* m) {
+    if (m->netplay_mode == 1) {
+        const auto* np = np_cb(m);
+        if (np && np->list_scope_set)
+            np->list_scope_set(np->ctx, RECOMP_LAUNCHER_LIST_SCOPE_LAN);
+        if (np && np->request_list) np->request_list(np->ctx);
+        m->netplay_list_fresh = true;
+        m->netplay_status[0] = '\0';
+        m->netplay_selected_lobby = -1;
+        return;
+    }
     np_connect_and_list(m);
     m->netplay_selected_lobby = -1;
     /* Keep Connecting… status from np_connect_and_list; clear only when
