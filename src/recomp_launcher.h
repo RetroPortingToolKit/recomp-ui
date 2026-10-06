@@ -1477,6 +1477,10 @@ struct RecompLauncherCSettings {
     /* Host-owned NES Zapper switches when GameInfo.settings_bindings is set.
      * 0 = unset (enabled), 1 = enabled, -1 = disabled. */
     int zapper_mouse, zapper_crosshair;
+    /* Host opt-in scale controller. The minimum uses the same line-height
+     * encoding as internal_resolution (1 = Native, 720/1080/1440). */
+    int  dynamic_resolution;
+    int  dynamic_resolution_min;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -2208,6 +2212,7 @@ typedef struct RecompLauncherCGameInfo {
     const int*         internal_resolution_values;
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
+    int                has_dynamic_resolution;
     /* Entering the netplay flow / returning to the offline dashboard.
      * Optional title policy (e.g. stage required co-op mods). The callback
      * remains active through controller/settings subviews and a match launch.
@@ -2253,6 +2258,7 @@ typedef struct RecompLauncherCGameInfo {
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that
  * lacks Settings.internal_resolution and the GameInfo vocabulary. */
 #define RECOMP_LAUNCHER_HAS_INTERNAL_RESOLUTION 1
+#define RECOMP_LAUNCHER_HAS_DYNAMIC_RESOLUTION 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1

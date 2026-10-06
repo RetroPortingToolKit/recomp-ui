@@ -552,6 +552,7 @@ void launcher_model_init(LauncherModel* m,
         m->internal_resolution_values = game->internal_resolution_values;
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
+        m->has_dynamic_resolution      = game->has_dynamic_resolution != 0;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
