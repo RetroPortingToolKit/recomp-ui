@@ -77,6 +77,13 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-launcher-mod-commit-job
         COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-commit-job-test>)
 
+    add_executable(recomp-ui-launcher-mod-preparation-test
+        tests/launcher_mod_preparation_test.cpp)
+    target_include_directories(recomp-ui-launcher-mod-preparation-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-launcher-mod-preparation-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-launcher-mod-preparation
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-preparation-test>)
+
     add_executable(recomp-ui-launcher-debug-pending-test
         tests/launcher_debug_pending_test.c src/common/launcher_debug.c)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
