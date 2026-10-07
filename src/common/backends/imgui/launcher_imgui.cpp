@@ -15,6 +15,7 @@
 #include "launcher_gl.h"
 #include "launcher_input.h"
 #include "launcher_files.h"
+#include "launcher_directory_url.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
 #include "launcher_udp_port.h"
@@ -11680,6 +11681,29 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                     std::snprintf(m->mod_status, sizeof(m->mod_status),
                                         "%s selection cleared. Changes apply on PLAY.", resource.label);
                                 }
+                            }
+                        }
+                        if (directory_resource && resource.path[0]) {
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui_text("Open folder"))) {
+                                std::string url, error;
+                                if (launcher_directory_url(resource.path, url, error)) {
+#if defined(LNG_SDL3)
+                                    const bool opened = SDL_OpenURL(url.c_str());
+#else
+                                    const bool opened = SDL_OpenURL(url.c_str()) == 0;
+#endif
+                                    if (!opened) {
+                                        error = SDL_GetError();
+                                        if (error.empty()) error = "The system folder opener failed.";
+                                    } else {
+                                        std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                                      "%s opened.", resource.label);
+                                    }
+                                }
+                                if (!error.empty())
+                                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                                  "Could not open folder: %s", error.c_str());
                             }
                         }
                         ImGui::PopID();
