@@ -20,19 +20,33 @@ static void script(const char* text) {
 #endif
     launcher_debug_init();
 }
-int main(void) {
+int main(int argc, char** argv) {
     LauncherPlatform platform = {0};
     LauncherModel model;
     memset(&model, 0, sizeof(model));
     model.action = LNG_ACTION_NONE;
-    script("wait:2;quit");
-    check(!launcher_debug_step_pending(&platform), "pending accepts wait");
-    check(!launcher_debug_step_pending(&platform), "first wait frame stays responsive");
-    check(!launcher_debug_step_pending(&platform), "second wait frame stays responsive");
-    check(launcher_debug_step_pending(&platform), "quit becomes a close request");
-    check(model.action == LNG_ACTION_NONE && !platform.should_quit,
-          "pending quit does not tear down borrowed state");
-    check(launcher_debug_step_pending(&platform), "script exhaustion also requests close");
+    if (argc != 2) return 2;
+    /* The interpreter initializes once per launcher process. Each case gets
+     * its own process instead of inventing reset semantics for its globals. */
+    if (strcmp(argv[1], "wait") == 0) {
+        script("wait:2;quit");
+        check(!launcher_debug_step_pending(&platform), "pending accepts wait");
+        check(!launcher_debug_step_pending(&platform), "first wait frame stays responsive");
+        check(!launcher_debug_step_pending(&platform), "second wait frame stays responsive");
+        check(launcher_debug_step_pending(&platform), "quit becomes a close request");
+        check(model.action == LNG_ACTION_NONE && !platform.should_quit,
+              "pending quit does not tear down borrowed state");
+        check(launcher_debug_step_pending(&platform), "script exhaustion also requests close");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "launch") == 0) {
+        script("quit");
+        model.action = LNG_ACTION_LAUNCH;
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_LAUNCH, "script cannot overwrite successful launch");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "model") != 0) return 2;
 
     script("view:settings;player:2;capbtn:3;caphk:1;quit");
     for (int i = 0; i < 8; ++i)
@@ -48,9 +62,5 @@ int main(void) {
     check(mutations == 3 && model.capture_btn == 3, "capture mutations run only on normal path");
     launcher_debug_step(&platform, &model);
     check(model.action == LNG_ACTION_QUIT, "normal quit behavior retained");
-    script("quit");
-    model.action = LNG_ACTION_LAUNCH;
-    launcher_debug_step(&platform, &model);
-    check(model.action == LNG_ACTION_LAUNCH, "script cannot overwrite successful launch");
     return failures ? 1 : 0;
 }
