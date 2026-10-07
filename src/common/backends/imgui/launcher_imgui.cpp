@@ -3808,13 +3808,13 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
                               "Needs Render thread. Applies at next launch.");
-        row_label_right("Frame generation", th, px(SETTINGS_CTRL_W));
+        row_label_right("Smooth motion", th, px(SETTINGS_CTRL_W));
         bool fg = m->s.frame_generation != 0;
         if (ImGui::Checkbox("##frame_generation", &fg))
             m->s.frame_generation = fg ? 1 : 0;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Inserts in-between frames on high-refresh displays for smoother motion.\n"
-                              "Needs Render thread. Applies at next launch.");
+            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
+                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
         ImGui::EndDisabled();
     }
 

@@ -1,8 +1,10 @@
-/* Rendering pipeline rows (Render thread / Present thread / Frame generation).
+/* Rendering pipeline rows (Render thread / Present thread / Smooth motion).
+ * Smooth motion is stored under the settings key frame_generation (kept for
+ * compatibility).
  *
  * Host-gated: a title or runtime that does not set
  * GameInfo.has_render_pipeline never shows them, and they are OpenGL only.
- * Present thread and Frame generation only make sense with Render thread on,
+ * Present thread and Smooth motion only make sense with Render thread on,
  * so the model reports them as not editable while it is off. The values are
  * carried through launcher_model_init from the host's seed settings.
  */
@@ -42,7 +44,7 @@ int main(void) {
     m.s.present_thread = 1;
     m.s.frame_generation = 1;
     ok(!launcher_model_render_pipeline_children_enabled(&m),
-       "render thread off => present thread / frame generation disabled");
+       "render thread off => present thread / smooth motion disabled");
     ok(m.s.present_thread == 1 && m.s.frame_generation == 1,
        "disabling keeps the child choices for when render thread returns");
     ok(!launcher_model_render_pipeline_offered(NULL), "NULL model is safe");

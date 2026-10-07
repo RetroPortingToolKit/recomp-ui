@@ -2221,7 +2221,7 @@ typedef struct RecompLauncherCGameInfo {
     const char*        internal_resolution_note;
     int                has_dynamic_resolution;
     /* Nonzero: the host offers Settings.render_thread / present_thread /
-     * frame_generation (Display rows, OpenGL only). Appended for ABI
+     * frame_generation (Display rows, OpenGL only); shown as "Smooth motion". Appended for ABI
      * stability. */
     int                has_render_pipeline;
     /* Entering the netplay flow / returning to the offline dashboard.
