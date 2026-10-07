@@ -1134,7 +1134,16 @@ typedef struct RecompLauncherCModProvider {
      * as its package and the saved state say. Zero keeps the default rule
      * above. Appended for ABI stability. */
     int hide_hidden_features;
+    /* Explicit opt-in for preboot offline PLAY only: commit and last_error may
+     * run on an owned worker while the UI excludes ALL other provider access.
+     * The host guarantees ctx/callback lifetime until the launcher returns,
+     * no main-thread/SDL/GL affinity, and no concurrent runtime access. Zero
+     * retains synchronous behavior, as do netplay and in-session commits.
+     * Source compatibility for statically paired builds, not an older binary
+     * provider object: this struct has no negotiated byte size. */
+    int commit_worker_safe;
 } RecompLauncherCModProvider;
+#define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
