@@ -24,9 +24,18 @@ int main() {
     check(url.compare(0, 8, "file:///") == 0, "absolute local file URL");
 #if defined(_WIN32)
     check(url.size() > 10 && url[9] == ':', "Windows drive colon is preserved");
-    // Pure lexical UNC conversion only: never touch a network share in a test.
-    check(fs::u8path("//server/share/folder").generic_u8string().compare(0, 2, "//") == 0,
-          "UNC server prefix survives generic UTF-8 conversion");
+    // Exercise the production encoder, without contacting any network share.
+    check(launcher_directory_path_url(fs::u8path("//server/share/folder")) ==
+              "file://server/share/folder", "forward-slash UNC authority is preserved");
+    check(launcher_directory_path_url(fs::u8path("\\\\server\\share\\folder")) ==
+              "file://server/share/folder", "backslash UNC authority is preserved");
+    const char* escaped_unc = "file://server/share/folder%20space%20%23%20%25%20%E6%97%A5%E6%9C%AC";
+    check(launcher_directory_path_url(fs::u8path(u8"//server/share/folder space # % \u65e5\u672c")) ==
+              escaped_unc, "forward-slash UNC Unicode path is escaped");
+    check(launcher_directory_path_url(fs::u8path(u8"\\\\server\\share\\folder space # % \u65e5\u672c")) ==
+              escaped_unc, "backslash UNC Unicode path is escaped");
+    check(launcher_directory_path_url(fs::u8path("//server/share/old/../folder")) ==
+              "file://server/share/folder", "UNC authority survives lexical normalization");
 #endif
     const fs::path original = fs::current_path();
     fs::current_path(root);
