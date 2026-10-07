@@ -23,7 +23,14 @@ public:
                                bool in_session, const char* image) {
         if (job.pending() || !supports(provider, in_session) || !image || !image[0])
             return Request::None;
-        const auto revision = provider->preparation_revision(provider->ctx);
+        if (callback_failed_ && observed_ && provider == provider_ && image_ == image)
+            return Request::None;
+        unsigned long long revision = 0;
+        if (!read_revision(provider, revision)) {
+            observe(provider, image, 0);
+            callback_failed_ = true;
+            return Request::Failed;
+        }
         if (observed_ && provider == provider_ && image_ == image && revision_ == revision)
             return Request::None;
         if (!observe(provider, image, revision)) return Request::Failed;
@@ -34,10 +41,12 @@ public:
                    bool in_session, const char* image) {
         if (job.pending()) return Request::Queued;
         error_[0] = '\0';
+        callback_failed_ = false; // Explicit PLAY may retry a failed callback.
         if (!provider || !provider->commit) return Request::Ready;
         if (supports(provider, in_session)) {
-            if (!observe(provider, image ? image : "",
-                         provider->preparation_revision(provider->ctx))) return Request::Failed;
+            unsigned long long revision = 0;
+            if (!read_revision(provider, revision)) return Request::Failed;
+            if (!observe(provider, image ? image : "", revision)) return Request::Failed;
             return request(provider, image ? image : "", true);
         }
         /* A commit-only provider is never prepared automatically. Existing
@@ -59,6 +68,16 @@ public:
     const char* error() const { return error_[0] ? error_.data() : job.error(); }
 
 private:
+    bool read_revision(const RecompLauncherCModProvider* provider,
+                       unsigned long long& revision) {
+        try {
+            revision = provider->preparation_revision(provider->ctx);
+            return true;
+        } catch (const std::exception& e) { copy_error(e.what()); }
+          catch (...) { copy_error("The mod preparation callback raised an exception."); }
+        callback_failed_ = true;
+        return false;
+    }
     bool observe(const RecompLauncherCModProvider* provider, const char* image,
                  unsigned long long revision) {
         try { image_ = image; }
@@ -66,15 +85,24 @@ private:
         provider_ = provider;
         revision_ = revision;
         observed_ = true;
+        callback_failed_ = false;
         return true;
     }
     Request request(const RecompLauncherCModProvider* provider, const char* image,
                     bool launch) {
         error_[0] = '\0';
-        const int ready = provider->try_commit(provider->ctx, image);
-        if (ready == 1) return Request::Ready;
-        if (ready != 0) {
-            copy_error(provider->last_error ? provider->last_error(provider->ctx) : nullptr);
+        try {
+            const int ready = provider->try_commit(provider->ctx, image);
+            if (ready == 1) return Request::Ready;
+            if (ready != 0) {
+                copy_error(provider->last_error ? provider->last_error(provider->ctx) : nullptr);
+                return Request::Failed;
+            }
+        } catch (const std::exception& e) {
+            copy_error(e.what()); callback_failed_ = true;
+            return Request::Failed;
+        } catch (...) {
+            copy_error("The mod preparation callback raised an exception."); callback_failed_ = true;
             return Request::Failed;
         }
         return queue(provider, image, launch);
@@ -92,7 +120,7 @@ private:
     const RecompLauncherCModProvider* provider_ = nullptr;
     std::string image_;
     unsigned long long revision_ = 0;
-    bool observed_ = false, launch_ = false;
+    bool observed_ = false, launch_ = false, callback_failed_ = false;
     std::array<char, 1024> error_{};
 };
 

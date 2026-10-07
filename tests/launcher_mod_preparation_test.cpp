@@ -41,6 +41,14 @@ static int probe(void* ctx, const char* image) {
     return p.ready && p.prepared_image == image ? 1 : 0;
 }
 static int failed_probe(void*, const char*) { return -1; }
+static int throwing_probe(void*, const char*) { throw std::runtime_error("readiness exception"); }
+static int unknown_probe(void*, const char*) { throw 7; }
+static unsigned long long throwing_revision(void* ctx) {
+    ++static_cast<Provider*>(ctx)->revision_reads;
+    throw std::runtime_error("revision exception");
+}
+static unsigned long long unknown_revision(void*) { throw 7; }
+static const char* throwing_error(void*) { throw std::runtime_error("error accessor exception"); }
 static unsigned long long revision(void* ctx) {
     auto& p = *static_cast<Provider*>(ctx);
     std::lock_guard<std::mutex> lock(p.mutex);
@@ -117,6 +125,34 @@ int main() {
     bad_api.try_commit = failed_probe;
     check(failure.launch(&bad_api, false, "bad.cue") == Policy::Request::Failed && !failure.job.pending(),
           "authoritative fast-path failure blocks launch without a worker");
+
+    Provider faulty;
+    auto faulty_api = callbacks(faulty);
+    Policy exceptions;
+    faulty_api.preparation_revision = throwing_revision;
+    check(exceptions.prepare_if_changed(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          !exceptions.job.pending() && std::string(exceptions.error()) == "revision exception",
+          "revision exception is an owned failure, never a launch or worker");
+    check(exceptions.prepare_if_changed(&faulty_api, false, "fault.cue") == Policy::Request::None &&
+          faulty.revision_reads == 1, "callback exception is not retried each frame");
+    check(exceptions.launch(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          faulty.revision_reads == 2, "explicit PLAY can retry a revision callback failure");
+    faulty_api.preparation_revision = unknown_revision;
+    check(exceptions.launch(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          std::string(exceptions.error()).find("raised an exception") != std::string::npos,
+          "unknown revision exception is contained");
+    faulty_api.preparation_revision = revision;
+    faulty_api.try_commit = throwing_probe;
+    check(exceptions.launch(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          std::string(exceptions.error()) == "readiness exception", "readiness exception is contained");
+    faulty_api.try_commit = unknown_probe;
+    check(exceptions.launch(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          std::string(exceptions.error()).find("raised an exception") != std::string::npos,
+          "unknown readiness exception is contained");
+    faulty_api.try_commit = failed_probe; faulty_api.last_error = throwing_error;
+    check(exceptions.launch(&faulty_api, false, "fault.cue") == Policy::Request::Failed &&
+          std::string(exceptions.error()) == "error accessor exception" &&
+          faulty.commits == 0 && !exceptions.job.pending(), "throwing last_error cannot unwind the UI or launch");
 
     Provider closing;
     closing.release = false;
