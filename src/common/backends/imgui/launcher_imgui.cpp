@@ -3793,7 +3793,34 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // grid flush on both sides.
         const float cb = ImGui::GetFrameHeight();   // a checkbox is square
         row_window_scale(m, th);
-        // Universal fullscreen row (every console; Off/Borderless/Exclusive,
+        if (launcher_model_render_pipeline_offered(m)) {
+        row_label_right("Render thread", th, px(SETTINGS_CTRL_W));
+        bool rt = m->s.render_thread != 0;
+        if (ImGui::Checkbox("##render_thread", &rt))
+            m->s.render_thread = rt ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
+                              "Turn off if you see stutter or glitches. Applies at next launch.");
+        const bool kids = launcher_model_render_pipeline_children_enabled(m);
+        ImGui::BeginDisabled(!kids);
+        row_label_right("Present thread", th, px(SETTINGS_CTRL_W));
+        bool pt = m->s.present_thread != 0;
+        if (ImGui::Checkbox("##present_thread", &pt))
+            m->s.present_thread = pt ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
+                              "Needs Render thread. Applies at next launch.");
+        row_label_right("Smooth motion", th, px(SETTINGS_CTRL_W));
+        bool fg = m->s.frame_generation != 0;
+        if (ImGui::Checkbox("##frame_generation", &fg))
+            m->s.frame_generation = fg ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
+                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
+        ImGui::EndDisabled();
+    }
+
+    // Universal fullscreen row (every console; Off/Borderless/Exclusive,
         // the legacy launcher's vocabulary). Sits right under Window scale,
         // matching the old Display panel order.
         row_fullscreen(m, th);
