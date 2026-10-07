@@ -1,5 +1,5 @@
 /* Optional desktop probe of the real backend. Run in an isolated directory:
- *   probe <existing small ROM> worker|sync|session success|fail launch|quit|close
+ *   probe <existing small ROM> worker|sync|session|warm|prepare success|fail launch|quit|close
  * Drive PLAY with LNG_SCRIPT, then wait/shot/quit while commit sleeps. No
  * provider callbacks may run concurrently; the exit status checks this and
  * the result. Screenshots are made by the existing script surface only. */
@@ -18,6 +18,9 @@ struct Provider {
     std::atomic<int> reads{0};
     int commits = 0;
     bool success = true, on_worker = false;
+    bool ready = false;
+    unsigned long long revision = 0;
+    int probes = 0;
     std::string image, error = "Probe: verified resource is missing.";
 };
 static void read(void* ctx) {
@@ -62,22 +65,39 @@ static int commit(void* ctx, const char* image) {
     p.on_worker = std::this_thread::get_id() != p.owner;
     p.image = image;
     std::this_thread::sleep_for(std::chrono::seconds(3));
+    p.ready = p.success;
     p.busy = false;
     return p.success ? 1 : 0;
 }
 static const char* error(void* ctx) { return static_cast<Provider*>(ctx)->error.c_str(); }
+static int try_commit(void* ctx, const char* image) {
+    read(ctx);
+    auto& p = *static_cast<Provider*>(ctx);
+    ++p.probes;
+    return p.ready && p.image == image ? 1 : 0;
+}
+static unsigned long long revision(void* ctx) {
+    read(ctx);
+    return static_cast<Provider*>(ctx)->revision;
+}
 int main(int argc, char** argv) {
     if (argc != 5) return 2;
     Provider provider;
     provider.success = std::strcmp(argv[3], "fail") != 0;
-    const bool worker = std::strcmp(argv[2], "worker") == 0;
+    const bool warm = std::strcmp(argv[2], "warm") == 0;
+    const bool prepare = std::strcmp(argv[2], "prepare") == 0;
+    const bool worker = std::strcmp(argv[2], "worker") == 0 || prepare;
     const bool session = std::strcmp(argv[2], "session") == 0;
     RecompLauncherCModProvider mods{};
     mods.ctx = &provider; mods.package_count = count; mods.package_get = package;
     mods.feature_count = count; mods.feature_get = feature;
     mods.feature_option_get = option; mods.feature_enable = enable;
     mods.feature_set_option = set_option;
-    mods.commit = commit; mods.last_error = error; mods.commit_worker_safe = worker || session;
+    mods.commit = commit; mods.last_error = error; mods.commit_worker_safe = worker || session || warm;
+    if (warm || prepare) {
+        mods.try_commit = try_commit; mods.preparation_revision = revision;
+        provider.ready = warm; provider.image = warm ? argv[1] : "";
+    }
     RecompLauncherCGameInfo game{};
     game.name = "Worker commit probe"; game.region = "TEST"; game.num_players = 1;
     game.mods = &mods; game.in_session = session;
@@ -93,9 +113,10 @@ int main(int argc, char** argv) {
     const LngAction action = launcher_backend_run(&platform, &model, &theme);
     launcher_platform_close(&platform);
     const bool wants_launch = std::strcmp(argv[4], "launch") == 0;
-    bool ok = provider.commits == 1 && !provider.busy && provider.violations == 0 && provider.reads > 0 &&
+    bool ok = provider.commits == (warm ? 0 : 1) && !provider.busy && provider.violations == 0 && provider.reads > 0 &&
         provider.on_worker == worker && provider.image == argv[1] &&
         action == (wants_launch ? LNG_ACTION_LAUNCH : LNG_ACTION_QUIT);
+    if (warm || prepare) ok = ok && provider.probes > 0;
     if (!provider.success && std::strcmp(argv[4], "quit") == 0 && !session)
         ok = ok && std::strcmp(model.mod_status, provider.error.c_str()) == 0;
     if (!ok) std::fprintf(stderr, "FAIL: actual backend ownership/result contract\n");

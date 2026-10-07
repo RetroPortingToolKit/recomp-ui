@@ -1134,16 +1134,33 @@ typedef struct RecompLauncherCModProvider {
      * as its package and the saved state say. Zero keeps the default rule
      * above. Appended for ABI stability. */
     int hide_hidden_features;
-    /* Explicit opt-in for preboot offline PLAY only: commit and last_error may
+    /* Explicit opt-in for preboot offline PLAY: commit and last_error may
      * run on an owned worker while the UI excludes ALL other provider access.
      * The host guarantees ctx/callback lifetime until the launcher returns,
      * no main-thread/SDL/GL affinity, and no concurrent runtime access. Zero
      * retains synchronous behavior, as do netplay and in-session commits.
+     * Earlier preparation requires the additional callbacks below.
      * Source compatibility for statically paired builds, not an older binary
      * provider object: this struct has no negotiated byte size. */
     int commit_worker_safe;
+    /* Optional warm-launch/preparation contract, paired with commit_worker_safe.
+     * try_commit never prepares resources or performs heavy reads: 1 means an
+     * authoritative prepared plan was committed, 0 requires commit on the
+     * worker, and -1 is a failure reported by last_error. A UI path match is
+     * not proof of readiness. The provider validates its complete input ticket.
+     * preparation_revision is a cheap, non-mutating generation for selection,
+     * options, sources and catalog changes; it stays stable during commit.
+     * With BOTH callbacks present, the preboot offline UI may call commit when
+     * the selected effective image or revision changes, before PLAY is pressed.
+     * Such preparation does not launch. Provider access remains exclusive while
+     * the owned worker runs; close joins before ctx can die. NULL callbacks
+     * preserve commit-only behavior, as do netplay and in-session launches.
+     * Appended for statically paired source compatibility, not binary sizing. */
+    int (*try_commit)(void* ctx, const char* image_path);
+    unsigned long long (*preparation_revision)(void* ctx);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
+#define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {

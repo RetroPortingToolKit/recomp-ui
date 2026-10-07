@@ -22,7 +22,7 @@
 #include "launcher_system.h"
 #include "launcher_i18n.h"
 #include "launcher_mod_visibility.h"
-#include "launcher_mod_commit_job.h"
+#include "launcher_mod_preparation.h"
 #include "recomp_moderation.h"   // local ignore/block list (online only)
 #include "consoles/n64/n64_binds.h"   // RUI_N64_FIELD_* for the pad-capture path
 
@@ -10690,8 +10690,7 @@ static bool mod_commit_launch(LauncherModel* m) {
     return false;
 }
 
-struct LaunchCommitState {
-    LauncherModCommitJob job;
+struct LaunchCommitState : LauncherModPreparation {
     bool close_requested = false;
 };
 /* Drawing helpers borrow the backend-owned state; no detached/static job may
@@ -10703,13 +10702,15 @@ static bool launch_commit_pending() {
 }
 
 static void request_mod_commit_launch(LauncherModel* m) {
-    const auto* mods = m->mods;
-    if (s_launch_commit && !m->in_session && mods && mods->commit &&
-        mods->commit_worker_safe) {
-        if (!s_launch_commit->job.queue(mods->commit, mods->last_error, mods->ctx,
-                                       launcher_model_effective_rom_path(m))) {
+    if (s_launch_commit) {
+        const auto request = s_launch_commit->launch(
+            m->mods, m->in_session, launcher_model_effective_rom_path(m));
+        if (request == LauncherModPreparation::Request::Ready) {
+            m->mod_status[0] = '\0';
+            m->action = LNG_ACTION_LAUNCH;
+        } else if (request == LauncherModPreparation::Request::Failed) {
             std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
-                          s_launch_commit->job.error());
+                          s_launch_commit->error());
             launcher_model_set_view(m, LNG_VIEW_MODS);
         }
     } else if (mod_commit_launch(m)) {
@@ -14118,11 +14119,14 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
            launch_commit.job.pending()) {
         /* finish() joins before model/provider access, returning the borrowed
          * ctx to the UI. A queued close wins even when commit succeeded. */
-        if (launch_commit.job.finish()) {
-            if (launch_commit.close_requested || p->should_quit) {
+        const auto completion = launch_commit.finish(launch_commit.close_requested || p->should_quit);
+        if (completion != LauncherModPreparation::Completion::None) {
+            if (completion == LauncherModPreparation::Completion::Closed) {
                 p->should_quit = true;
-            } else if (launch_commit.job.result()) {
-                m->action = LNG_ACTION_LAUNCH;
+            } else if (completion == LauncherModPreparation::Completion::Prepared ||
+                       completion == LauncherModPreparation::Completion::Launch) {
+                m->mod_status[0] = '\0';
+                if (completion == LauncherModPreparation::Completion::Launch) m->action = LNG_ACTION_LAUNCH;
             } else {
                 std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
                               launch_commit.job.error());
@@ -14285,6 +14289,27 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
+
+        /* Disc pickers, source/option edits and setup outputs have completed
+         * this frame's provider reads. Coalesce the selected effective image
+         * and provider revision here, never an unselected roster slot. A
+         * prepared warm plan does not queue a job or flash a progress view.
+         * Defer while an edit/popup/setup operation still owns the model. */
+        if (!launch_commit.job.pending() && m->action == LNG_ACTION_NONE &&
+            !p->should_quit && m->rom_present && !m->setup_preparing &&
+            m->view != LNG_VIEW_NETPLAY && m->view != LNG_VIEW_NETPLAY_MODE &&
+            m->view != LNG_VIEW_NETPLAY_SIGNIN && m->view != LNG_VIEW_LOBBY &&
+            !ImGui::IsAnyItemActive() &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+            const auto request = launch_commit.prepare_if_changed(
+                m->mods, m->in_session, launcher_model_effective_rom_path(m));
+            if (request == LauncherModPreparation::Request::Failed) {
+                std::snprintf(m->mod_status, sizeof m->mod_status, "%s", launch_commit.error());
+                launcher_model_set_view(m, LNG_VIEW_MODS);
+            } else if (request == LauncherModPreparation::Request::Ready) {
+                m->mod_status[0] = '\0';
+            }
+        }
 
         /* All provider reads in this frame have finished. The queued image
          * and callback/ctx were copied before any worker was started. */
