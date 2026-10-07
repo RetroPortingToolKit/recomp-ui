@@ -560,10 +560,64 @@ static int mod_offer_rows(RNetLobbyModPkg *out, int max, void *ctx)
     snprintf(out[o].id, sizeof(out[o].id), "%s", rows[i].id);
     snprintf(out[o].ver, sizeof(out[o].ver), "%s", rows[i].ver);
     /* Name and features are the host plan's business; an offer claims
-     * possession and nothing else. */
+     * possession -- and, per feature, that a file it needs is still missing,
+     * which the host cannot see from its own disk. */
+    if (g_mods->missing_files)
+      (void)g_mods->missing_files(g_mods->ctx, out[o].id, out[o].nf,
+                                  (uint32_t)sizeof(out[o].nf));
     o++;
   }
   return o;
+}
+
+/* Re-send the offer when what it says has changed.
+ *
+ * The offer rides on set_ready, which goes out on join and after a transfer.
+ * Choosing a mod's source ROM changes it too -- from the lobby's prompt, the
+ * Mods page, anywhere -- and the host's launch gate holds the match on the
+ * last offer it saw. Polled about once a second rather than hooked into every
+ * place a file can be chosen; the check is a stat per resource (the runtime
+ * memoizes the hash). Not from the gallery: a spectator's set_ready is
+ * answered with a lobby_update and nothing reads its offer. */
+static void reannounce_offer_on_change(void)
+{
+  static unsigned s_tick;
+  static int s_primed;
+  static char s_last[RNET_LOBBY_MAX_MODS * (RNET_LOBBY_MOD_ID_LEN +
+                                            RNET_LOBBY_MOD_FEATS_LEN + 2)];
+  char now[sizeof(s_last)];
+  RNetLobbyModPkg rows[RNET_LOBBY_MAX_MODS];
+  size_t used = 0;
+  int n;
+  int i;
+
+  if (!rnet_lobby_in_lobby()) {
+    s_primed = 0;
+    return;
+  }
+  /* The host checks its own files locally; only a guest's offer is read. */
+  if (!g_mods || !g_mods->missing_files || rnet_lobby_is_host() ||
+      rnet_lobby_local_is_spectator())
+    return;
+  if ((++s_tick % 60) != 0)
+    return;
+  n = mod_offer_rows(rows, RNET_LOBBY_MAX_MODS, NULL);
+  now[0] = '\0';
+  for (i = 0; i < n && used + 1 < sizeof(now); ++i) {
+    const int w = snprintf(now + used, sizeof(now) - used, "%s:%s;",
+                           rows[i].id, rows[i].nf);
+    if (w < 0) break;
+    used += (size_t)w;
+  }
+  if (s_primed && !strcmp(now, s_last))
+    return;
+  /* The first poll in a lobby announces too: a file chosen between the join's
+   * offer and this poll would otherwise never be told. */
+  if (s_primed)
+    fprintf(stderr, "netplay: mod files changed; re-announcing the offer\n");
+  (void)rnet_lobby_set_ready(rnet_lobby_local_ready() ? 1 : 0);
+  s_primed = 1;
+  snprintf(s_last, sizeof(s_last), "%s", now);
 }
 
 /* The mod runtime's cosmetic grant, through the hook when there is one. */
@@ -1395,6 +1449,7 @@ static void cb_pump(void *ctx)
   if (g_h.auto_ready_guests && rnet_lobby_in_lobby() &&
       !rnet_lobby_is_host() && !rnet_lobby_local_ready())
     (void)rnet_lobby_set_ready(1);
+  reannounce_offer_on_change();
 }
 
 static void cb_set_player_name(void *ctx, const char *name)
@@ -1842,6 +1897,11 @@ static int cb_member_get(void *ctx, int index,
   snprintf(out->display_name, sizeof(out->display_name), "%s",
            member.display_name);
   out->latency_ms = rnet_lobby_member_latency_ms(member.slot);
+  out->mod_readiness_valid =
+      rnet_lobby_member_mod_readiness(index, &out->mods_missing,
+                                      &out->mod_files_missing,
+                                      out->mod_files_what,
+                                      sizeof(out->mod_files_what));
   return 1;
 }
 
@@ -2386,6 +2446,16 @@ static int cb_set_ready(void *ctx, int ready)
   return rnet_lobby_set_ready(ready);
 }
 
+static void cb_local_launch_gate_set(void *ctx, int can_launch)
+{
+  (void)ctx;
+#ifdef RNET_HAS_LAUNCH_BLOCKED
+  rnet_lobby_set_launch_blocked(!can_launch);
+#else
+  (void)can_launch;
+#endif
+}
+
 static int cb_request_start(void *ctx, const RecompLauncherCSettings *settings)
 {
   RNetLobbyMatchCaps caps = default_caps(settings);
@@ -2893,6 +2963,7 @@ static int cb_lobby_mods_get(void *ctx, int index,
   version = row->ver;
   snprintf(out->id, sizeof(out->id), "%s", id);
   snprintf(out->version, sizeof(out->version), "%s", version);
+  snprintf(out->features, sizeof(out->features), "%s", row->feats);
   /* The host published a display name; prefer it, and fall back to the id.
    * The local lookup below overrides it when this peer has the package, so a
    * player sees the same name the host sees either way. */
@@ -3636,6 +3707,7 @@ static RecompLauncherCNetplayCallbacks g_callbacks = {
     .relay_host_get = cb_relay_host_get,
     .relay_host_set = cb_relay_host_set,
     .relay_status = cb_relay_status,
+    .local_launch_gate_set = cb_local_launch_gate_set,
     .input_prediction_get = cb_input_prediction_get,
     .input_prediction_set = cb_input_prediction_set,
     .connecting = cb_connecting,

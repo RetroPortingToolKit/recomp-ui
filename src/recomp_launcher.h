@@ -161,6 +161,17 @@ typedef struct RecompLauncherCNetplayMember {
     /* Country, ISO 3166-1 alpha-2, from the server's GeoIP on this peer's
      * address. Empty when unknown, private, or LAN. Drawn as a flag. */
     char country[4];
+    /* Mod readiness against the lobby's plan (append-only), from this peer's
+     * announced offer. Valid only when mod_readiness_valid: 0 for LAN/Direct
+     * rooms, which carry no offer, and when there is no plan.
+     *   mods_missing      plan packages the peer does not have
+     *   mod_files_missing plan features it has the package for but has not
+     *                     provided a required file (a source ROM) for
+     *   mod_files_what    those features, ';'-separated "package/feature" */
+    int  mod_readiness_valid;
+    int  mods_missing;
+    int  mod_files_missing;
+    char mod_files_what[256];
 } RecompLauncherCNetplayMember;
 
 typedef struct RecompLauncherCNetplayNeedMod {
@@ -193,6 +204,10 @@ typedef struct RecompLauncherCNetplayLobbyMod {
      * published caps, so it tracks a host changing a dropdown without the
      * guest doing anything. Empty when the host published no configuration. */
     char options[192];
+    /* The plan's enabled feature ids for this package, comma-separated
+     * (append-only). A peer checks these against its own mod catalog to find
+     * owner files (a source ROM) it still has to provide before the match. */
+    char features[192];
 } RecompLauncherCNetplayLobbyMod;
 
 /* One lobby chat line, oldest first. Backends keep a short ring (the last
@@ -829,6 +844,14 @@ typedef struct RecompLauncherCNetplayCallbacks {
      * 1 when there is something to show, 0 when idle (not a host-relay room,
      * LAN, or not seated). */
     int  (*relay_status)(void* ctx, char* out, size_t out_cap);
+    /* Optional (append-only): can THIS peer boot the game right now -- the
+     * same answer that enables PLAY (launcher_model_can_launch: a present,
+     * verified game image). The lobby view calls it every frame it is seated.
+     * 0 makes the engine announce not-ready and keep announcing it, so the
+     * host's PLAY stays disabled and names this player until the image is
+     * chosen; nothing launches into a match without one. NULL = the engine
+     * cannot hold a seat back, and the launch backstop alone refuses. */
+    void (*local_launch_gate_set)(void* ctx, int can_launch);
 } RecompLauncherCNetplayCallbacks;
 
 /* recomp_launcher_run_window honours RECOMP_NETPLAY_LAUNCH through
@@ -1129,7 +1152,7 @@ typedef struct RecompLauncherCModProvider {
     int (*catalog_diagnostic_get)(void* ctx, int index,
                                   RecompLauncherCModDiagnostic* out);
     /* Title opt-in: non-zero never presents a hidden feature (not even
-     * while enabled), leaves it out of "Enable all" / "Disable all", and
+     * while enabled), leaves it out of "Disable all", and
      * omits a package whose every feature is hidden. The feature still runs
      * as its package and the saved state say. Zero keeps the default rule
      * above. Appended for ABI stability. */

@@ -6549,6 +6549,205 @@ static void draw_mod_feature_option(LauncherModel* m,
                                     const RecompLauncherCModFeature& feature,
                                     const RecompLauncherCModOption& option);
 
+static bool mod_resource_is_directory(const RecompLauncherCModResource& resource) {
+    return std::strcmp(resource.format, "directory") == 0 ||
+           std::strcmp(resource.format, "folder") == 0;
+}
+
+/* Opens the picker for one owner-supplied feature resource and hands the
+ * choice to the provider. on_done, when given, runs after the picker closes
+ * with the chosen path (nullptr on cancel) and whether the provider stored it. */
+static void pick_mod_feature_resource(
+    LauncherModel* m, const char* package_id, const char* feature_id,
+    const RecompLauncherCModResource& resource,
+    std::function<void(const char* path, bool stored)> on_done = nullptr) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->feature_resource_set_path) return;
+    std::vector<std::string> patterns;
+    const std::string remaining = resource.file_patterns;
+    size_t start = 0;
+    while (start <= remaining.size()) {
+        const size_t comma = remaining.find(',', start);
+        std::string pattern = remaining.substr(
+            start, comma == std::string::npos ? std::string::npos
+                                              : comma - start);
+        if (!pattern.empty()) patterns.push_back(pattern);
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    /* The ids and label are copied into the closure: on the built-in-browser
+     * path this runs many frames later, when the caller's RecompLauncherCMod*
+     * structs are long gone. */
+    const std::string pkg_id = package_id;
+    const std::string feat_id = feature_id;
+    const std::string res_id = resource.id;
+    const std::string res_label = resource.label;
+    auto apply_resource = [m, mods, pkg_id, feat_id, res_id, res_label,
+                           on_done](const char* path) {
+        bool stored = false;
+        if (path) {
+            if (!mods->feature_resource_set_path(mods->ctx, pkg_id.c_str(),
+                                                 feat_id.c_str(),
+                                                 res_id.c_str(), path)) {
+                mod_note_error(m);
+            } else {
+                stored = true;
+                std::snprintf(m->mod_status, sizeof(m->mod_status),
+                              "%s verified. Changes apply on PLAY.",
+                              res_label.c_str());
+            }
+        }
+        if (on_done) on_done(path, stored);
+    };
+    if (mod_resource_is_directory(resource)) {
+        ui_pick_folder(m, resource.label, apply_resource);
+    } else {
+        ui_pick_file(m, resource.label, std::move(patterns),
+                     resource.file_description[0] ? resource.file_description
+                                                  : nullptr,
+                     apply_resource);
+    }
+}
+
+/* Enabling a feature whose required file has never been chosen asks for it
+ * right away, instead of leaving the player to find the Files section after
+ * the feature reports an error. A file shared with another feature
+ * (shared_key) already resolves to a path and is not asked for again. One
+ * picker at a time: a stored pick moves on to the next missing file, a cancel
+ * stops and says what is still needed. */
+static void prompt_missing_mod_resources(LauncherModel* m,
+                                         const std::string& package_id,
+                                         const std::string& feature_id,
+                                         int first_index = 0) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->feature_resource_count || !mods->feature_resource_get ||
+        !mods->feature_resource_set_path)
+        return;
+    const int count = mods->feature_resource_count(
+        mods->ctx, package_id.c_str(), feature_id.c_str());
+    for (int index = first_index; index < count; ++index) {
+        RecompLauncherCModResource resource{};
+        if (!mods->feature_resource_get(mods->ctx, package_id.c_str(),
+                                        feature_id.c_str(), index, &resource))
+            continue;
+        if (!resource.required || resource.path[0]) continue;
+        const std::string label = resource.label;
+        pick_mod_feature_resource(
+            m, package_id.c_str(), feature_id.c_str(), resource,
+            [m, package_id, feature_id, index, label](const char* path,
+                                                      bool stored) {
+                if (stored) {
+                    prompt_missing_mod_resources(m, package_id, feature_id,
+                                                 index + 1);
+                } else if (!path) {
+                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                  "%s not selected. Select it under Files "
+                                  "before PLAY.",
+                                  label.c_str());
+                }
+            });
+        return;
+    }
+}
+
+/* One owner file (a source ROM, say) the lobby's mod plan needs from THIS
+ * peer before the match can start. */
+struct LobbyMissingFile {
+    std::string package_id;
+    std::string feature_id;
+    std::string mod_name;
+    RecompLauncherCModResource resource;
+};
+
+/* Calls fn(item) for each non-empty entry of a `sep`-separated list. */
+template <typename Fn>
+static void for_each_listed(const char* list, char sep, Fn&& fn) {
+    if (!list) return;
+    const char* p = list;
+    while (*p) {
+        const char* end = std::strchr(p, sep);
+        const size_t len = end ? (size_t)(end - p) : std::strlen(p);
+        if (len) fn(std::string(p, len));
+        if (!end) break;
+        p = end + 1;
+    }
+}
+
+/* What the lobby's plan needs from this peer's own disk: for each plan package
+ * installed here, the required files of the features the plan enables that
+ * the local catalog does not verify. A package that is not installed is the
+ * download flow's business. Files are folded by label, so two features that
+ * share one source ROM ask for it once. */
+static std::vector<LobbyMissingFile> lobby_local_missing_files(
+    LauncherModel* m, const RecompLauncherCNetplayCallbacks* np) {
+    std::vector<LobbyMissingFile> out;
+    const auto* mods = m ? m->mods : nullptr;
+    if (!np || !mods || !np->lobby_mods_count || !np->lobby_mods_get ||
+        !mods->feature_resource_count || !mods->feature_resource_get)
+        return out;
+    const int plan_n = np->lobby_mods_count(np->ctx);
+    for (int i = 0; i < plan_n; ++i) {
+        RecompLauncherCNetplayLobbyMod lm{};
+        if (!np->lobby_mods_get(np->ctx, i, &lm) || !lm.installed) continue;
+        for_each_listed(lm.features, ',', [&](const std::string& feature) {
+            const int count = mods->feature_resource_count(
+                mods->ctx, lm.id, feature.c_str());
+            for (int r = 0; r < count; ++r) {
+                RecompLauncherCModResource resource{};
+                if (!mods->feature_resource_get(mods->ctx, lm.id,
+                                                feature.c_str(), r, &resource))
+                    continue;
+                if (!resource.required || resource.verified) continue;
+                bool seen = false;
+                for (const LobbyMissingFile& have : out)
+                    if (std::strcmp(have.resource.label, resource.label) == 0)
+                        seen = true;
+                if (!seen)
+                    out.push_back({lm.id, feature, lm.name, resource});
+            }
+        });
+    }
+    return out;
+}
+
+/* "Mega Man X3 ROM, Mega Man X2 ROM" for a peer's ';'-separated
+ * "package/feature" pairs, named from this peer's own catalog (the host holds
+ * every plan package). A pair the catalog cannot name falls back to its
+ * feature id rather than vanishing. */
+static std::string lobby_files_labels(const LauncherModel* m,
+                                      const char* pairs) {
+    std::vector<std::string> labels;
+    const auto* mods = m ? m->mods : nullptr;
+    for_each_listed(pairs, ';', [&](const std::string& pair) {
+        const size_t slash = pair.find('/');
+        if (slash == std::string::npos) return;
+        const std::string package = pair.substr(0, slash);
+        const std::string feature = pair.substr(slash + 1);
+        std::vector<std::string> found;
+        if (mods && mods->feature_resource_count && mods->feature_resource_get) {
+            const int count = mods->feature_resource_count(
+                mods->ctx, package.c_str(), feature.c_str());
+            for (int r = 0; r < count; ++r) {
+                RecompLauncherCModResource resource{};
+                if (mods->feature_resource_get(mods->ctx, package.c_str(),
+                                               feature.c_str(), r, &resource) &&
+                    resource.required)
+                    found.push_back(resource.label);
+            }
+        }
+        if (found.empty()) found.push_back(feature);
+        for (const std::string& label : found)
+            if (std::find(labels.begin(), labels.end(), label) == labels.end())
+                labels.push_back(label);
+    });
+    std::string text;
+    for (const std::string& label : labels) {
+        if (!text.empty()) text += ", ";
+        text += label;
+    }
+    return text;
+}
+
 /* Netplay commits through the provider's commit_netplay hook: it applies the
  * HOST's lobby mod plan (match_caps.mods) on every peer without touching the
  * player's persisted offline selection, and clears to vanilla when the host
@@ -6580,6 +6779,20 @@ void np_try_launch(LauncherModel* m) {
     if (!np || !np->fill_launch) return;
     RecompLauncherCNetplayLaunch launch{};
     if (!np->fill_launch(np->ctx, &launch) || !launch.enabled) return;
+    /* The host hands the game a ROM path from this model and nothing else.
+     * Arming a launch without one sent the game to its console fallback --
+     * an OS file dialog after the match had already started. The lobby holds
+     * this peer not-ready until the image verifies (local_launch_gate_set),
+     * so reaching here without one is a gate that failed: refuse, loudly. */
+    if (!launcher_model_can_launch(m)) {
+        const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+        std::fprintf(stderr, "netplay: launch refused: no verified %s selected\n",
+                     noun);
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start: select your %s first.", noun);
+        if (np->clear_launch_pending) np->clear_launch_pending(np->ctx);
+        return;
+    }
     if (mod_commit_netplay_launch(m)) {
         m->s.netplay_launch = launch;
         if (np->clear_launch_pending) np->clear_launch_pending(np->ctx);
@@ -7982,6 +8195,17 @@ static void np_ingest_last_error(LauncherModel* m, const RecompLauncherCNetplayC
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Cannot start yet: a player is missing mods this lobby "
                       "uses. Open Mods to see who, or turn the mod off.");
+    else if (std::strcmp(err, "peer_not_ready") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: a player has not selected their "
+                      "copy of the game.");
+    else if (std::strcmp(err, "local_not_ready") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: select your copy of the game first.");
+    else if (std::strcmp(err, "peer_needs_files") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: a player has not selected the files "
+                      "this lobby's mods need (a ROM of another game).");
     else if (std::strcmp(err, "need_mods") == 0)
         /* The server refused the seat because the host's plan names packages
          * this peer does not have. Being refused is the correct outcome -- a
@@ -8370,11 +8594,28 @@ static void draw_lobby_seat_row(LauncherModel* m,
             /* Not "Connected": a spectator IS connected, and the thing worth
              * saying about it is that it cannot touch the match. */
             ImGui::TextColored(col(th.text_muted), "Watching");
+        else if (occ && row.mod_readiness_valid && row.mods_missing > 0)
+            ImGui::TextColored(col(th.warn), "Needs mods");
+        else if (occ && row.mod_readiness_valid && row.mod_files_missing > 0)
+            ImGui::TextColored(col(th.warn), "Needs files");
+        else if (occ && !row.is_host && !row.ready)
+            /* Held back by its own launch gate: no verified game image. */
+            ImGui::TextColored(col(th.warn), "Not ready");
         else if (occ)
             ImGui::TextColored(col(th.good), "Connected");
         else
             ImGui::TextColored(col(th.text_muted), "Waiting");
-        if (occ && view.spectator && ImGui::IsItemHovered())
+        if (occ && !row.is_host && !view.spectator && !row.ready &&
+            !(row.mod_readiness_valid &&
+              (row.mods_missing > 0 || row.mod_files_missing > 0)) &&
+            ImGui::IsItemHovered())
+            ImGui::SetTooltip("Has not selected their copy of the game yet.");
+        else if (occ && !row.is_host && !view.spectator &&
+            row.mod_readiness_valid && row.mods_missing == 0 &&
+            row.mod_files_missing > 0 && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Has to select: %s",
+                              lobby_files_labels(m, row.mod_files_what).c_str());
+        else if (occ && view.spectator && ImGui::IsItemHovered())
             ImGui::SetTooltip("Runs the match in sync. Its controllers do not "
                               "reach the game.");
         else if (occ && row.bios_offer_valid && ImGui::IsItemHovered()) {
@@ -8478,6 +8719,17 @@ struct LobbySnapshot {
     int  seated_players;
     int  peers_not_ready;
     char not_ready_names[160];
+    /* Other seated players holding the plan's packages but not the owner
+     * files (a source ROM) some enabled feature needs, by their offer:
+     * "Bob (Mega Man X3 ROM)". */
+    int  peers_missing_files;
+    char missing_files_names[256];
+    /* The same, for this peer, from its own catalog. */
+    int  local_missing_files;
+    char local_missing_labels[160];
+    /* This peer has no verified game image to boot (launcher_model_can_launch
+     * is false): PLAY's own gate, applied to the lobby. */
+    bool local_rom_missing;
     bool is_host;
     bool link_kind;
 };
@@ -8495,6 +8747,13 @@ static bool np_lobby_seated(const LauncherModel* m,
  * mid-edit); guests re-read every frame because theirs are read-only echoes
  * of the host's caps. */
 static bool g_lobby_settings_synced = false;
+
+/* "Later" on the lobby's game-ROM prompt (draw_lobby_game_rom_popup). */
+static bool s_lobby_rom_dismissed = false;
+
+/* The lobby's "Mod files needed" prompt (draw_lobby_mod_files_popup). */
+static bool s_lobby_files_open = false;
+static std::string s_lobby_files_seen;
 
 static void np_lobby_snapshot(LauncherModel* m,
                               const RecompLauncherCNetplayCallbacks* np,
@@ -8555,7 +8814,22 @@ static void np_lobby_snapshot(LauncherModel* m,
      * its local catalog (it is the source of the plan). */
     for (int slot = 0; slot < max_slots; ++slot) {
         if (!s->occupied[slot] || s->slots[slot].is_host) continue;
-        if (s->slots[slot].ready) continue;
+        const RecompLauncherCNetplayMember& mem = s->slots[slot];
+        /* Online peers re-arm ready on their own, so `ready` alone never
+         * says a package is missing; the offer they announced does. */
+        if (mem.mod_readiness_valid && !mem.is_local &&
+            mem.mods_missing == 0 && mem.mod_files_missing > 0) {
+            ++s->peers_missing_files;
+            const std::string labels =
+                lobby_files_labels(m, mem.mod_files_what);
+            const size_t used = std::strlen(s->missing_files_names);
+            std::snprintf(s->missing_files_names + used,
+                          sizeof(s->missing_files_names) - used, "%s%s (%s)",
+                          used ? ", " : "", mem.display_name, labels.c_str());
+        }
+        if (mem.ready &&
+            !(mem.mod_readiness_valid && mem.mods_missing > 0))
+            continue;
         ++s->peers_not_ready;
         /* Name them: "somebody is missing mods" is not actionable when the
          * player in question is looking at a green screen. */
@@ -8563,6 +8837,18 @@ static void np_lobby_snapshot(LauncherModel* m,
         std::snprintf(s->not_ready_names + used, sizeof(s->not_ready_names) - used,
                       "%s%s", used ? ", " : "", s->slots[slot].display_name);
     }
+    {
+        const std::vector<LobbyMissingFile> local =
+            lobby_local_missing_files(m, np);
+        s->local_missing_files = (int)local.size();
+        for (const LobbyMissingFile& file : local) {
+            const size_t used = std::strlen(s->local_missing_labels);
+            std::snprintf(s->local_missing_labels + used,
+                          sizeof(s->local_missing_labels) - used, "%s%s",
+                          used ? ", " : "", file.resource.label);
+        }
+    }
+    s->local_rom_missing = !launcher_model_can_launch(m);
     s->link_kind =
         max_slots >= 4 &&
         (((np->lobby_kind_get && np->lobby_kind_get(np->ctx) == 1)) ||
@@ -8629,6 +8915,7 @@ static void np_lobby_start(LauncherModel* m,
 
 static void np_lobby_leave(LauncherModel* m,
                            const RecompLauncherCNetplayCallbacks* np) {
+    s_lobby_rom_dismissed = false;
     m->netplay_local_room = false;
     m->netplay_lobby_settings_open = false;
     m->netplay_lobby_mods_open = false;
@@ -8945,7 +9232,145 @@ static void draw_lobby_match_settings(LauncherModel* m, const LauncherTheme& th,
     ImGui::EndDisabled();
 }
 
+/* The dashboard's Browse For ROM, from the lobby: same filter, same picker,
+ * same verification (launcher_model_set_rom). */
+static void lobby_pick_game_rom(LauncherModel* m) {
+    const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+    char title[64];
+    std::snprintf(title, sizeof(title), "Select %s", noun);
+    const RomFilterSpec filter =
+        active_rom_filter(m, (const SystemProfile*)m->profile);
+    if (filter.patterns && filter.pattern_count > 0)
+        request_rom_picker(m, title, filter.patterns, filter.pattern_count,
+                           filter.desc, false);
+    else
+        request_rom_picker(m, title, NULL, 0, NULL, false);
+}
+
+/* Seated without a game to boot: ask now, in the lobby, before anyone can
+ * press PLAY -- never after the match has started. Opens on its own each time
+ * this peer is seated without a verified image and closes once one verifies.
+ * "Later" dismisses it for this seating; the footer keeps a button. */
+static void draw_lobby_game_rom_popup(LauncherModel* m, const LauncherTheme& th,
+                                      const LobbySnapshot& s) {
+    static const char* const kTitle = "Game ROM needed";
+    if (!s.local_rom_missing) {
+        s_lobby_rom_dismissed = false;
+        if (ImGui::IsPopupOpen(kTitle)) {
+            /* Closed from inside its own Begin/End below. */
+        } else {
+            return;
+        }
+    }
+    /* The in-app file browser is a root-level modal too; opening this one
+     * over it would close it. */
+    if (s.local_rom_missing && !s_lobby_rom_dismissed && !g_picker.active &&
+        !ImGui::IsPopupOpen(kTitle))
+        ImGui::OpenPopup(kTitle);
+    if (!ImGui::BeginPopupModal(kTitle, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    if (!s.local_rom_missing) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+    const char* game = m->game_name && m->game_name[0] ? m->game_name : "this game";
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + px(520));
+    ImGui::Text("Every player runs the match from their own copy of %s. "
+                "Select your %s so the match can start.", game, noun);
+    if (m->rom_present && m->rom_file[0]) {
+        ImGui::Spacing();
+        ImGui::TextColored(col(th.warn), "%s is not a recognized copy of %s.",
+                           m->rom_file, game);
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    char label[64];
+    std::snprintf(label, sizeof(label), "Select %s…", noun);
+    if (ImGui::Button(label, ImVec2(px(180), 0)))
+        lobby_pick_game_rom(m);
+    ImGui::SameLine();
+    if (ImGui::Button("Later", ImVec2(px(120), 0))) {
+        s_lobby_rom_dismissed = true;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 #if RECOMP_UI_ENABLE_MODS
+/* The lobby's "files needed" prompt. Opens on its own whenever the set of
+ * files this peer is missing grows -- the host enabled a mod that needs one,
+ * or this peer joined a lobby that uses one -- and closes itself once every
+ * file is chosen. "Later" dismisses it until the set changes again; the
+ * lobby's readiness line keeps a button to bring it back. */
+static void draw_lobby_mod_files_popup(LauncherModel* m, const LauncherTheme& th,
+                                       const RecompLauncherCNetplayCallbacks* np,
+                                       bool is_host) {
+    const std::vector<LobbyMissingFile> missing =
+        lobby_local_missing_files(m, np);
+    std::string signature;
+    for (const LobbyMissingFile& file : missing)
+        signature += file.package_id + "/" + file.feature_id + "/" +
+                     file.resource.id + ";";
+    if (signature != s_lobby_files_seen) {
+        /* Only a NEW need reopens it: a file chosen for one of two needs
+         * shrinks the set and must not resurrect a dismissed prompt. */
+        if (signature.size() > s_lobby_files_seen.size() ||
+            (!signature.empty() && s_lobby_files_seen.empty()))
+            s_lobby_files_open = true;
+        s_lobby_files_seen = signature;
+    }
+    if (missing.empty()) s_lobby_files_open = false;
+    /* The in-app file browser is a root-level modal too; reopening this one
+     * while it is up would close it. It comes back when the browser does. */
+    if (s_lobby_files_open && !g_picker.active &&
+        !ImGui::IsPopupOpen("Mod files needed"))
+        ImGui::OpenPopup("Mod files needed");
+    if (!ImGui::BeginPopupModal("Mod files needed", &s_lobby_files_open,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    const float wrap = px(520);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+    ImGui::TextUnformatted(
+        is_host ? "Mods enabled for this lobby use files from your own copy "
+                  "of other games. Select them before you start the match."
+                : "The host enabled mods that use files from your own copy of "
+                  "other games. Select them so the match can start.");
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    for (const LobbyMissingFile& file : missing) {
+        ImGui::PushID((file.package_id + "/" + file.feature_id + "/" +
+                       file.resource.id).c_str());
+        ImGui::Separator();
+        ImGui::TextUnformatted(file.resource.label);
+        ImGui::SameLine();
+        ImGui::TextColored(col(th.text_muted), "(%s)", file.mod_name.c_str());
+        if (file.resource.description[0]) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+            ImGui::TextColored(col(th.text_muted), "%s",
+                               file.resource.description);
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::TextColored(col(th.warn), "%s",
+                           file.resource.status[0] ? file.resource.status
+                                                   : "Not selected");
+        if (ImGui::Button(file.resource.path[0] ? "Change file"
+                                                : "Select file"))
+            pick_mod_feature_resource(m, file.package_id.c_str(),
+                                      file.feature_id.c_str(), file.resource);
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("Later", ImVec2(px(120), 0))) {
+        s_lobby_files_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 /* Lobby mod picker: the HOST owns the session plan. Every peer applies the
  * host's required-mod list at launch (match_caps.mods), so guests get a
  * read-only view of what they are about to run. Compact by design — the full
@@ -8957,7 +9382,11 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
      * the host's required-mod list at launch (match_caps.mods), so guests get
      * a read-only view of what they are about to run. Compact by design — the
      * full Mods page stays the place to install packages and read details. */
-    if (m->netplay_lobby_mods_open && m->mods)
+    /* Not while the in-app file browser is up: it is a root-level modal
+     * too, and opening this one would close it (enabling a mod here can ask
+     * for its source ROM). This popup comes back when the browser closes. */
+    if (m->netplay_lobby_mods_open && m->mods && !g_picker.active &&
+        !ImGui::IsPopupOpen("Lobby Mods"))
         ImGui::OpenPopup("Lobby Mods");
     if (m->mods &&
         ImGui::BeginPopupModal("Lobby Mods", &m->netplay_lobby_mods_open,
@@ -9254,6 +9683,8 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
                         /* Publish immediately: peers must see the host's plan
                          * without waiting for an unrelated settings change. */
                         if (np->push_match_caps) np->push_match_caps(np->ctx);
+                        if (enabled)
+                            prompt_missing_mod_resources(m, f.package_id, f.id);
                     } else {
                         mod_note_error(m);
                     }
@@ -9361,18 +9792,37 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
         if (lobby_mod_n <= 0) {
             ImGui::TextColored(col(th.text_muted),
                                "No mods required — vanilla match.");
-        } else if (s.peers_not_ready == 0) {
+        } else if (s.peers_not_ready == 0 && s.peers_missing_files == 0 &&
+                   s.local_missing_files == 0) {
             ImGui::TextColored(col(th.good),
                                "All players have this lobby's mods installed "
                                "and are ready.");
         } else {
-            ImGui::TextColored(col(th.warn),
-                               "Waiting on: %s — this lobby's mods are not "
-                               "confirmed installed there yet. They can open "
-                               "'View mods' to download them from the host. "
-                               "The match cannot start until then.",
-                               s.not_ready_names[0] ? s.not_ready_names
-                                                    : "another player");
+            if (s.peers_not_ready > 0)
+                ImGui::TextColored(col(th.warn),
+                                   "Waiting on: %s — not ready yet: their copy "
+                                   "of the game is not selected, or this "
+                                   "lobby's mods are not installed there (they "
+                                   "can open 'View mods' to download them from "
+                                   "the host). The match cannot start until "
+                                   "then.",
+                                   s.not_ready_names[0] ? s.not_ready_names
+                                                        : "another player");
+            if (s.peers_missing_files > 0)
+                ImGui::TextColored(col(th.warn),
+                                   "Waiting on: %s — the mods need files from "
+                                   "their own copy of those games, which they "
+                                   "have not selected yet. The match cannot "
+                                   "start until then.",
+                                   s.missing_files_names);
+            if (s.local_missing_files > 0) {
+                ImGui::TextColored(col(th.warn),
+                                   "You need to select: %s. These mods use "
+                                   "files from your own copy of those games.",
+                                   s.local_missing_labels);
+                if (ImGui::Button("Select files…"))
+                    s_lobby_files_open = true;
+            }
         }
         if (lobby_mod_n > 0) {
             ImGui::TextColored(col(th.text_muted),
@@ -9798,6 +10248,9 @@ void draw_lobby(LauncherModel* m, const LauncherTheme& th) {
         const int has_card = np_local_memcard_has_card(m);
         if (has_card >= 0) (void)np->memcard_offer_set(np->ctx, has_card, -1);
     }
+    /* Before the launch check: PLAY's own gate, announced to the room. */
+    if (np->local_launch_gate_set)
+        np->local_launch_gate_set(np->ctx, launcher_model_can_launch(m) ? 1 : 0);
     if (np->launch_pending && np->launch_pending(np->ctx))
         np_try_launch(m);
     if (!np_lobby_seated(m, np)) {
@@ -9886,8 +10339,13 @@ void draw_lobby(LauncherModel* m, const LauncherTheme& th) {
             }
         }
     }
+    draw_lobby_game_rom_popup(m, th, s);
 #if RECOMP_UI_ENABLE_MODS
     draw_lobby_mods_popup(m, th, np, s.is_host);
+    /* After the plan picker: a host enabling a mod there sees this prompt
+     * once that picker closes, not stacked over it. The game itself first. */
+    if (!m->netplay_lobby_mods_open && !s.local_rom_missing)
+        draw_lobby_mod_files_popup(m, th, np, s.is_host);
 #endif
 }
 
@@ -9955,14 +10413,25 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         /* Require two seated players, without waiting for every open seat.
          * Count only visible game slots: a host sitting alone in P2 after a
          * seat swap must not satisfy the start gate. */
-        const bool can_start = s.seated_players >= 2 && s.peers_not_ready == 0;
+        const bool can_start = s.seated_players >= 2 &&
+                               !s.local_rom_missing &&
+                               s.peers_not_ready == 0 &&
+                               s.peers_missing_files == 0 &&
+                               s.local_missing_files == 0;
         const char* blocked_why =
             s.seated_players < 2
                 ? "Waiting for another player to join"
-                : (s.peers_not_ready > 0
-                       ? "Waiting for every player to install this "
-                         "lobby's mods"
-                       : nullptr);
+            : s.local_rom_missing
+                ? "Select your copy of the game first"
+            : s.local_missing_files > 0
+                ? "Select the files this lobby's mods need first"
+            : s.peers_not_ready > 0
+                ? "Waiting for every player to be ready (their copy of the "
+                  "game, or this lobby's mods)"
+            : s.peers_missing_files > 0
+                ? "Waiting for every player to select the files this "
+                  "lobby's mods need"
+                : nullptr;
         ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - play_w, cta_y));
         if (neon_cta("##lobby_play", ui_text("PLAY"), ImVec2(play_w, play_h),
                      can_start))
@@ -9971,6 +10440,18 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         else if (blocked_why &&
                  ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", blocked_why);
+    } else if (s.local_rom_missing) {
+        /* The one thing a guest can do to unblock the match: here, where the
+         * host's PLAY would be, not after the match has started. */
+        const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+        char label[64];
+        std::snprintf(label, sizeof(label), "Select %s…", noun);
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - play_w, cta_y));
+        if (neon_cta("##lobby_select_rom", label, ImVec2(play_w, play_h), true))
+            lobby_pick_game_rom(m);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The match cannot start until you select your "
+                              "copy of the game.");
     } else {
         ImGui::SetCursorScreenPos(ImVec2(
             origin.x + fullw - play_w,
@@ -11254,7 +11735,7 @@ static void draw_mod_feature_diagnostics(
     }
 }
 
-static bool set_all_mod_features(LauncherModel* m, bool enabled) {
+static bool disable_all_mod_features(LauncherModel* m) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
         !mods->feature_enable) {
@@ -11280,10 +11761,10 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
         /* A concealed feature keeps whatever its package and saved state
          * say; the player cannot see it, so a bulk action must not flip it. */
         if (launcher_mod_feature_concealed(mods, &feature) ||
-            (feature.enabled != 0) == enabled)
+            !feature.enabled)
             continue;
         if (!mods->feature_enable(mods->ctx, feature.package_id, feature.id,
-                                  enabled ? 1 : 0)) {
+                                  0)) {
             char failure[sizeof(m->mod_status)] = {};
             const char* error =
                 mods->last_error ? mods->last_error(mods->ctx) : nullptr;
@@ -11308,8 +11789,7 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
         changed.push_back(index);
     }
     std::snprintf(m->mod_status, sizeof(m->mod_status),
-                  enabled ? "All mod features enabled. Changes apply on PLAY."
-                          : "All mod features disabled. Changes apply on PLAY.");
+                  "All mod features disabled. Changes apply on PLAY.");
     return true;
 }
 
@@ -11392,14 +11872,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             }
         });
     }
-    ImGui::SameLine();
-    if (ImGui::Button(ui_text("Enable all")))
-        set_all_mod_features(m, true);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", ui_text("Enable every installed mod feature"));
+    /* No "Enable all": in a title with many mods it turns on features that
+     * need owner files or conflict with each other, all at once. */
     ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
-        set_all_mod_features(m, false);
+        disable_all_mod_features(m);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", ui_text("Disable every installed mod feature"));
     ImGui::SameLine();
@@ -11479,6 +11956,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 mods->ctx, feature.package_id, feature.id,
                                 enabled ? 1 : 0)) {
                             mod_note_error(m);
+                        } else if (enabled) {
+                            prompt_missing_mod_resources(
+                                m, feature.package_id, feature.id);
                         }
                     }
                     if (ImGui::IsItemHovered())
@@ -11636,66 +12116,15 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 ImGui::SetTooltip("%s", resource.path);
                         }
                         const bool directory_resource =
-                            std::strcmp(resource.format, "directory") == 0 ||
-                            std::strcmp(resource.format, "folder") == 0;
+                            mod_resource_is_directory(resource);
                         if (ImGui::Button(
                                 resource.path[0]
                                     ? (directory_resource ? ui_text("Change folder")
                                                           : ui_text("Change file"))
                                     : (directory_resource ? ui_text("Select folder")
                                                           : ui_text("Select file")))) {
-                            std::vector<std::string> owned_patterns;
-                            std::vector<const char*> patterns;
-                            std::string remaining = resource.file_patterns;
-                            size_t start = 0;
-                            while (start <= remaining.size()) {
-                                const size_t comma = remaining.find(',', start);
-                                std::string pattern = remaining.substr(
-                                    start, comma == std::string::npos
-                                               ? std::string::npos
-                                               : comma - start);
-                                if (!pattern.empty())
-                                    owned_patterns.push_back(pattern);
-                                if (comma == std::string::npos) break;
-                                start = comma + 1;
-                            }
-                            for (const std::string& pattern : owned_patterns)
-                                patterns.push_back(pattern.c_str());
-                            /* The ids and label are copied into the closure:
-                             * on the built-in-browser path this runs many
-                             * frames later, when the RecompLauncherCMod*
-                             * structs this loop walks are long gone. */
-                            const std::string pkg_id = feature.package_id;
-                            const std::string feat_id = feature.id;
-                            const std::string res_id = resource.id;
-                            const std::string res_label = resource.label;
-                            auto apply_resource = [m, mods, pkg_id, feat_id,
-                                                   res_id,
-                                                   res_label](const char* path) {
-                                if (!path) return;
-                                if (!mods->feature_resource_set_path(
-                                        mods->ctx, pkg_id.c_str(),
-                                        feat_id.c_str(), res_id.c_str(),
-                                        path)) {
-                                    mod_note_error(m);
-                                } else {
-                                    std::snprintf(
-                                        m->mod_status,
-                                        sizeof(m->mod_status),
-                                        "%s verified. Changes apply on PLAY.",
-                                        res_label.c_str());
-                                }
-                            };
-                            if (directory_resource) {
-                                ui_pick_folder(m, resource.label,
-                                               apply_resource);
-                            } else {
-                                ui_pick_file(m, resource.label, owned_patterns,
-                                             resource.file_description[0]
-                                                 ? resource.file_description
-                                                 : nullptr,
-                                             apply_resource);
-                            }
+                            pick_mod_feature_resource(m, feature.package_id,
+                                                      feature.id, resource);
                         }
                         if (!resource.required && resource.path[0]) {
                             ImGui::SameLine();
