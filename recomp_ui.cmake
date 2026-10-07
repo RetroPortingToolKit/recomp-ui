@@ -239,6 +239,9 @@ function(recomp_target_launcher_ui TGT)
         message(STATUS "recomp-ui: SDL2 compatibility platform backend")
     endif()
 
+    find_package(Threads REQUIRED)
+    target_link_libraries(${TGT} PRIVATE Threads::Threads)
+
     # OpenGL: the ImGui GL3 backend + launcher_gl.c need the system GL library.
     # Link it here so a host gets it from this ONE call (self-contained) rather
     # than having to remember to link OpenGL itself — mirrors the standalone

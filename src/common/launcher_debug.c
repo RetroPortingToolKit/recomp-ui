@@ -154,22 +154,28 @@ static void synth_key(SDL_Keycode key) {
     SDL_PushEvent(&e);
 }
 
-void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
-    if (!g_active) return;
+static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
+    if (!g_active) return false;
 
     // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
     // otherwise a script that clicks PLAY and then ends would overwrite LAUNCH
     // with the script-exhausted QUIT below.
-    if (m->action != LNG_ACTION_NONE) return;
+    if (m && m->action != LNG_ACTION_NONE) return false;
 
-    if (g_wait_frames > 0) { --g_wait_frames; return; }
+    if (g_wait_frames > 0) { --g_wait_frames; return false; }
 
     if (g_cmd_index >= g_cmd_count) {   // script exhausted -> exit
-        m->action = LNG_ACTION_QUIT;
-        return;
+        return true;
     }
 
-    const char* c = g_cmds[g_cmd_index++];
+    const char* c = g_cmds[g_cmd_index];
+    /* No model pointer is available on this path. Defer model operations,
+     * including unknown future commands, until exclusive provider work ends. */
+    if (!m && strncmp(c, "size:", 5) && strncmp(c, "click:", 6) &&
+        strncmp(c, "key:", 4) && strncmp(c, "text:", 5) &&
+        strncmp(c, "wait:", 5) && strncmp(c, "shot:", 5) && strcmp(c, "quit"))
+        return false;
+    g_cmd_index++;
 
     if (strncmp(c, "view:", 5) == 0) {
         const char* v = c + 5;
@@ -235,8 +241,17 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
     } else if (strncmp(c, "shot:", 5) == 0) {
         launcher_capture_png(c + 5, p->pixel_w, p->pixel_h);
     } else if (strcmp(c, "quit") == 0) {
-        m->action = LNG_ACTION_QUIT;
+        return true;
     } else {
         fprintf(stderr, "[dbg] unknown command: %s\n", c);
     }
+    return false;
+}
+
+void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
+    if (launcher_debug_step_impl(p, m)) m->action = LNG_ACTION_QUIT;
+}
+
+bool launcher_debug_step_pending(LauncherPlatform* p) {
+    return launcher_debug_step_impl(p, NULL);
 }

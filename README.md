@@ -293,6 +293,19 @@ success. A failed commit keeps the launcher open and displays `last_error`; the
 host can perform final target verification, dependency resolution, collision
 checks, persistence, and plan construction there.
 
+For statically paired builds, a host may set `commit_worker_safe = 1` when
+`RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT` is defined. This explicitly certifies
+that `commit`, `last_error`, and every service they invoke have no UI, SDL, GL,
+or main-thread affinity, and that their context stays alive until the launcher
+returns. Only preboot offline PLAY uses the owned worker. The UI renders a
+progress view and pumps events without any provider access or model edits;
+close requests wait for completion and join before returning QUIT. The image
+path and failure text are copied, and a failed commit stays in the launcher.
+Verification gates remain unchanged. Zero-initialized providers, netplay, and
+in-session Resume/close retain synchronous behavior. This struct has no
+negotiated size: the appended capability supports source compatibility, not
+loading an older binary provider object.
+
 Hosted-lobby, LAN, and direct netplay launches never call the normal `commit()`.
 If supplied, `commit_netplay()` should clear any in-session mod plan without
 changing the user's persisted offline selection. If it is `NULL`, recomp-ui

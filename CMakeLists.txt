@@ -69,6 +69,39 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(recomp-ui-launcher-mod-commit-job-test
+        tests/launcher_mod_commit_job_test.cpp)
+    target_include_directories(recomp-ui-launcher-mod-commit-job-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-launcher-mod-commit-job-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-launcher-mod-commit-job
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-commit-job-test>)
+
+    add_executable(recomp-ui-launcher-debug-pending-test
+        tests/launcher_debug_pending_test.c src/common/launcher_debug.c)
+    target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
+    target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
+    target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+    foreach(_rui_pending_case wait model launch)
+        add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
+            COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
+    endforeach()
+
+    # Real desktop/backend evidence is opt-in, not a headless CI requirement.
+    add_executable(recomp-ui-worker-commit-probe EXCLUDE_FROM_ALL
+        tests/launcher_worker_commit_probe.cpp)
+    target_link_libraries(recomp-ui-worker-commit-probe PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+    set(_rui_saved_mods ${RECOMP_UI_ENABLE_MODS})
+    set(RECOMP_UI_ENABLE_MODS ON)
+    recomp_target_launcher_ui(recomp-ui-worker-commit-probe CONSOLE all)
+    set(RECOMP_UI_ENABLE_MODS ${_rui_saved_mods})
+    if(WIN32 AND RUI_SDL_RUNTIME_TARGET)
+        add_custom_command(TARGET recomp-ui-worker-commit-probe POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:${RUI_SDL_RUNTIME_TARGET}>
+                $<TARGET_FILE_DIR:recomp-ui-worker-commit-probe>)
+    endif()
+
     add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
     target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
     add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)

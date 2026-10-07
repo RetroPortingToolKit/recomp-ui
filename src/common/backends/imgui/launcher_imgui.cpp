@@ -23,6 +23,7 @@
 #include "launcher_system.h"
 #include "launcher_i18n.h"
 #include "launcher_mod_visibility.h"
+#include "launcher_mod_commit_job.h"
 #include "recomp_moderation.h"   // local ignore/block list (online only)
 #include "consoles/n64/n64_binds.h"   // RUI_N64_FIELD_* for the pad-capture path
 
@@ -10690,6 +10691,33 @@ static bool mod_commit_launch(LauncherModel* m) {
     return false;
 }
 
+struct LaunchCommitState {
+    LauncherModCommitJob job;
+    bool close_requested = false;
+};
+/* Drawing helpers borrow the backend-owned state; no detached/static job may
+ * retain a LauncherModel or provider after launcher_backend_run returns. */
+static LaunchCommitState* s_launch_commit = nullptr;
+
+static bool launch_commit_pending() {
+    return s_launch_commit && s_launch_commit->job.pending();
+}
+
+static void request_mod_commit_launch(LauncherModel* m) {
+    const auto* mods = m->mods;
+    if (s_launch_commit && !m->in_session && mods && mods->commit &&
+        mods->commit_worker_safe) {
+        if (!s_launch_commit->job.queue(mods->commit, mods->last_error, mods->ctx,
+                                       launcher_model_effective_rom_path(m))) {
+            std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
+                          s_launch_commit->job.error());
+            launcher_model_set_view(m, LNG_VIEW_MODS);
+        }
+    } else if (mod_commit_launch(m)) {
+        m->action = LNG_ACTION_LAUNCH;
+    }
+}
+
 struct ModIntegerEditState {
     int64_t value = 0;
     std::string provider_value;
@@ -12142,8 +12170,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
              * an image the runtime's identity gate would reject. */
             if (m->rom_patch_supported && m->s.rom_patch_enabled)
                 launcher_model_set_view(m, LNG_VIEW_MODS);
-        } else if (mod_commit_launch(m))
-            m->action = LNG_ACTION_LAUNCH;
+        } else {
+            request_mod_commit_launch(m);
+        }
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const char* noun = m->rom_noun ? m->rom_noun : "ROM";
         if (m->bios_name && launcher_model_bios_missing(m)) {
@@ -13322,6 +13351,24 @@ void draw_restore_defaults_modal(LauncherModel* m) {
     }
 }
 
+static void draw_launch_commit_progress(const LauncherTheme& th) {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    draw_crt_background(vp->Pos, vp->Size);
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(420.0f), 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, col(th.background));
+    ImGui::Begin("Preparing game##launch_commit", nullptr,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted(ui_text("Preparing your game..."));
+    ImGui::ProgressBar(-float(ImGui::GetTime()), ImVec2(-1.0f, px(12.0f)), "");
+    ImGui::TextWrapped("%s", ui_text(s_launch_commit->close_requested
+        ? "Closing when preparation finishes."
+        : "Checking and preparing your selected content. Please wait."));
+    ImGui::End();
+    ImGui::PopStyleColor();
+}
+
 void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logical_h) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->Pos);
@@ -13520,6 +13567,12 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     end_container();
 
     draw_footer(m, th, footer_h);
+    if (launch_commit_pending()) {
+        /* PLAY queued a job in the footer. Finish this drawing stack without
+         * any later modal/provider/model callbacks; start only after return. */
+        ImGui::End();
+        return;
+    }
     draw_setup_wizard_modal(m, th);
     draw_bios_confirm_modal(m, th);
     draw_bios_play_modal(m, th);
@@ -13922,6 +13975,11 @@ extern "C" bool launcher_panel_available(const LauncherPanel* p, const LauncherM
 extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                                           LauncherModel* m,
                                           const LauncherTheme* th) {
+    LaunchCommitState launch_commit;
+    struct CommitBinding {
+        explicit CommitBinding(LaunchCommitState& state) { s_launch_commit = &state; }
+        ~CommitBinding() { s_launch_commit = nullptr; }
+    } commit_binding(launch_commit);
     launcher_boot_timing_mark("rui:backend_run:begin");
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -14080,18 +14138,42 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     // reads the env var any more.
     bool first_present_marked = false;
 
-    while (m->action == LNG_ACTION_NONE && !p->should_quit) {
+    while ((m->action == LNG_ACTION_NONE && !p->should_quit) ||
+           launch_commit.job.pending()) {
+        /* finish() joins before model/provider access, returning the borrowed
+         * ctx to the UI. A queued close wins even when commit succeeded. */
+        if (launch_commit.job.finish()) {
+            if (launch_commit.close_requested || p->should_quit) {
+                p->should_quit = true;
+            } else if (launch_commit.job.result()) {
+                m->action = LNG_ACTION_LAUNCH;
+            } else {
+                std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
+                              launch_commit.job.error());
+                launcher_model_set_view(m, LNG_VIEW_MODS);
+            }
+            if (p->should_quit || m->action != LNG_ACTION_NONE) break;
+        }
         /* The smoke test closes the window, which is QUIT before boot and
          * RESUME in session -- the same as a player's close box. */
-        if (smoke_frames > 0 && ++frame > smoke_frames) { p->should_quit = true; break; }
+        if (smoke_frames > 0 && ++frame > smoke_frames) {
+            if (launch_commit.job.pending()) launch_commit.close_requested = true;
+            else { p->should_quit = true; break; }
+        }
 
         SDL_Event ev;
         if (SDL_WaitEventTimeout(&ev, 16)) do {
             /* Window coordinates -> logical units, before anything reads the
              * event. No-op unless the platform layer synthesized the split. */
             scale_mouse_event(ev, p->input_scale);
-            if (ev.type == SDL_EVENT_QUIT) p->should_quit = true;
-            if (ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) p->should_quit = true;
+            if (ev.type == SDL_EVENT_QUIT || ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                if (launch_commit.job.pending()) launch_commit.close_requested = true;
+                else p->should_quit = true;
+            }
+            if (launch_commit.job.pending()) {
+                LNG_ImplSDL_ProcessEvent(&ev);
+                continue;
+            }
             if (try_capture(m, ev)) continue;
             /* Arm gamepad navigation on the first REAL pad input.
              *
@@ -14141,63 +14223,66 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
 
         // Re-poll connected gamepads every frame so hot-plugged pads (e.g. a
         // DualSense powered on after launch) appear without a relaunch.
-        g_pad_count = launcher_input_poll(
-            g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
+        if (!launch_commit.job.pending()) {
+            g_pad_count = launcher_input_poll(
+                g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
 
-        // PSX: keep Input source labels on concrete pad names (live SDL name
-        // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
-        launcher_binds_sync_psx_pad_sources(m, g_pads, g_pad_count);
+            // PSX: keep Input source labels on concrete pad names (live SDL name
+            // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
+            launcher_binds_sync_psx_pad_sources(m, g_pads, g_pad_count);
 
-        // SNES: same purpose, from this console's own profile store. Run every
-        // frame so a pad plugged in after start-up picks up its label too.
-        launcher_binds_hydrate_snes_pad_names(m, g_pads, g_pad_count);
+            // SNES: same purpose, from this console's own profile store. Run every
+            // frame so a pad plugged in after start-up picks up its label too.
+            launcher_binds_hydrate_snes_pad_names(m, g_pads, g_pad_count);
 
-        // Pad capture release-gate: clear once the selected pad is fully at
-        // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
-        if (m->capturing && m->capture_pad && m->map_all_wait_release) {
-            const uint32_t id = m->player_pad_id[m->cfg_player];
-            if (id && launcher_input_gamepad_at_rest(id))
-                m->map_all_wait_release = false;
-        }
-
-        // PSX D-pad poll fallback: some Windows Xbox backends miss
-        // GAMEPAD_BUTTON_DOWN for a cardinal; commit from live button state
-        // when capturing Up/Down/Left/Right and that exact bit is held.
-        if (m->capturing && m->capture_pad && !m->map_all_wait_release &&
-            m->capture_btn >= 0 && m->capture_btn <= 3) {
-            const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
-            if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
+            // Pad capture release-gate: clear once the selected pad is fully at
+            // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
+            if (m->capturing && m->capture_pad && m->map_all_wait_release) {
                 const uint32_t id = m->player_pad_id[m->cfg_player];
-                if (id) {
-#if defined(LNG_SDL3)
-                    static const int kExpect[4] = {
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
-                    };
-#else
-                    static const int kExpect[4] = {
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_UP,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-                    };
-#endif
-                    const int expect = kExpect[m->capture_btn];
-                    const uint32_t mask = launcher_input_gamepad_button_mask(id);
-                    if (expect >= 0 && expect < 32 &&
-                        (mask & (uint32_t)(1u << expect))) {
-                        launcher_binds_set_pad_button(
-                            m, m->cfg_player + 1, m->capture_btn,
-                            LNG_PADBIND_BUTTON, expect, 0);
-                        if (m->map_all_active)
-                            launcher_model_map_all_advance(m);
-                        else
-                            launcher_model_cancel_capture(m);
+                if (id && launcher_input_gamepad_at_rest(id))
+                    m->map_all_wait_release = false;
+            }
+
+            // PSX D-pad poll fallback: some Windows Xbox backends miss
+            // GAMEPAD_BUTTON_DOWN for a cardinal; commit from live button state
+            // when capturing Up/Down/Left/Right and that exact bit is held.
+            if (m->capturing && m->capture_pad && !m->map_all_wait_release &&
+                m->capture_btn >= 0 && m->capture_btn <= 3) {
+                const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
+                if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
+                    const uint32_t id = m->player_pad_id[m->cfg_player];
+                    if (id) {
+    #if defined(LNG_SDL3)
+                        static const int kExpect[4] = {
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+                        };
+    #else
+                        static const int kExpect[4] = {
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_UP,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+                        };
+    #endif
+                        const int expect = kExpect[m->capture_btn];
+                        const uint32_t mask = launcher_input_gamepad_button_mask(id);
+                        if (expect >= 0 && expect < 32 &&
+                            (mask & (uint32_t)(1u << expect))) {
+                            launcher_binds_set_pad_button(
+                                m, m->cfg_player + 1, m->capture_btn,
+                                LNG_PADBIND_BUTTON, expect, 0);
+                            if (m->map_all_active)
+                                launcher_model_map_all_advance(m);
+                            else
+                                launcher_model_cancel_capture(m);
+                        }
                     }
                 }
             }
+
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -14212,7 +14297,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * and Enter still work while listening. */
         {
             ImGuiIO& nav_io = ImGui::GetIO();
-            if (m->capturing || m->hk_capturing || m->camera_capturing ||
+            if (launch_commit.job.pending() || m->capturing || m->hk_capturing || m->camera_capturing ||
                 automap_in_progress() || !s_pad_nav_armed)
                 nav_io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
             else
@@ -14221,15 +14306,27 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
         ImGui::NewFrame();
-        draw_ui(m, *th, p->logical_w, p->logical_h);
+        if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
+        else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
+
+        /* All provider reads in this frame have finished. The queued image
+         * and callback/ctx were copied before any worker was started. */
+        if (launch_commit.job.queued()) {
+            if (p->should_quit) launch_commit.close_requested = true;
+            launch_commit.job.start();
+        }
 
         glViewport(0, 0, p->pixel_w, p->pixel_h);
         const LngColor bg = th->background;
         glClearColor(bg.r, bg.g, bg.b, bg.a);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
+        if (launch_commit.job.pending()) {
+            if (launcher_debug_step_pending(p)) launch_commit.close_requested = true;
+        } else {
+            launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
+        }
         launcher_platform_present(p);
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");
