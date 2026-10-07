@@ -69,6 +69,9 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
+    target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
+    add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c
