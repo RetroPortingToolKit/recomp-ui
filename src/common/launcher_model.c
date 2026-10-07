@@ -553,6 +553,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
         m->has_dynamic_resolution      = game->has_dynamic_resolution != 0;
+        m->has_render_pipeline         = game->has_render_pipeline != 0;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
@@ -1934,6 +1935,14 @@ const char* launcher_model_renderer_label(const LauncherModel* m) {
 void launcher_model_cycle_supersampling(LauncherModel* m) {
     int v = clampi(m->s.supersampling ? m->s.supersampling : 1, 1, 4);
     m->s.supersampling = (v % 4) + 1;
+}
+
+bool launcher_model_render_pipeline_offered(const LauncherModel* m) {
+    return m && m->has_render_pipeline && m->s.renderer == 1;
+}
+
+bool launcher_model_render_pipeline_children_enabled(const LauncherModel* m) {
+    return launcher_model_render_pipeline_offered(m) && m->s.render_thread != 0;
 }
 
 bool launcher_model_internal_resolution_offered(const LauncherModel* m) {

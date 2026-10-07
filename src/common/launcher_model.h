@@ -338,6 +338,7 @@ typedef struct {
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
     bool               has_dynamic_resolution;
+    bool               has_render_pipeline;   // GameInfo.has_render_pipeline
 
     // ---- rebind-page opt-out (GameInfo.hide_rebind) ------------------------
     bool hide_rebind;
@@ -888,6 +889,12 @@ const char* launcher_model_supersampling_label(const LauncherModel* m);
  * getters speak the vocabulary; set stores the entry's value, and a value
  * outside the vocabulary never becomes the selection. */
 bool        launcher_model_internal_resolution_offered(const LauncherModel* m);
+/* Rendering pipeline rows (Render thread / Present thread / Frame
+ * generation): offered when the host sets has_render_pipeline and the
+ * renderer is OpenGL (index 1). The two child rows are editable only while
+ * Render thread is on. */
+bool        launcher_model_render_pipeline_offered(const LauncherModel* m);
+bool        launcher_model_render_pipeline_children_enabled(const LauncherModel* m);
 int         launcher_model_internal_resolution_count(const LauncherModel* m);
 const char* launcher_model_internal_resolution_label_at(const LauncherModel* m, int i);
 int         launcher_model_internal_resolution_index(const LauncherModel* m);

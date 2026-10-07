@@ -1481,6 +1481,13 @@ struct RecompLauncherCSettings {
      * encoding as internal_resolution (1 = Native, 720/1080/1440). */
     int  dynamic_resolution;
     int  dynamic_resolution_min;
+    /* Host rendering pipeline (GameInfo.has_render_pipeline), 0/1 each.
+     * render_thread runs the renderer on its own thread; present_thread and
+     * frame_generation only take effect with it on. Applied at next launch.
+     * Appended additively; a zero-initialized host reads as off. */
+    int  render_thread;
+    int  present_thread;
+    int  frame_generation;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -2213,6 +2220,10 @@ typedef struct RecompLauncherCGameInfo {
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
     int                has_dynamic_resolution;
+    /* Nonzero: the host offers Settings.render_thread / present_thread /
+     * frame_generation (Display rows, OpenGL only). Appended for ABI
+     * stability. */
+    int                has_render_pipeline;
     /* Entering the netplay flow / returning to the offline dashboard.
      * Optional title policy (e.g. stage required co-op mods). The callback
      * remains active through controller/settings subviews and a match launch.
@@ -2259,6 +2270,7 @@ typedef struct RecompLauncherCGameInfo {
  * lacks Settings.internal_resolution and the GameInfo vocabulary. */
 #define RECOMP_LAUNCHER_HAS_INTERNAL_RESOLUTION 1
 #define RECOMP_LAUNCHER_HAS_DYNAMIC_RESOLUTION 1
+#define RECOMP_LAUNCHER_HAS_RENDER_PIPELINE 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
