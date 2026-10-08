@@ -422,6 +422,7 @@ typedef struct {
     bool     pad_mode_selectable;   // false => selector hidden, mode forced to locked_pad_mode
     int      locked_pad_mode;       // forced mode when !pad_mode_selectable
     bool     lock_device;           // true => hide the player controller cards entirely
+    bool     allow_shared_gamepad;  // host-owned development capability
 
     // ---- aspect ratio caps ----
     // bit0 = 4:3 (implied/always), bit1 = 16:9, bit2 = 21:9. 0 => legacy
@@ -1096,6 +1097,8 @@ void launcher_model_set_deadzone(LauncherModel* m, int player, int pct);
 // Set the input source explicitly (used by the device dropdown). kind: 0 None,
 // 1 Keyboard, 2 Gamepad. For gamepad, pass the SDL id + display name + GUID
 // (GUID may be NULL/empty; then player_gamepad_guid[player] is cleared).
+int launcher_model_gamepad_claimed(const LauncherModel* m, int player,
+                                  const char* guid);
 void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid);

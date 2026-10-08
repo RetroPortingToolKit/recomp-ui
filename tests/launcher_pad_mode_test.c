@@ -226,6 +226,20 @@ static void test_genesis_custom_mode_list(void) {
 }
 
 int main(void) {
+    LauncherModel* shared = psx_session(1, PSX_DIGITAL, SRC_KEYBOARD, PSX_DIGITAL);
+    expect(launcher_model_visible_player_count(shared) == 2,
+           "two-player title exposes both local controller seats");
+    launcher_model_set_source(shared, 0, SRC_GAMEPAD, 7, "DualShock", kFixtureGuid);
+    expect(launcher_model_gamepad_claimed(shared, 1, kFixtureGuid),
+           "normal picker reserves an assigned gamepad");
+    shared->allow_shared_gamepad = true;
+    expect(!launcher_model_gamepad_claimed(shared, 1, kFixtureGuid),
+           "development picker permits the same gamepad for P2");
+    launcher_model_set_source(shared, 1, SRC_GAMEPAD, 7, "DualShock", kFixtureGuid);
+    expect(shared->s.player_gamepad_instance[0] == shared->s.player_gamepad_instance[1] &&
+           strcmp(shared->s.player_gamepad_guid[0], shared->s.player_gamepad_guid[1]) == 0,
+           "both seats retain the shared physical controller assignment");
+    free(shared);
     test_locked_analog_keyboard_seat();
     test_locked_analog_poisoned_settings();
     test_locked_digital_still_digital();

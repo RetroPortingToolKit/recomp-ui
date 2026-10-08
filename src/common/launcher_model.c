@@ -390,6 +390,7 @@ void launcher_model_init(LauncherModel* m,
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
         m->locked_pad_mode      = clampi(game->locked_pad_mode, 0, 2);
         m->lock_device          = game->lock_device != 0;
+        m->allow_shared_gamepad = game->allow_shared_gamepad != 0;
         m->aspect_mask          = game->aspect_mask;
 
         m->has_window_size      = game->has_window_size != 0;
@@ -4254,6 +4255,17 @@ void launcher_model_deadzone_delta(LauncherModel* m, int player, int delta) {
 void launcher_model_set_deadzone(LauncherModel* m, int player, int pct) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     m->s.deadzone[player] = clampi(pct, 0, 100);
+}
+
+int launcher_model_gamepad_claimed(const LauncherModel* m, int player,
+                                  const char* guid) {
+    if (!m || !guid || !guid[0] || m->allow_shared_gamepad) return 0;
+    const int count = launcher_model_visible_player_count(m);
+    for (int other = 0; other < count; ++other) {
+        if (other != player && m->s.player_src[other] == 2 &&
+            strcmp(m->s.player_gamepad_guid[other], guid) == 0) return 1;
+    }
+    return 0;
 }
 
 void launcher_model_set_source(LauncherModel* m, int player, int kind,

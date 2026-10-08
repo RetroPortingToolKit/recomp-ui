@@ -2232,7 +2232,11 @@ typedef struct RecompLauncherCGameInfo {
     const char* bios_prepare_button;         /* "Prepare BIOS" */
     const char* bios_prepare_busy_status;    /* "Compiling your BIOS…" */
     const char* bios_prepare_success_status; /* "BIOS ready." */
+    /* Development hosts may assign one physical gamepad to multiple local
+     * seats. Zero keeps the normal exclusive picker. Appended for ABI stability. */
+    int allow_shared_gamepad;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_SHARED_GAMEPAD 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that

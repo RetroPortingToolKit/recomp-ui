@@ -3253,17 +3253,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
     for (int i = 0; i < g_pad_count; ++i)
         push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
 
-    const int claim_n = launcher_model_visible_player_count(m);
     for (int i = 0; i < nopt; ++i) {
-        bool claimed = false;
-        for (int o = 0; o < claim_n; ++o) {
-            if (o == p) continue;
-            if (m->s.player_src[o] == 2 && m->s.player_gamepad_guid[o][0] &&
-                std::strcmp(m->s.player_gamepad_guid[o], opts[i].guid) == 0) {
-                claimed = true;
-                break;
-            }
-        }
+        const bool claimed = launcher_model_gamepad_claimed(m, p, opts[i].guid);
         char label[96];
         if (opts[i].live)
             std::snprintf(label, sizeof(label), "%s", opts[i].name);
