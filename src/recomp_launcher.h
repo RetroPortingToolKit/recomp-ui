@@ -1061,6 +1061,9 @@ typedef struct RecompLauncherCCustomContentEntry {
     char path[RECOMP_LAUNCHER_CONTENT_PATH_MAX];
     char status[256];
     int has_error;
+    /* Optional informational notice; independent of a pack validation error. */
+    char notice[128];
+    char notice_tooltip[1024];
 } RecompLauncherCCustomContentEntry;
 
 typedef enum RecompLauncherCCustomContentState {

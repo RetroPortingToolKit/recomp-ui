@@ -11447,6 +11447,17 @@ void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
             launcher_model_custom_content_open_folder(m, entry.id);
         if (entry.path[0] && ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", entry.path);
+        if (entry.notice[0]) {
+            ImGui::TextColored(col(th.warn), "%s%s", entry.notice,
+                               entry.notice_tooltip[0] ? " (?)" : "");
+            if (entry.notice_tooltip[0] && ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+                ImGui::TextUnformatted(entry.notice_tooltip);
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+        }
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
