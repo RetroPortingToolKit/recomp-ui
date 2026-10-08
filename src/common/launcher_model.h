@@ -338,6 +338,10 @@ typedef struct {
     bool      content_import_open;
     char      content_error[256];
     RecompLauncherCCustomContentStatus content_status;
+    bool      content_review_initialized;
+    int       content_review_count;
+    RecompLauncherCCustomContentField content_review_fields[RECOMP_LAUNCHER_CONTENT_REVIEW_MAX_FIELDS];
+    RecompLauncherCCustomContentValue content_review_values[RECOMP_LAUNCHER_CONTENT_REVIEW_MAX_FIELDS];
     int       mod_selected;
     int       mod_package_selected;
     bool      mod_show_packages;
@@ -742,6 +746,9 @@ void launcher_model_set_view(LauncherModel* m, LngView v);
  * by the view-model or render backend. A BUSY job prevents launch. */
 bool launcher_model_custom_content_available(const LauncherModel* m);
 bool launcher_model_custom_content_busy(const LauncherModel* m);
+bool launcher_model_custom_content_review_available(const LauncherModel* m);
+bool launcher_model_custom_content_review_submit(LauncherModel* m);
+bool launcher_model_custom_content_review_cancel(LauncherModel* m);
 void launcher_model_custom_content_poll(LauncherModel* m);
 bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
                                          const char* source_path,

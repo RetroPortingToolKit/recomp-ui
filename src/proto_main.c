@@ -352,6 +352,96 @@ static int dl_account_set_handle(void* c, const char* h) {
 
 static RecompLauncherCNetplayCallbacks demo_lobby_cb;
 
+/* Standalone-only review fixture: no analysis, conversion or installation.
+ * LNG_DEMO_CONTENT_REVIEW=1 exercises a fourteen-field, scrollable form. */
+static int proto_content_state = RECOMP_CONTENT_NEEDS_INPUT;
+static uint64_t proto_content_ready;
+static char proto_content_error[256];
+static int proto_content_entries(void* ctx) { (void)ctx; return 0; }
+static int proto_content_entry(void* ctx, int index, RecompLauncherCCustomContentEntry* out) {
+    (void)ctx; (void)index; (void)out; return 0;
+}
+static int proto_content_status(void* ctx, RecompLauncherCCustomContentStatus* out) {
+    (void)ctx;
+    if (proto_content_state == RECOMP_CONTENT_BUSY && SDL_GetTicks() >= proto_content_ready)
+        proto_content_state = RECOMP_CONTENT_SUCCEEDED;
+    memset(out, 0, sizeof(*out));
+    out->state = proto_content_state;
+    out->progress = -1;
+    snprintf(out->message, sizeof(out->message), "%s",
+        out->state == RECOMP_CONTENT_NEEDS_INPUT ? "Choose names and cups for these courses."
+        : out->state == RECOMP_CONTENT_SUCCEEDED ? "Preview complete. No files were installed."
+                                                : "Checking your choices...");
+    if (out->state == RECOMP_CONTENT_NEEDS_INPUT)
+        snprintf(out->detail, sizeof(out->detail), "%s", "10 courses found. Names and cup assignments can be changed below.");
+    return 1;
+}
+static int proto_content_field_count(void* ctx) { (void)ctx; return 14; }
+static int proto_content_field(void* ctx, int index, RecompLauncherCCustomContentField* out) {
+    (void)ctx;
+    if (index < 0 || index >= 14) return 0;
+    memset(out, 0, sizeof(*out));
+    if (index == 0) {
+        snprintf(out->id, sizeof(out->id), "%s", "pack_name");
+        snprintf(out->label, sizeof(out->label), "%s", "Pack name");
+        snprintf(out->value, sizeof(out->value), "%s", "New courses");
+    } else if (index == 1) {
+        snprintf(out->id, sizeof(out->id), "%s", "author");
+        snprintf(out->label, sizeof(out->label), "%s", "Author");
+        snprintf(out->description, sizeof(out->description), "%s", "Optional: who made these courses?");
+    } else if (index < 4) {
+        snprintf(out->id, sizeof(out->id), "cup_%d_name", index - 2);
+        snprintf(out->label, sizeof(out->label), "Cup %d name", index - 1);
+        snprintf(out->value, sizeof(out->value), "%s", index == 2 ? "Knight Cup" : "Queen Cup");
+    } else {
+        const int course = index - 4;
+        snprintf(out->id, sizeof(out->id), "course_%d_cup", course);
+        snprintf(out->label, sizeof(out->label), "Course %d cup", course + 1);
+        snprintf(out->value, sizeof(out->value), "%d", course / 5);
+        out->type = RECOMP_CONTENT_FIELD_CHOICE;
+        out->option_count = 2;
+    }
+    return 1;
+}
+static int proto_content_option(void* ctx, const char* field, int index,
+                                RecompLauncherCCustomContentOption* out) {
+    (void)ctx; (void)field;
+    if (index < 0 || index > 1) return 0;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->value, sizeof(out->value), "%d", index);
+    snprintf(out->label, sizeof(out->label), "%s", index ? "Cup 2" : "Cup 1");
+    return 1;
+}
+static int proto_content_submit(void* ctx, const RecompLauncherCCustomContentValue* values, int count) {
+    (void)ctx;
+    if (count != 14 || !values[0].value[0]) {
+        snprintf(proto_content_error, sizeof(proto_content_error), "%s", "Enter a pack name.");
+        return 0;
+    }
+    proto_content_error[0] = '\0';
+    proto_content_state = RECOMP_CONTENT_BUSY;
+    proto_content_ready = SDL_GetTicks() + 300;
+    return 1;
+}
+static int proto_content_cancel(void* ctx) {
+    (void)ctx; proto_content_state = RECOMP_CONTENT_IDLE; return 1;
+}
+static const char* proto_content_last_error(void* ctx) { (void)ctx; return proto_content_error; }
+static void proto_content_review_install(RecompLauncherCGameInfo* gi) {
+    static RecompLauncherCCustomContentProvider provider;
+    provider.description = "Review form preview. No files are installed.";
+    provider.entry_count = proto_content_entries;
+    provider.entry_get = proto_content_entry;
+    provider.import_status = proto_content_status;
+    provider.last_error = proto_content_last_error;
+    provider.review_field_count = proto_content_field_count;
+    provider.review_field_get = proto_content_field;
+    provider.review_option_get = proto_content_option;
+    provider.review_submit = proto_content_submit;
+    provider.review_cancel = proto_content_cancel;
+    gi->custom_content = &provider;
+}
+
 static void demo_lobby_install(RecompLauncherCGameInfo* gi, const char* mode) {
     demo_lobby_host = !(mode && strcmp(mode, "guest") == 0);
     /* "browse": connected, not seated -- the lobby browser with the demo row. */
@@ -671,6 +761,9 @@ int main(int argc, char** argv) {
     }
 
     LauncherModel model;
+    const char* demo_content_review = SDL_getenv("LNG_DEMO_CONTENT_REVIEW");
+    if (demo_content_review && demo_content_review[0] && demo_content_review[0] != '0')
+        proto_content_review_install(&gi);
     const char* rom = SDL_getenv("LNG_ROM");
     if (!rom || !rom[0]) rom = demo_msu_rom ? demo_msu_rom : "test.rom";
     {

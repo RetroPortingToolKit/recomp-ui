@@ -11255,6 +11255,93 @@ static void draw_content_import_modal(LauncherModel* m, const LauncherTheme& th)
     ImGui::EndPopup();
 }
 
+static void draw_content_review(LauncherModel* m, const LauncherTheme& th) {
+    if (m->content_status.state != RECOMP_CONTENT_NEEDS_INPUT ||
+        !launcher_model_custom_content_review_available(m)) return;
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextColored(col(th.accent2), "%s", ui_text("Review your courses"));
+    ImGui::TextWrapped("%s", ui_text("Check the details below, then import your courses."));
+    ImGui::Spacing();
+    const auto* content = m->custom_content;
+    for (int i = 0; i < m->content_review_count; ++i) {
+        const auto& field = m->content_review_fields[i];
+        auto& edit = m->content_review_values[i];
+        ImGui::PushID(field.id);
+        if (field.type == RECOMP_CONTENT_FIELD_CHOICE) {
+            const float width = std::min(ImGui::GetContentRegionAvail().x, px(620));
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, px(2)));
+            const bool row = ImGui::BeginTable("##review_choice_row", 2,
+                ImGuiTableFlags_NoSavedSettings, ImVec2(width, 0));
+            if (!row) {
+                ImGui::PopStyleVar();
+                ImGui::PopID();
+                continue;
+            }
+            if (row) {
+                ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed,
+                                        std::min(px(240), width * 0.45f));
+                ImGui::TableSetupColumn("##choice", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", field.label[0] ? field.label : field.id);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SetNextItemWidth(-1);
+            }
+            char preview[256];
+            std::snprintf(preview, sizeof(preview), "%s", edit.value);
+            for (int n = 0; n < field.option_count; ++n) {
+                RecompLauncherCCustomContentOption option{};
+                if (content->review_option_get(content->ctx, field.id, n, &option) &&
+                    !std::strcmp(option.value, edit.value)) {
+                    std::snprintf(preview, sizeof(preview), "%s",
+                                  option.label[0] ? option.label : option.value);
+                    break;
+                }
+            }
+            if (ImGui::BeginCombo("##review_choice", preview)) {
+                for (int n = 0; n < field.option_count; ++n) {
+                    RecompLauncherCCustomContentOption option{};
+                    if (!content->review_option_get(content->ctx, field.id, n, &option)) continue;
+                    const bool selected = !std::strcmp(option.value, edit.value);
+                    if (ImGui::Selectable(option.label[0] ? option.label : option.value, selected))
+                        std::snprintf(edit.value, sizeof(edit.value), "%s", option.value);
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            if (row) ImGui::EndTable();
+            ImGui::PopStyleVar();
+        } else {
+            ImGui::TextWrapped("%s", field.label[0] ? field.label : field.id);
+            ImGui::SetNextItemWidth(std::min(ImGui::GetContentRegionAvail().x, px(620)));
+            ImGui::InputText("##review_text", edit.value, sizeof(edit.value));
+        }
+        if (field.description[0]) {
+            ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+            ImGui::TextWrapped("%s", field.description);
+            ImGui::PopStyleColor();
+        }
+        if (field.type != RECOMP_CONTENT_FIELD_CHOICE || field.description[0])
+            ImGui::Spacing();
+        ImGui::PopID();
+    }
+    if (m->content_error[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+        ImGui::TextWrapped("%s", m->content_error);
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+    }
+    if (neon_cta("##review_import", ui_text("Import courses"),
+                  ImVec2(px(180), px(36)), m->content_review_initialized))
+        launcher_model_custom_content_review_submit(m);
+    ImGui::SameLine();
+    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), px(36))))
+        launcher_model_custom_content_review_cancel(m);
+}
+
 void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
     if (!launcher_model_custom_content_available(m)) return;
     const auto* content = m->custom_content;
@@ -11303,11 +11390,12 @@ void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
                                                                        : th.accent;
         ImGui::PushStyleColor(ImGuiCol_Text, col(tone));
         ImGui::TextWrapped("%s", status.message[0] ? status.message
+            : status.state == RECOMP_CONTENT_NEEDS_INPUT ? ui_text("A few details need your review.")
             : busy ? ui_text("Importing custom content...")
             : status.state == RECOMP_CONTENT_SUCCEEDED ? ui_text("Import complete.")
                                                        : ui_text("Import failed."));
         ImGui::PopStyleColor();
-        if (busy) {
+        if (status.state == RECOMP_CONTENT_BUSY) {
             char progress[32];
             std::snprintf(progress, sizeof(progress), "%d%%", status.progress);
             /* An unknown estimate is shown as working, never as 100%. */
@@ -11318,7 +11406,10 @@ void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
         }
         if (status.detail[0]) ImGui::TextWrapped("%s", status.detail);
     }
-    if (m->content_error[0]) {
+    draw_content_review(m, th);
+    if (m->content_error[0] &&
+        (status.state != RECOMP_CONTENT_NEEDS_INPUT ||
+         !launcher_model_custom_content_review_available(m))) {
         ImGui::Spacing();
         ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
         ImGui::TextWrapped("%s", m->content_error);
@@ -11713,7 +11804,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const char* noun = m->rom_noun ? m->rom_noun : "ROM";
         if (launcher_model_custom_content_busy(m)) {
-            ImGui::SetTooltip("%s", ui_text("Wait for the current import to finish."));
+            ImGui::SetTooltip("%s", m->content_status.state == RECOMP_CONTENT_NEEDS_INPUT
+                ? ui_text("Complete or cancel the content review first.")
+                : ui_text("Wait for the current import to finish."));
         } else if (m->has_bios && !m->setup_bios_ok) {
             ImGui::SetTooltip(
                 "Select a valid BIOS first (or Use OpenBIOS when this build "

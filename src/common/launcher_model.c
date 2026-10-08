@@ -1440,7 +1440,15 @@ bool launcher_model_custom_content_available(const LauncherModel* m) {
 }
 
 bool launcher_model_custom_content_busy(const LauncherModel* m) {
-    return m && m->custom_content && m->content_status.state == RECOMP_CONTENT_BUSY;
+    return m && m->custom_content &&
+           (m->content_status.state == RECOMP_CONTENT_BUSY ||
+            m->content_status.state == RECOMP_CONTENT_NEEDS_INPUT);
+}
+
+bool launcher_model_custom_content_review_available(const LauncherModel* m) {
+    const RecompLauncherCCustomContentProvider* p = m ? m->custom_content : NULL;
+    return p && p->review_field_count && p->review_field_get &&
+           p->review_submit && p->review_cancel;
 }
 
 static void content_note_error(LauncherModel* m, const char* fallback) {
@@ -1448,6 +1456,55 @@ static void content_note_error(LauncherModel* m, const char* fallback) {
     const char* error = p && p->last_error ? p->last_error(p->ctx) : NULL;
     safe_copy(m->content_error, sizeof(m->content_error),
               error && error[0] ? error : fallback);
+}
+
+static void content_review_reset(LauncherModel* m) {
+    m->content_review_initialized = false;
+    m->content_review_count = 0;
+    memset(m->content_review_fields, 0, sizeof(m->content_review_fields));
+    memset(m->content_review_values, 0, sizeof(m->content_review_values));
+}
+
+static void content_review_load(LauncherModel* m) {
+    if (!launcher_model_custom_content_review_available(m)) return;
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    const int count = p->review_field_count(p->ctx);
+    if (count < 0 || count > RECOMP_LAUNCHER_CONTENT_REVIEW_MAX_FIELDS) {
+        safe_copy(m->content_error, sizeof(m->content_error),
+                  "Too many import details to review. Cancel and try again.");
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        RecompLauncherCCustomContentField* f = &m->content_review_fields[i];
+        if (!p->review_field_get(p->ctx, i, f)) {
+            safe_copy(m->content_error, sizeof(m->content_error),
+                      "Some import details could not be loaded. Cancel and try again.");
+            return;
+        }
+        f->id[sizeof(f->id) - 1] = '\0';
+        f->label[sizeof(f->label) - 1] = '\0';
+        f->description[sizeof(f->description) - 1] = '\0';
+        f->value[sizeof(f->value) - 1] = '\0';
+        if (!f->id[0] ||
+            (f->type != RECOMP_CONTENT_FIELD_TEXT && f->type != RECOMP_CONTENT_FIELD_CHOICE) ||
+            (f->type == RECOMP_CONTENT_FIELD_CHOICE &&
+             (f->option_count <= 0 || !p->review_option_get))) {
+            safe_copy(m->content_error, sizeof(m->content_error),
+                      "Some import details could not be loaded. Cancel and try again.");
+            return;
+        }
+        for (int j = 0; j < i; ++j) {
+            if (strcmp(f->id, m->content_review_fields[j].id) == 0) {
+                safe_copy(m->content_error, sizeof(m->content_error),
+                          "Some import details could not be loaded. Cancel and try again.");
+                return;
+            }
+        }
+        safe_copy(m->content_review_values[i].id, sizeof(m->content_review_values[i].id), f->id);
+        safe_copy(m->content_review_values[i].value, sizeof(m->content_review_values[i].value), f->value);
+    }
+    m->content_review_count = count;
+    m->content_review_initialized = true;
 }
 
 void launcher_model_custom_content_poll(LauncherModel* m) {
@@ -1462,11 +1519,50 @@ void launcher_model_custom_content_poll(LauncherModel* m) {
     status.detail[sizeof(status.detail) - 1] = '\0';
     if (status.progress < -1) status.progress = -1;
     if (status.progress > 100) status.progress = 100;
-    if (status.state < RECOMP_CONTENT_IDLE || status.state > RECOMP_CONTENT_FAILED) {
+    if (status.state < RECOMP_CONTENT_IDLE || status.state > RECOMP_CONTENT_NEEDS_INPUT) {
         content_note_error(m, "The importer returned an unknown status.");
         return;
     }
+    const int previous_state = m->content_status.state;
     m->content_status = status;
+    if (previous_state != status.state) {
+        content_review_reset(m);
+        if (status.state == RECOMP_CONTENT_NEEDS_INPUT) content_review_load(m);
+    }
+}
+
+bool launcher_model_custom_content_review_submit(LauncherModel* m) {
+    if (!launcher_model_custom_content_review_available(m) ||
+        m->content_status.state != RECOMP_CONTENT_NEEDS_INPUT ||
+        !m->content_review_initialized) return false;
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    if (!p->review_submit(p->ctx, m->content_review_values, m->content_review_count)) {
+        content_note_error(m, "Check the details below and try again.");
+        return false;
+    }
+    m->content_error[0] = '\0';
+    content_review_reset(m);
+    memset(&m->content_status, 0, sizeof(m->content_status));
+    m->content_status.state = RECOMP_CONTENT_BUSY;
+    m->content_status.progress = -1;
+    safe_copy(m->content_status.message, sizeof(m->content_status.message),
+              "Importing courses...");
+    return true;
+}
+
+bool launcher_model_custom_content_review_cancel(LauncherModel* m) {
+    if (!launcher_model_custom_content_review_available(m) ||
+        m->content_status.state != RECOMP_CONTENT_NEEDS_INPUT) return false;
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    if (!p->review_cancel(p->ctx)) {
+        content_note_error(m, "This import could not be cancelled. Please try again.");
+        return false;
+    }
+    content_review_reset(m);
+    m->content_error[0] = '\0';
+    memset(&m->content_status, 0, sizeof(m->content_status));
+    m->content_status.progress = -1;
+    return true;
 }
 
 bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
@@ -1477,7 +1573,9 @@ bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
     launcher_model_custom_content_poll(m);
     if (launcher_model_custom_content_busy(m)) {
         safe_copy(m->content_error, sizeof(m->content_error),
-                  "Wait for the current import to finish.");
+                  m->content_status.state == RECOMP_CONTENT_NEEDS_INPUT
+                      ? "Complete or cancel the content review first."
+                      : "Wait for the current import to finish.");
         return false;
     }
     if (!p->import_start || !p->import_status || !type_id || !type_id[0] ||
@@ -1487,6 +1585,7 @@ bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
         return false;
     }
     m->content_error[0] = '\0';
+    content_review_reset(m);
     if (!p->import_start(p->ctx, type_id, source_path,
                           launcher_model_rom_path(m),
                           display_name ? display_name : "")) {

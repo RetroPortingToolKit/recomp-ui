@@ -1039,6 +1039,8 @@ typedef struct RecompLauncherCModProvider {
 #define RECOMP_LAUNCHER_HAS_CUSTOM_CONTENT 1
 #define RECOMP_LAUNCHER_CONTENT_ID_MAX 96
 #define RECOMP_LAUNCHER_CONTENT_PATH_MAX 1024
+#define RECOMP_LAUNCHER_HAS_CUSTOM_CONTENT_REVIEW 1
+#define RECOMP_LAUNCHER_CONTENT_REVIEW_MAX_FIELDS 256
 
 typedef struct RecompLauncherCCustomContentType {
     char id[RECOMP_LAUNCHER_CONTENT_ID_MAX];
@@ -1066,6 +1068,7 @@ typedef enum RecompLauncherCCustomContentState {
     RECOMP_CONTENT_BUSY = 1,
     RECOMP_CONTENT_SUCCEEDED = 2,
     RECOMP_CONTENT_FAILED = 3,
+    RECOMP_CONTENT_NEEDS_INPUT = 4,
 } RecompLauncherCCustomContentState;
 
 typedef struct RecompLauncherCCustomContentStatus {
@@ -1074,6 +1077,30 @@ typedef struct RecompLauncherCCustomContentStatus {
     char message[256];
     char detail[1024];
 } RecompLauncherCCustomContentStatus;
+
+typedef enum RecompLauncherCCustomContentFieldType {
+    RECOMP_CONTENT_FIELD_TEXT = 0,
+    RECOMP_CONTENT_FIELD_CHOICE = 1,
+} RecompLauncherCCustomContentFieldType;
+
+typedef struct RecompLauncherCCustomContentField {
+    char id[RECOMP_LAUNCHER_CONTENT_ID_MAX];
+    char label[128];
+    char description[512];
+    char value[256];
+    int type; /* RecompLauncherCCustomContentFieldType */
+    int option_count; /* CHOICE only; review_option_get copies each option. */
+} RecompLauncherCCustomContentField;
+
+typedef struct RecompLauncherCCustomContentOption {
+    char value[256];
+    char label[256];
+} RecompLauncherCCustomContentOption;
+
+typedef struct RecompLauncherCCustomContentValue {
+    char id[RECOMP_LAUNCHER_CONTENT_ID_MAX];
+    char value[256];
+} RecompLauncherCCustomContentValue;
 
 typedef struct RecompLauncherCCustomContentProvider {
     void* ctx;
@@ -1088,13 +1115,13 @@ typedef struct RecompLauncherCCustomContentProvider {
      * selected base image, possibly empty, for host identity/conversion gates.
      * display_name is the user's title only, never a destination path. The
      * host validates it and uses an independent safe installation identifier.
-     * One job at a time; reject a second start while BUSY. */
+     * One job at a time; reject a second start while BUSY or NEEDS_INPUT. */
     int (*import_start)(void* ctx, const char* type_id, const char* source_path,
                         const char* image_path, const char* display_name);
     /* Copy a cached, synchronized snapshot; return 1 on success. Queries and
      * count/get above run on the UI thread and must remain cheap while a worker
      * runs. Successful imports update the host's cached installed catalog.
-     * BUSY prevents PLAY. Host keeps ctx alive and joins its workers before
+     * BUSY and NEEDS_INPUT prevent PLAY. Host keeps ctx alive and joins workers before
      * destroying the provider, including when the launcher window is closed. */
     int (*import_status)(void* ctx, RecompLauncherCCustomContentStatus* out);
     /* Optional. Empty entry_id opens the content root; otherwise open the
@@ -1102,6 +1129,24 @@ typedef struct RecompLauncherCCustomContentProvider {
      * with last_error on failure. The host owns platform/path decisions. */
     int (*open_folder)(void* ctx, const char* entry_id);
     const char* (*last_error)(void* ctx);
+    /* Optional interactive review. Count/get copy cached snapshots and stay
+     * cheap on the UI thread. Publish at most REVIEW_MAX_FIELDS fields before
+     * entering NEEDS_INPUT; keep their identities/schema stable until review
+     * exits. UI copies defaults once and preserves edits during polling and
+     * validation failures. This group is invisible when callbacks are NULL.
+     * CHOICE fields additionally require review_option_get. */
+    int (*review_field_count)(void* ctx);
+    int (*review_field_get)(void* ctx, int index, RecompLauncherCCustomContentField* out);
+    int (*review_option_get)(void* ctx, const char* field_id, int index,
+                             RecompLauncherCCustomContentOption* out);
+    /* Return 1 after copying values and queueing work (set BUSY before return).
+     * Return 0 on validation failure, retain NEEDS_INPUT, and explain through
+     * last_error. Never run conversion or installation on the UI thread. */
+    int (*review_submit)(void* ctx, const RecompLauncherCCustomContentValue* values,
+                         int count);
+    /* Return 1 after cancelling review (publish IDLE before return), 0 with
+     * last_error on failure. Closing the launcher still uses host lifecycle. */
+    int (*review_cancel)(void* ctx);
 } RecompLauncherCCustomContentProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).

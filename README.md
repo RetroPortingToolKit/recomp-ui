@@ -588,6 +588,21 @@ when the window is closed during an import. Optional `open_folder` receives an
 empty id for the content root or a catalog id for an entry's containing folder;
 the host owns opening the folder on its platform.
 
+An importer can request details before installation with `RECOMP_CONTENT_NEEDS_INPUT`
+and the optional review callbacks appended to the provider. `review_field_count`
+and `review_field_get` expose up to 256 fields with `TEXT` or `CHOICE` types;
+choices come from `review_option_get`. The launcher copies field defaults once
+on entering review and preserves edits while it polls status. Keep field ids and
+schema stable for that stage. Validation belongs in `review_submit`: return zero
+with `last_error` to keep the form and edits, or copy the values, publish `BUSY`,
+and queue work before returning one. `review_cancel` publishes `IDLE` before
+returning one. Import and PLAY stay disabled until review is submitted or
+cancelled, including when the player visits another launcher page.
+
+The standalone harness provides `LNG_DEMO_CONTENT_REVIEW=1` to preview a scrollable
+review form and validation without writing files. Pair it with
+`LNG_SCRIPT="wait:10;view:custom_content;wait:5;shot:review.png;quit"`.
+
 ## Build & self-test
 
 recomp-ui builds a standalone harness that fabricates the same C ABI a real host
