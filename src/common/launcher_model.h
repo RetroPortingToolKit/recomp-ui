@@ -339,6 +339,17 @@ typedef struct {
     const char*        internal_resolution_note;
     bool               has_dynamic_resolution;
     bool               has_render_pipeline;   // GameInfo.has_render_pipeline
+    // ---- graphics presets (GameInfo.quality_*; Settings.quality_preset) ----
+    int                quality_offered_mask;
+    int                quality_detected;
+    const char*        quality_summary;
+    const char*        quality_reason;
+    void (*quality_apply)(int preset, RecompLauncherCSettings* s);
+    int  (*quality_redetect)(void);
+    // The governed fields as the last preset set them; any difference means
+    // the player customised (launcher_model_quality_track).
+    RecompLauncherCSettings quality_snapshot;
+    bool               quality_snapshot_valid;
 
     // ---- rebind-page opt-out (GameInfo.hide_rebind) ------------------------
     bool hide_rebind;
@@ -894,6 +905,17 @@ bool        launcher_model_internal_resolution_offered(const LauncherModel* m);
  * renderer is OpenGL (index 1). The two child rows are editable only while
  * Render thread is on. */
 bool        launcher_model_render_pipeline_offered(const LauncherModel* m);
+/* Graphics presets: offered when the host set quality_offered_mask. */
+bool        launcher_model_quality_offered(const LauncherModel* m);
+/* Apply preset 1..4 through the host and remember what it set. */
+void        launcher_model_quality_select(LauncherModel* m, int preset);
+/* Re-run the host's detection and apply the result. */
+void        launcher_model_quality_redetect(LauncherModel* m);
+/* Call every frame: a governed field that differs from the preset's value
+ * switches the state to Custom (5), keeping quality_base. */
+void        launcher_model_quality_track(LauncherModel* m);
+/* "Low" .. "Ultra", "Custom", "" for 0. */
+const char* launcher_model_quality_label(int preset);
 bool        launcher_model_render_pipeline_children_enabled(const LauncherModel* m);
 int         launcher_model_internal_resolution_count(const LauncherModel* m);
 const char* launcher_model_internal_resolution_label_at(const LauncherModel* m, int i);

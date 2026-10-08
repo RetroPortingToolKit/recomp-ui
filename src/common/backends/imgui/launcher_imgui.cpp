@@ -3783,8 +3783,64 @@ void draw_shader_row(LauncherModel* m, const LauncherTheme& th, float col_w = 0.
     ImGui::EndDisabled();
 }
 
+/* Graphics preset (GameInfo.quality_*): Low / Medium / High / Ultra set every
+ * quality row at once; changing any of those rows afterwards turns it into
+ * Custom (launcher_model_quality_track), which the host never overrides.
+ * Re-detect runs the host's hardware detection again. */
+void draw_quality_preset_row(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_quality_offered(m)) return;
+    launcher_model_quality_track(m);
+    row_label_right("Graphics preset", th, px(SETTINGS_CTRL_W));
+    const int cur = m->s.quality_preset;
+    const float gap = px(th.spacing_sm);
+    const float btn_w = px(92);
+    float combo_w = px(SETTINGS_CTRL_W) - btn_w - gap;
+    if (combo_w < px(90)) combo_w = px(90);
+    ImGui::SetNextItemWidth(combo_w);
+    if (ImGui::BeginCombo("##quality_preset",
+                          ui_text(cur ? launcher_model_quality_label(cur) : "Detected"))) {
+        for (int p = 1; p <= 4; ++p) {
+            if (!(m->quality_offered_mask & (1 << (p - 1)))) continue;
+            std::string label = ui_text(launcher_model_quality_label(p));
+            if (p == m->quality_detected) label += std::string(" (") + ui_text("detected") + ")";
+            if (ImGui::Selectable(label.c_str(), cur == p))
+                launcher_model_quality_select(m, p);
+        }
+        if (cur == 5)
+            ImGui::Selectable(ui_text("Custom"), true, ImGuiSelectableFlags_Disabled);
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("%s", ui_text(
+            "Sets every graphics option below for your hardware.\n"
+            "Change any of them and the preset becomes Custom;\n"
+            "your choices are then kept until you pick a preset again.\n"
+            "Dynamic resolution still steps down if a frame runs late."));
+    ImGui::SameLine(0, gap);
+    ImGui::BeginDisabled(m->quality_redetect == NULL);
+    if (ImGui::Button(ui_text("Re-detect"), ImVec2(btn_w, 0)))
+        launcher_model_quality_redetect(m);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ui_text("Detect this computer again and apply the preset it suits."));
+    if (m->quality_summary && *m->quality_summary) {
+        ImGui::PushTextWrapPos(0.0f);
+        if (m->quality_detected >= 1 && m->quality_detected <= 4)
+            ImGui::TextColored(col(th.text_muted), "%s %s: %s", ui_text("Detected"),
+                               ui_text(launcher_model_quality_label(m->quality_detected)),
+                               m->quality_summary);
+        else
+            ImGui::TextColored(col(th.text_muted), "%s", m->quality_summary);
+        if (cur == 5 && m->s.quality_base >= 1 && m->s.quality_base <= 4)
+            ImGui::TextColored(col(th.text_muted), "%s %s", ui_text("Custom, based on"),
+                               ui_text(launcher_model_quality_label(m->s.quality_base)));
+        ImGui::PopTextWrapPos();
+    }
+}
+
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
+    draw_quality_preset_row(m, th);
 
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
