@@ -59,6 +59,8 @@ typedef enum {
      * skipped entirely when this client is already signed in or when the
      * server offers no logins -- see draw_netplay_mode_page. */
     LNG_VIEW_NETPLAY_SIGNIN,
+    /* Only offered when this game supplies its custom-content provider. */
+    LNG_VIEW_CUSTOM_CONTENT,
     /* Keep last. launcher_model_set_view validates against this rather than
      * against the last real view, which is what silently swallowed the two
      * views above when they were first added. */
@@ -329,6 +331,13 @@ typedef struct {
     bool setup_wizard_supported;
     const RecompLauncherCNetplayCallbacks* netplay;
     const RecompLauncherCModProvider* mods;
+    const RecompLauncherCCustomContentProvider* custom_content;
+    char      content_pending_type[RECOMP_LAUNCHER_CONTENT_ID_MAX];
+    char      content_pending_source[RECOMP_LAUNCHER_CONTENT_PATH_MAX];
+    char      content_pending_name[128];
+    bool      content_import_open;
+    char      content_error[256];
+    RecompLauncherCCustomContentStatus content_status;
     int       mod_selected;
     int       mod_package_selected;
     bool      mod_show_packages;
@@ -729,6 +738,16 @@ bool launcher_model_rom_verified(const LauncherModel* m);
 
 // ---- navigation ----
 void launcher_model_set_view(LauncherModel* m, LngView v);
+/* Cached host queries only. Imports are queued by the host, never executed
+ * by the view-model or render backend. A BUSY job prevents launch. */
+bool launcher_model_custom_content_available(const LauncherModel* m);
+bool launcher_model_custom_content_busy(const LauncherModel* m);
+void launcher_model_custom_content_poll(LauncherModel* m);
+bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
+                                         const char* source_path,
+                                         const char* display_name);
+bool launcher_model_custom_content_open_folder(LauncherModel* m,
+                                              const char* entry_id);
 void launcher_model_open_config(LauncherModel* m, int player);  // -> Controller view
 void launcher_model_begin_camera_capture(LauncherModel* m, int action);
 void launcher_model_cancel_camera_capture(LauncherModel* m);

@@ -11167,6 +11167,203 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
         draw_mod_features(m, th);
 }
 
+/* Formats and installed data belong to the game. The picker only selects a
+ * source; the host's asynchronous importer validates it and reports whether
+ * conversion is possible. The title is collected before any files are written. */
+static void content_pick(LauncherModel* m,
+                         const RecompLauncherCCustomContentType& type) {
+    PickRequest request;
+    request.mode = type.directory ? PickMode::Folder : PickMode::OpenFile;
+    request.title = type.directory ? "Import custom content folder"
+                                   : "Import custom content";
+    request.description = type.file_description;
+    std::string patterns = type.file_patterns;
+    while (!patterns.empty()) {
+        const size_t comma = patterns.find(',');
+        std::string pattern = patterns.substr(0, comma);
+        const size_t first = pattern.find_first_not_of(" \t");
+        const size_t last = pattern.find_last_not_of(" \t");
+        if (first != std::string::npos)
+            request.patterns.push_back(pattern.substr(first, last - first + 1));
+        if (comma == std::string::npos) break;
+        patterns.erase(0, comma + 1);
+    }
+    const std::string type_id = type.id;
+    const bool directory = type.directory != 0;
+    request.on_pick = [m, type_id, directory](const char* source) {
+        if (!source || !source[0]) return;
+        if (std::strlen(source) >= sizeof(m->content_pending_source)) {
+            std::snprintf(m->content_error, sizeof(m->content_error), "%s",
+                          "The selected path is too long to import.");
+            return;
+        }
+        std::snprintf(m->content_pending_type, sizeof(m->content_pending_type),
+                      "%s", type_id.c_str());
+        std::snprintf(m->content_pending_source, sizeof(m->content_pending_source),
+                      "%s", source);
+        std::filesystem::path path(source);
+        if (path.filename().empty()) path = path.parent_path();
+        std::string name = (directory ? path.filename() : path.stem()).string();
+        if (name.empty()) name = "Custom content";
+        std::snprintf(m->content_pending_name, sizeof(m->content_pending_name),
+                      "%s", name.c_str());
+        m->content_error[0] = '\0';
+        m->content_import_open = true;
+    };
+    ui_pick(m, std::move(request));
+}
+
+static void draw_content_import_modal(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_custom_content_available(m)) return;
+    if (m->content_import_open) ImGui::OpenPopup("Import custom content");
+    ImGui::SetNextWindowSize(ImVec2(px(520), 0), ImGuiCond_Always);
+    if (!ImGui::BeginPopupModal("Import custom content", &m->content_import_open,
+                                ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::TextUnformatted(ui_text("Content name"));
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::InputText("##content_name", m->content_pending_name,
+                      sizeof(m->content_pending_name));
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+    ImGui::TextWrapped("%s", m->content_pending_source);
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+    ImGui::TextWrapped("%s", ui_text("This content will be checked before anything is installed."));
+    ImGui::Spacing();
+    ImGui::BeginDisabled(launcher_model_custom_content_busy(m) ||
+                          !m->content_pending_name[0]);
+    if (ImGui::Button(ui_text("Import"), ImVec2(px(120), px(34)))) {
+        if (launcher_model_custom_content_import(
+                m, m->content_pending_type, m->content_pending_source,
+                m->content_pending_name)) {
+            m->content_import_open = false;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), px(34)))) {
+        m->content_import_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    if (m->content_error[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+        ImGui::TextWrapped("%s", m->content_error);
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndPopup();
+}
+
+void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_custom_content_available(m)) return;
+    const auto* content = m->custom_content;
+    ImGui::TextColored(col(th.accent2), "%s", ui_text("Custom Content"));
+    if (content->description && content->description[0])
+        ImGui::TextWrapped("%s", content->description);
+    ImGui::Spacing();
+
+    RecompLauncherCCustomContentType file_type{}, folder_type{};
+    bool have_file = false, have_folder = false;
+    const bool can_import = content->import_start && content->import_status &&
+                             content->type_count && content->type_get;
+    const int type_count = can_import ? content->type_count(content->ctx) : 0;
+    for (int i = 0; i < type_count; ++i) {
+        RecompLauncherCCustomContentType type{};
+        if (!content->type_get(content->ctx, i, &type) || !type.id[0]) continue;
+        if (type.directory && !have_folder) { folder_type = type; have_folder = true; }
+        if (!type.directory && !have_file) { file_type = type; have_file = true; }
+    }
+    const bool busy = launcher_model_custom_content_busy(m);
+    ImGui::BeginDisabled(busy || m->content_import_open || g_picker.active);
+    if (have_file) {
+        if (ImGui::Button(ui_text("Import..."), ImVec2(px(140), px(34))))
+            content_pick(m, file_type);
+        if (ImGui::IsItemHovered() && file_type.description[0])
+            ImGui::SetTooltip("%s", file_type.description);
+    }
+    if (have_folder) {
+        if (have_file) ImGui::SameLine();
+        if (ImGui::Button(ui_text("Import folder..."), ImVec2(px(160), px(34))))
+            content_pick(m, folder_type);
+        if (ImGui::IsItemHovered() && folder_type.description[0])
+            ImGui::SetTooltip("%s", folder_type.description);
+    }
+    ImGui::EndDisabled();
+    if (content->open_folder) {
+        if (have_file || have_folder) ImGui::SameLine();
+        if (ImGui::Button(ui_text("Open folder"), ImVec2(px(140), px(34))))
+            launcher_model_custom_content_open_folder(m, "");
+    }
+    const auto& status = m->content_status;
+    if (status.state != RECOMP_CONTENT_IDLE) {
+        ImGui::Spacing();
+        const LngColor& tone = status.state == RECOMP_CONTENT_FAILED ? th.warn
+                             : status.state == RECOMP_CONTENT_SUCCEEDED ? th.good
+                                                                       : th.accent;
+        ImGui::PushStyleColor(ImGuiCol_Text, col(tone));
+        ImGui::TextWrapped("%s", status.message[0] ? status.message
+            : busy ? ui_text("Importing custom content...")
+            : status.state == RECOMP_CONTENT_SUCCEEDED ? ui_text("Import complete.")
+                                                       : ui_text("Import failed."));
+        ImGui::PopStyleColor();
+        if (busy) {
+            char progress[32];
+            std::snprintf(progress, sizeof(progress), "%d%%", status.progress);
+            /* An unknown estimate is shown as working, never as 100%. */
+            if (status.progress < 0)
+                ImGui::ProgressBar(0, ImVec2(-1, px(22)), ui_text("Working..."));
+            else
+                ImGui::ProgressBar(status.progress / 100.0f, ImVec2(-1, px(22)), progress);
+        }
+        if (status.detail[0]) ImGui::TextWrapped("%s", status.detail);
+    }
+    if (m->content_error[0]) {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+        ImGui::TextWrapped("%s", m->content_error);
+        ImGui::PopStyleColor();
+    }
+    ImGui::Dummy(ImVec2(0, px(12)));
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::TextColored(col(th.accent2), "%s", ui_text("Installed content"));
+    ImGui::Spacing();
+    const int count = content->entry_count(content->ctx);
+    if (count <= 0) {
+        ImGui::TextColored(col(th.text_muted), "%s",
+                           ui_text("No custom content installed yet."));
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        RecompLauncherCCustomContentEntry entry{};
+        if (!content->entry_get(content->ctx, i, &entry)) continue;
+        ImGui::PushID(entry.id);
+        ImGui::PushID(i);
+        ImGui::TextUnformatted(entry.name[0] ? entry.name : entry.id);
+        if (entry.kind[0]) {
+            ImGui::SameLine();
+            ImGui::TextColored(col(th.text_muted), "(%s)", entry.kind);
+        }
+        if (entry.description[0]) ImGui::TextWrapped("%s", entry.description);
+        if (entry.status[0]) {
+            ImGui::PushStyleColor(ImGuiCol_Text, col(entry.has_error ? th.warn : th.text_muted));
+            ImGui::TextWrapped("%s", entry.status);
+            ImGui::PopStyleColor();
+        }
+        if (content->open_folder && entry.id[0] &&
+            ImGui::SmallButton(ui_text("Open folder")))
+            launcher_model_custom_content_open_folder(m, entry.id);
+        if (entry.path[0] && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", entry.path);
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::PopID();
+        ImGui::PopID();
+    }
+}
+
 // ---- panel registry: id -> {view, slot, available, draw} --------------------
 // The single implementation table for every panel this backend draws. A
 // SystemProfile's panels_dashboard/panels_settings/panels_controller arrays
@@ -11499,7 +11696,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
-    const bool play_enabled = can_play || bios_block;
+    const bool play_enabled = (can_play || bios_block) &&
+                               !launcher_model_custom_content_busy(m);
     if (neon_cta("##play", ui_text("PLAY"), ImVec2(play_w, play_h), play_enabled)) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
@@ -11514,7 +11712,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
             m->action = LNG_ACTION_LAUNCH;
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const char* noun = m->rom_noun ? m->rom_noun : "ROM";
-        if (m->has_bios && !m->setup_bios_ok) {
+        if (launcher_model_custom_content_busy(m)) {
+            ImGui::SetTooltip("%s", ui_text("Wait for the current import to finish."));
+        } else if (m->has_bios && !m->setup_bios_ok) {
             ImGui::SetTooltip(
                 "Select a valid BIOS first (or Use OpenBIOS when this build "
                 "allows it).");
@@ -12668,6 +12868,7 @@ void draw_restore_defaults_modal(LauncherModel* m) {
 }
 
 void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logical_h) {
+    launcher_model_custom_content_poll(m);
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->Pos);
     ImGui::SetNextWindowSize(vp->Size);
@@ -12762,10 +12963,13 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         const float y = hdr_top + px(6.0f);
         if (m->view == LNG_VIEW_DASHBOARD) {
             const int count = 1 + (m->mods ? 1 : 0) +
+                              (launcher_model_custom_content_available(m) ? 1 : 0) +
                               (m->has_assist_tools ? 1 : 0) +
                               ((m->credits_text && m->credits_text[0]) ? 1 : 0);
             const float w = px(110.0f);
-            const float total = w * count + gap * (count - 1);
+            const float content_w = px(155.0f);
+            const float total = w * count + gap * (count - 1) +
+                (launcher_model_custom_content_available(m) ? content_w - w : 0);
             ImGui::SetCursorPos(ImVec2(right - total, y));
             if (ImGui::Button(ui_text("Settings"), ImVec2(w, px(34))))
                 launcher_model_set_view(m, LNG_VIEW_SETTINGS);
@@ -12773,6 +12977,11 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
                 ImGui::SameLine(0, gap);
                 if (ImGui::Button(ui_text("Mods"), ImVec2(w, px(34))))
                     launcher_model_set_view(m, LNG_VIEW_MODS);
+            }
+            if (launcher_model_custom_content_available(m)) {
+                ImGui::SameLine(0, gap);
+                if (ImGui::Button(ui_text("Custom Content"), ImVec2(content_w, px(34))))
+                    launcher_model_set_view(m, LNG_VIEW_CUSTOM_CONTENT);
             }
             if (m->has_assist_tools) {
                 ImGui::SameLine(0, gap);
@@ -12858,6 +13067,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         case LNG_VIEW_NETPLAY_MODE:   draw_netplay_mode_page(m, th);   break;
         case LNG_VIEW_NETPLAY_SIGNIN: draw_netplay_signin_page(m, th); break;
         case LNG_VIEW_MODS:       draw_mods(m, th);                 break;
+        case LNG_VIEW_CUSTOM_CONTENT: draw_custom_content(m, th);   break;
         case LNG_VIEW_ASSIST_TOOLS: draw_assist_tools(m, th);        break;
         case LNG_VIEW_CREDITS:      draw_credits(m, th);             break;
         case LNG_VIEW_LOBBY:        draw_lobby(m, th);               break;
@@ -12865,6 +13075,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     end_container();
 
     draw_footer(m, th, footer_h);
+    draw_content_import_modal(m, th);
     draw_setup_wizard_modal(m, th);
     draw_bios_confirm_modal(m, th);
     draw_bios_play_modal(m, th);

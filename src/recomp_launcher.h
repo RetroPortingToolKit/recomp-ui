@@ -1032,6 +1032,78 @@ typedef struct RecompLauncherCModProvider {
     int (*preset_apply)(void* ctx, const char* id, RecompLauncherCSettings* settings);
 } RecompLauncherCModProvider;
 
+/* ---- opt-in custom content ----------------------------------------------
+ * Games own content formats, conversion, installation and paths. This surface
+ * presents their cached catalog and asynchronous importer; it is independent
+ * of the schema-driven Mods view and never assumes a package format. */
+#define RECOMP_LAUNCHER_HAS_CUSTOM_CONTENT 1
+#define RECOMP_LAUNCHER_CONTENT_ID_MAX 96
+#define RECOMP_LAUNCHER_CONTENT_PATH_MAX 1024
+
+typedef struct RecompLauncherCCustomContentType {
+    char id[RECOMP_LAUNCHER_CONTENT_ID_MAX];
+    char label[128];
+    char description[512];
+    /* Comma-separated picker patterns, e.g. "*.json,*.zip". Advisory only:
+     * the host must validate selected input, including folder contents. */
+    char file_patterns[128];
+    char file_description[128];
+    int directory; /* 1 selects a folder; 0 selects a file. */
+} RecompLauncherCCustomContentType;
+
+typedef struct RecompLauncherCCustomContentEntry {
+    char id[RECOMP_LAUNCHER_CONTENT_ID_MAX];
+    char name[128];
+    char kind[96];
+    char description[512];
+    char path[RECOMP_LAUNCHER_CONTENT_PATH_MAX];
+    char status[256];
+    int has_error;
+} RecompLauncherCCustomContentEntry;
+
+typedef enum RecompLauncherCCustomContentState {
+    RECOMP_CONTENT_IDLE = 0,
+    RECOMP_CONTENT_BUSY = 1,
+    RECOMP_CONTENT_SUCCEEDED = 2,
+    RECOMP_CONTENT_FAILED = 3,
+} RecompLauncherCCustomContentState;
+
+typedef struct RecompLauncherCCustomContentStatus {
+    int state; /* RecompLauncherCCustomContentState */
+    int progress; /* -1 indeterminate, otherwise 0..100. */
+    char message[256];
+    char detail[1024];
+} RecompLauncherCCustomContentStatus;
+
+typedef struct RecompLauncherCCustomContentProvider {
+    void* ctx;
+    const char* description;
+    int (*type_count)(void* ctx);
+    int (*type_get)(void* ctx, int index, RecompLauncherCCustomContentType* out);
+    int (*entry_count)(void* ctx);
+    int (*entry_get)(void* ctx, int index, RecompLauncherCCustomContentEntry* out);
+    /* Return 1 once queued, 0 on rejection (last_error explains why).
+     * Called on the UI thread: copy arguments and start a host-owned worker;
+     * never parse, convert or copy content here. image_path is the launcher's
+     * selected base image, possibly empty, for host identity/conversion gates.
+     * display_name is the user's title only, never a destination path. The
+     * host validates it and uses an independent safe installation identifier.
+     * One job at a time; reject a second start while BUSY. */
+    int (*import_start)(void* ctx, const char* type_id, const char* source_path,
+                        const char* image_path, const char* display_name);
+    /* Copy a cached, synchronized snapshot; return 1 on success. Queries and
+     * count/get above run on the UI thread and must remain cheap while a worker
+     * runs. Successful imports update the host's cached installed catalog.
+     * BUSY prevents PLAY. Host keeps ctx alive and joins its workers before
+     * destroying the provider, including when the launcher window is closed. */
+    int (*import_status)(void* ctx, RecompLauncherCCustomContentStatus* out);
+    /* Optional. Empty entry_id opens the content root; otherwise open the
+     * containing folder for that stable catalog id. Return 1 on success, 0
+     * with last_error on failure. The host owns platform/path decisions. */
+    int (*open_folder)(void* ctx, const char* entry_id);
+    const char* (*last_error)(void* ctx);
+} RecompLauncherCCustomContentProvider;
+
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
     int  output_method;     // 0 SDL, 1 SDL-software, 2 OpenGL
@@ -1988,6 +2060,9 @@ typedef struct RecompLauncherCGameInfo {
      * The host resolves installed music; no soundtrack or file picker is shown.
      * Zero preserves the existing folder/custom soundtrack UI. */
     int msu1_managed;
+    /* NULL hides Custom Content. Opt-in is per game, independent of Mods;
+     * all provider strings and ctx must outlive the launcher call. */
+    const RecompLauncherCCustomContentProvider* custom_content;
 } RecompLauncherCGameInfo;
 
 /* recomp_launcher_run_window return codes */

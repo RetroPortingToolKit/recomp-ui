@@ -176,6 +176,8 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
         if      (strcmp(v, "dashboard")  == 0) launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
         else if (strcmp(v, "settings")   == 0) launcher_model_set_view(m, LNG_VIEW_SETTINGS);
         else if (strcmp(v, "mods")       == 0) launcher_model_set_view(m, LNG_VIEW_MODS);
+        else if (strcmp(v, "custom_content") == 0)
+            launcher_model_set_view(m, LNG_VIEW_CUSTOM_CONTENT);
         else if (strcmp(v, "controller") == 0) launcher_model_set_view(m, LNG_VIEW_CONTROLLER);
         else if (strcmp(v, "assist_tools") == 0) launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
         else if (strcmp(v, "credits") == 0) launcher_model_set_view(m, LNG_VIEW_CREDITS);

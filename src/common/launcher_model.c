@@ -54,9 +54,10 @@ static const char* kHotkeyNames[LNG_HK_COUNT] = {
     "Solar level up", "Solar level down", "Resume live solar",
     "Rewind", "Save states menu"
 };
-static const char* kViewNames[8] = {
+static const char* kViewNames[LNG_VIEW__COUNT] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
-    "Assist Tools", "Credits", "Lobby"
+    "Assist Tools", "Credits", "Lobby", "Netplay mode", "Sign in",
+    "Custom Content"
 };
 static const char* kSrcNames[3]  = { "None", "Keyboard", "Gamepad" };
 
@@ -532,6 +533,9 @@ void launcher_model_init(LauncherModel* m,
         m->has_shader           = game->has_shader != 0;
         m->netplay_supported    = game->netplay_supported != 0 && game->netplay != NULL;
         m->netplay              = game->netplay;
+        m->custom_content       = game->custom_content;
+        m->content_status.progress = -1;
+        launcher_model_custom_content_poll(m);
         m->rom_patch_supported  = game->rom_patch_supported != 0;
         m->rom_patch_note       = game->rom_patch_note;
         m->rom_patch_cache_dir  = game->rom_patch_cache_dir;
@@ -1422,10 +1426,92 @@ bool launcher_model_rom_verified(const LauncherModel* m) {
 
 void launcher_model_set_view(LauncherModel* m, LngView v) {
     if (v < 0 || v >= LNG_VIEW__COUNT) return;
+    if (v == LNG_VIEW_CUSTOM_CONTENT &&
+        !launcher_model_custom_content_available(m)) return;
     /* Re-entering Netplay should rescan server + LAN lists. */
     if (m->view == LNG_VIEW_NETPLAY && v != LNG_VIEW_NETPLAY)
         m->netplay_list_fresh = false;
     m->view = v;
+}
+
+bool launcher_model_custom_content_available(const LauncherModel* m) {
+    return m && m->custom_content && m->custom_content->entry_count &&
+           m->custom_content->entry_get;
+}
+
+bool launcher_model_custom_content_busy(const LauncherModel* m) {
+    return m && m->custom_content && m->content_status.state == RECOMP_CONTENT_BUSY;
+}
+
+static void content_note_error(LauncherModel* m, const char* fallback) {
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    const char* error = p && p->last_error ? p->last_error(p->ctx) : NULL;
+    safe_copy(m->content_error, sizeof(m->content_error),
+              error && error[0] ? error : fallback);
+}
+
+void launcher_model_custom_content_poll(LauncherModel* m) {
+    if (!m || !m->custom_content || !m->custom_content->import_status) return;
+    RecompLauncherCCustomContentStatus status = {0};
+    status.progress = -1;
+    if (!m->custom_content->import_status(m->custom_content->ctx, &status)) {
+        content_note_error(m, "Could not read import status.");
+        return;
+    }
+    status.message[sizeof(status.message) - 1] = '\0';
+    status.detail[sizeof(status.detail) - 1] = '\0';
+    if (status.progress < -1) status.progress = -1;
+    if (status.progress > 100) status.progress = 100;
+    if (status.state < RECOMP_CONTENT_IDLE || status.state > RECOMP_CONTENT_FAILED) {
+        content_note_error(m, "The importer returned an unknown status.");
+        return;
+    }
+    m->content_status = status;
+}
+
+bool launcher_model_custom_content_import(LauncherModel* m, const char* type_id,
+                                         const char* source_path,
+                                         const char* display_name) {
+    if (!launcher_model_custom_content_available(m)) return false;
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    launcher_model_custom_content_poll(m);
+    if (launcher_model_custom_content_busy(m)) {
+        safe_copy(m->content_error, sizeof(m->content_error),
+                  "Wait for the current import to finish.");
+        return false;
+    }
+    if (!p->import_start || !p->import_status || !type_id || !type_id[0] ||
+        !source_path || !source_path[0]) {
+        safe_copy(m->content_error, sizeof(m->content_error),
+                  "Choose a supported file or folder to import.");
+        return false;
+    }
+    m->content_error[0] = '\0';
+    if (!p->import_start(p->ctx, type_id, source_path,
+                          launcher_model_rom_path(m),
+                          display_name ? display_name : "")) {
+        content_note_error(m, "The importer could not start.");
+        return false;
+    }
+    memset(&m->content_status, 0, sizeof(m->content_status));
+    m->content_status.state = RECOMP_CONTENT_BUSY;
+    m->content_status.progress = -1;
+    safe_copy(m->content_status.message, sizeof(m->content_status.message),
+              "Importing custom content...");
+    return true;
+}
+
+bool launcher_model_custom_content_open_folder(LauncherModel* m,
+                                              const char* entry_id) {
+    if (!launcher_model_custom_content_available(m) ||
+        !m->custom_content->open_folder) return false;
+    const RecompLauncherCCustomContentProvider* p = m->custom_content;
+    if (!p->open_folder(p->ctx, entry_id ? entry_id : "")) {
+        content_note_error(m, "The content folder could not be opened.");
+        return false;
+    }
+    m->content_error[0] = '\0';
+    return true;
 }
 
 void launcher_model_open_config(LauncherModel* m, int player) {
@@ -2738,6 +2824,7 @@ bool launcher_model_can_finish_setup(const LauncherModel* m) {
 
 bool launcher_model_can_launch(const LauncherModel* m) {
     if (!m) return false;
+    if (launcher_model_custom_content_busy(m)) return false;
     if (!m->rom_present || strcmp(m->rom_size, "--") == 0) return false;
     if (m->rom_patch_supported && m->s.rom_patch_enabled &&
         !m->s.rom_patch_path[0]) return false;
@@ -4268,6 +4355,6 @@ const char* launcher_hotkey_name(LngHotkey h) {
 }
 
 const char* launcher_view_name(LngView v) {
-    if (v < 0 || v > LNG_VIEW_LOBBY) return "?";
+    if (v < 0 || v >= LNG_VIEW__COUNT) return "?";
     return kViewNames[v];
 }
