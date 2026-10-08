@@ -390,6 +390,7 @@ void launcher_model_init(LauncherModel* m,
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
         m->locked_pad_mode      = clampi(game->locked_pad_mode, 0, 2);
         m->lock_device          = game->lock_device != 0;
+        m->development_shared_controllers = game->development_shared_controllers != 0;
         m->aspect_mask          = game->aspect_mask;
 
         m->has_window_size      = game->has_window_size != 0;

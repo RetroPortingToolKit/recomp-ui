@@ -2312,7 +2312,12 @@ typedef struct RecompLauncherCGameInfo {
      * action index plus one. The title supplies its defaults through
      * assist_default_pad_bind. Appended for ABI stability. */
     int                assist_direct_pad_bind_action;
+    /* Development host capability: permit assigning a physical gamepad to
+     * multiple local seats. Zero keeps exclusive assignment. Hosts must also
+     * support sharing in their input layer; never enable in shipped builds. */
+    int development_shared_controllers;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_DEVELOPMENT_SHARED_CONTROLLERS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that

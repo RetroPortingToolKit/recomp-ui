@@ -425,6 +425,7 @@ typedef struct {
     bool     pad_mode_selectable;   // false => selector hidden, mode forced to locked_pad_mode
     int      locked_pad_mode;       // forced mode when !pad_mode_selectable
     bool     lock_device;           // true => hide the player controller cards entirely
+    bool     development_shared_controllers;
 
     // ---- aspect ratio caps ----
     // bit0 = 4:3 (implied/always), bit1 = 16:9, bit2 = 21:9. 0 => legacy

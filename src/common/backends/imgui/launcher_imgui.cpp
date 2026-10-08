@@ -3182,7 +3182,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
         return;
     }
     // Unified pad list (no duplicates): saved mappings + live devices.
-    // Pads already selected on another player are disabled (keyboard is not).
+    // Pads already selected on another player are disabled unless a development
+    // host explicitly supports sharing. Keyboard remains available to all seats.
     struct PadOpt {
         char guid[40];
         char name[64];
@@ -3255,7 +3256,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
     for (int i = 0; i < g_pad_count; ++i)
         push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
 
-    const int claim_n = launcher_model_visible_player_count(m);
+    const int claim_n = m->development_shared_controllers ? 0 :
+                       launcher_model_visible_player_count(m);
     for (int i = 0; i < nopt; ++i) {
         bool claimed = false;
         for (int o = 0; o < claim_n; ++o) {
