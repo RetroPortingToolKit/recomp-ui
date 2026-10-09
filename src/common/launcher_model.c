@@ -4257,6 +4257,17 @@ void launcher_model_set_deadzone(LauncherModel* m, int player, int pct) {
     m->s.deadzone[player] = clampi(pct, 0, 100);
 }
 
+int launcher_model_gamepad_instance_claimed(const LauncherModel* m, int player,
+                                           uint32_t pad_id) {
+    if (!m || m->allow_shared_gamepad) return 0;
+    const int count = launcher_model_visible_player_count(m);
+    for (int other = 0; other < count; ++other) {
+        if (other != player && m->s.player_src[other] == 2 &&
+            m->s.player_gamepad_instance[other] == pad_id + 1) return 1;
+    }
+    return 0;
+}
+
 int launcher_model_gamepad_claimed(const LauncherModel* m, int player,
                                   const char* guid) {
     if (!m || !guid || !guid[0] || m->allow_shared_gamepad) return 0;

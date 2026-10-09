@@ -3179,8 +3179,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
         return;
     }
-    // Unified pad list (no duplicates): saved mappings + live devices.
-    // Pads already selected on another player are disabled (keyboard is not).
+    // PSX mappings belong to a GUID, but co-op seats select physical devices.
+    // Retain disconnected profiles without merging two identical live pads.
     struct PadOpt {
         char guid[40];
         char name[64];
@@ -3198,7 +3198,11 @@ void draw_source_selectables(LauncherModel* m, int p) {
     };
     auto push_opt = [&](const char* guid, const char* name, uint32_t id,
                         bool live) {
-        if (!guid || !guid[0] || already(guid) || nopt >= kMaxOpts) return;
+        if (!guid || !guid[0] || nopt >= kMaxOpts) return;
+        if (psx && live) {
+            for (int i = 0; i < nopt; ++i)
+                if (opts[i].live && opts[i].id == id) return;
+        } else if (already(guid)) return;
         std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", guid);
         const char* nm = (name && name[0] && std::strcmp(name, "Gamepad") != 0)
                              ? name : "Controller";
@@ -3250,25 +3254,51 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    for (int i = 0; i < g_pad_count; ++i)
-        push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+    for (int i = 0; i < g_pad_count; ++i) {
+        const char* name = g_pads[i].name;
+        if (psx && launcher_binds_psx_name_is_custom(g_pads[i].guid)) {
+            for (int j = 0; j < nopt; ++j)
+                if (!std::strcmp(opts[j].guid, g_pads[i].guid)) {
+                    name = opts[j].name;
+                    break;
+                }
+        }
+        push_opt(g_pads[i].guid, name, g_pads[i].id, true);
+    }
 
     for (int i = 0; i < nopt; ++i) {
-        const bool claimed = launcher_model_gamepad_claimed(m, p, opts[i].guid);
+        const bool claimed = psx && opts[i].live
+            ? launcher_model_gamepad_instance_claimed(m, p, opts[i].id)
+            : launcher_model_gamepad_claimed(m, p, opts[i].guid);
         char label[96];
         if (opts[i].live)
             std::snprintf(label, sizeof(label), "%s", opts[i].name);
         else
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
-        const bool sel = m->s.player_src[p] == 2 &&
+        if (psx && opts[i].live) {
+            int identical = 0, ordinal = 0;
+            for (int j = 0; j < nopt; ++j) {
+                if (opts[j].live && !std::strcmp(opts[j].guid, opts[i].guid)) {
+                    ++identical;
+                    if (j <= i) ++ordinal;
+                }
+            }
+            if (identical > 1)
+                std::snprintf(label, sizeof(label), "%s #%d", opts[i].name, ordinal);
+        }
+        const bool guid_sel = m->s.player_src[p] == 2 &&
                          m->s.player_gamepad_guid[p][0] &&
                          std::strcmp(m->s.player_gamepad_guid[p],
                                      opts[i].guid) == 0;
+        const bool sel = guid_sel && (!psx || !opts[i].live ||
+            m->s.player_gamepad_instance[p] == opts[i].id + 1);
+        ImGui::PushID(i);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
                                      opts[i].guid);
+            if (psx && !opts[i].live) m->s.player_gamepad_instance[p] = 0;
             if (psx) {
                 launcher_binds_apply_psx_pad_profile(m, p);
                 launcher_binds_refresh(m);
@@ -3287,6 +3317,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
             }
         }
         if (claimed) ImGui::EndDisabled();
+        ImGui::PopID();
     }
 
     if (nopt == 0) {
@@ -6447,16 +6478,20 @@ bool np_prepare_guest_bind(char* out, size_t cap, char* status, size_t status_ca
 void np_connect_and_list(LauncherModel* m) {
     const auto* np = np_cb(m);
     if (!np) return;
+    const bool lan = m->netplay_mode == 1 && np->list_scope_set;
+    if (np->list_scope_set)
+        np->list_scope_set(np->ctx, lan ? RECOMP_LAUNCHER_LIST_SCOPE_LAN
+                                      : RECOMP_LAUNCHER_LIST_SCOPE_ONLINE);
     if (np->set_player_name && m->s.netplay_player_name[0])
         np->set_player_name(np->ctx, m->s.netplay_player_name);
     const bool already = np->connected && np->connected(np->ctx);
     const bool in_flight = np->connecting && np->connecting(np->ctx);
-    if (np->connect && !already && !in_flight)
+    if (!lan && np->connect && !already && !in_flight)
         (void)np->connect(np->ctx);
     if (np->request_list)
         np->request_list(np->ctx);
     m->netplay_list_fresh = true;
-    if (!already)
+    if (!lan && !already)
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Connecting to lobby server…");
 }
@@ -10155,6 +10190,8 @@ static bool np_account_offered(LauncherModel* m) {
 static void np_enter_netplay(LauncherModel* m, int mode) {
     m->netplay_mode = mode;
     m->netplay_list_fresh = false;
+    const auto* np = np_cb(m);
+    if (np && np->clear_last_error) np->clear_last_error(np->ctx);
     if (mode == 2) {
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Connecting to lobby server…");

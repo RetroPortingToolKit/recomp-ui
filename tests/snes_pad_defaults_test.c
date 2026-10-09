@@ -17,6 +17,7 @@
  * the static profile helpers are reachable, and links launcher_model.c for the
  * real set_source/visible_player_count. Every other console bridge is stubbed.
  */
+#define SDL_MAIN_HANDLED
 #include "launcher_binds.c"
 
 #include <stdio.h>
@@ -110,6 +111,53 @@ static void make_model(LauncherModel* m) {
     m->s.deadzone[1] = 30;
 }
 
+static void test_psx_identical_controllers(void) {
+    LauncherModel m;
+    make_model(&m);
+    SystemProfile psx = {0};
+    psx.id = "psx";
+    m.profile = &psx;
+    LauncherPad pads[2] = {0};
+    for (int i = 0; i < 2; ++i) {
+        strcpy(pads[i].guid, "03000000aabbccdd0001");
+        strcpy(pads[i].name, "Identical Controller");
+        pads[i].id = i; // SDL2 instance zero is a real controller.
+    }
+    launcher_binds_sync_psx_pad_sources(&m, pads, 2);
+    expect(m.s.player_gamepad_instance[0] == 1 &&
+           m.s.player_gamepad_instance[1] == 2,
+           "PSX auto seats allocate two identical pads separately, including ID 0");
+    expect(launcher_model_gamepad_instance_claimed(&m, 1, 0) &&
+           !launcher_model_gamepad_instance_claimed(&m, 1, 1),
+           "PSX reserves a physical unit rather than its model GUID");
+
+    launcher_model_set_source(&m, 0, 2, 1, pads[1].name, pads[1].guid);
+    launcher_model_set_source(&m, 1, 2, 0, pads[0].name, pads[0].guid);
+    launcher_binds_sync_psx_pad_sources(&m, pads, 2);
+    launcher_binds_prepare_psx_launch(&m, pads, 2);
+    expect(m.s.player_gamepad_instance[0] == 2 && m.player_pad_id[0] == 1 &&
+           m.s.player_gamepad_instance[1] == 1 && m.player_pad_id[1] == 0,
+           "PSX reversed selections survive frame sync and launch preparation");
+
+    m.s.player_gamepad_instance[0] = m.s.player_gamepad_instance[1] = 0;
+    launcher_binds_sync_psx_pad_sources(&m, pads, 2);
+    expect(m.s.player_gamepad_instance[0] == 1 &&
+           m.s.player_gamepad_instance[1] == 2,
+           "PSX restored GUID-only seats reallocate separate physical units");
+    launcher_binds_sync_psx_pad_sources(&m, pads, 1);
+    expect(m.s.player_gamepad_instance[0] == 1 &&
+           m.s.player_gamepad_instance[1] == 0,
+           "PSX unplugging P2 does not steal P1's identical pad");
+    launcher_binds_sync_psx_pad_sources(&m, pads, 2);
+    expect(m.s.player_gamepad_instance[1] == 2,
+           "PSX reconnect assigns the free identical unit to P2");
+    m.allow_shared_gamepad = true;
+    launcher_model_set_source(&m, 1, 2, 0, pads[0].name, pads[0].guid);
+    launcher_binds_sync_psx_pad_sources(&m, pads, 2);
+    expect(m.s.player_gamepad_instance[1] == 1,
+           "explicit developer controller sharing remains available");
+}
+
 int main(int argc, char** argv) {
     /* Keep the profile store out of any real config.ini. */
     static char cfg[1024];
@@ -178,6 +226,7 @@ int main(int argc, char** argv) {
     launcher_model_set_deadzone(&m, 0, 7);
     expect(m.s.deadzone[0] == 7, "and takes any whole percent between");
 
+    test_psx_identical_controllers();
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     puts("snes_pad_defaults_test: ok");

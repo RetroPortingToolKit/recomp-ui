@@ -1099,6 +1099,8 @@ void launcher_model_set_deadzone(LauncherModel* m, int player, int pct);
 // (GUID may be NULL/empty; then player_gamepad_guid[player] is cleared).
 int launcher_model_gamepad_claimed(const LauncherModel* m, int player,
                                   const char* guid);
+int launcher_model_gamepad_instance_claimed(const LauncherModel* m, int player,
+                                           uint32_t pad_id);
 void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid);

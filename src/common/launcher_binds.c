@@ -1219,13 +1219,13 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
             if (pads && pad_count > 0) {
                 for (int i = 0; i < pad_count; ++i) {
                     if (!pads[i].guid[0]) continue;
-                    if (psx_guid_claimed_by_other(m, p, pads[i].guid)) continue;
+                    if (launcher_model_gamepad_instance_claimed(m, p, pads[i].id)) continue;
                     chosen = i;
                     break;
                 }
-                if (chosen < 0) chosen = 0;
-                launcher_model_set_source(m, p, 2, pads[chosen].id,
-                                          pads[chosen].name, pads[chosen].guid);
+                if (chosen >= 0)
+                    launcher_model_set_source(m, p, 2, pads[chosen].id,
+                                              pads[chosen].name, pads[chosen].guid);
             } else {
                 const int known = rui_psx_pad_binds_known_count(path);
                 for (int i = 0; i < known; ++i) {
@@ -1237,6 +1237,7 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
                     if (!name[0] || !strcmp(name, "Gamepad"))
                         psx_fallback_pad_label(guid, name, sizeof(name));
                     launcher_model_set_source(m, p, 2, 0, name, guid);
+                    m->s.player_gamepad_instance[p] = 0;
                     break;
                 }
             }
@@ -1245,19 +1246,26 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
         const char* guid = m->s.player_gamepad_guid[p];
         if (!guid[0]) continue;
 
-        // Prefer the live SDL name when this GUID is connected.
+        // Keep an explicit physical selection. Restored GUID-only seats each
+        // claim a separate unit, including identical controllers and SDL ID 0.
         int live = -1;
         if (pads) {
             for (int i = 0; i < pad_count; ++i) {
                 if (pads[i].guid[0] && !strcmp(pads[i].guid, guid)) {
-                    live = i;
-                    break;
+                    if (launcher_model_gamepad_instance_claimed(m, p, pads[i].id))
+                        continue;
+                    if (m->s.player_gamepad_instance[p] == pads[i].id + 1) {
+                        live = i;
+                        break;
+                    }
+                    if (live < 0) live = i;
                 }
             }
         }
         const int custom = rui_psx_pad_binds_name_is_custom(path, guid);
         if (live >= 0) {
             m->player_pad_id[p] = pads[live].id;
+            m->s.player_gamepad_instance[p] = pads[live].id + 1;
             if (custom) {
                 // Keep the user's rename in the model / dropdown.
                 char reg[64] = {};
@@ -1287,6 +1295,7 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
             psx_fallback_pad_label(guid, m->player_pad_name[p],
                                    sizeof(m->player_pad_name[p]));
         m->player_pad_id[p] = 0;
+        m->s.player_gamepad_instance[p] = 0;
     }
 }
 
@@ -1372,30 +1381,10 @@ void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {
 void launcher_binds_prepare_psx_launch(LauncherModel* m,
                                        const LauncherPad* pads, int pad_count) {
     if (!m || !is_psx_profile(m)) return;
+    launcher_binds_sync_psx_pad_sources(m, pads, pad_count);
     const char* path = psx_input_ini_path();
     for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {
         if (m->s.player_src[p] != 2) continue;
-        // Bare "Gamepad" (legacy auto): pin to a live pad when available so
-        // settings.toml stores a real GUID and input.ini gets a mapping.
-        if (!m->s.player_gamepad_guid[p][0] && pads && pad_count > 0) {
-            // Prefer a pad not already claimed by an earlier player.
-            int chosen = -1;
-            for (int i = 0; i < pad_count; ++i) {
-                int claimed = 0;
-                for (int o = 0; o < p; ++o) {
-                    if (m->s.player_src[o] == 2 &&
-                        m->s.player_gamepad_guid[o][0] &&
-                        !strcmp(m->s.player_gamepad_guid[o], pads[i].guid)) {
-                        claimed = 1;
-                        break;
-                    }
-                }
-                if (!claimed) { chosen = i; break; }
-            }
-            if (chosen < 0) chosen = 0;
-            launcher_model_set_source(m, p, 2, pads[chosen].id,
-                                      pads[chosen].name, pads[chosen].guid);
-        }
         const char* guid = m->s.player_gamepad_guid[p];
         if (!guid[0]) continue;
         char name[64];
@@ -1412,7 +1401,8 @@ void launcher_binds_prepare_psx_launch(LauncherModel* m,
         }
         if (!custom && pads) {
             for (int i = 0; i < pad_count; ++i) {
-                if (pads[i].guid[0] && !strcmp(pads[i].guid, guid) &&
+                if (m->s.player_gamepad_instance[p] == pads[i].id + 1 &&
+                    pads[i].guid[0] && !strcmp(pads[i].guid, guid) &&
                     pads[i].name[0]) {
                     copy_str(name, sizeof(name), pads[i].name);
                     copy_str(m->player_pad_name[p],
