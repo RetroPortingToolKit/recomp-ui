@@ -14123,6 +14123,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             scale_mouse_event(ev, p->input_scale);
             if (ev.type == SDL_EVENT_QUIT) p->should_quit = true;
             if (ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) p->should_quit = true;
+            if (launcher_debug_hidden()) continue; // physical input belongs to the desktop
             if (try_capture(m, ev)) continue;
             /* Arm gamepad navigation on the first REAL pad input.
              *
@@ -14249,8 +14250,26 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             else
                 nav_io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
+        if (launcher_debug_hidden()) {
+            ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableSetMousePos;
+        }
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
+        if (launcher_debug_hidden()) {
+            ImGuiIO& debug_io = ImGui::GetIO();
+            debug_io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            debug_io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableSetMousePos;
+            debug_io.AddFocusEvent(true);
+            while (launcher_debug_next_event(&ev)) {
+                if (!try_capture(m, ev)) LNG_ImplSDL_ProcessEvent(&ev);
+            }
+            float x, y; bool down;
+            if (launcher_debug_mouse_frame(&x, &y, &down)) {
+                debug_io.AddMousePosEvent(x, y);
+                debug_io.AddMouseButtonEvent(0, down);
+            }
+        }
         ImGui::NewFrame();
         draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
@@ -14270,6 +14289,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
 
     launcher_boot_timing_mark("rui:action_requested");
     launcher_input_shutdown();
+    launcher_debug_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     launcher_texture_free(&g_boxart);
     launcher_texture_free(&g_pad);

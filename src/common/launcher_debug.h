@@ -26,6 +26,12 @@
 // LNG_TEST_HIDDEN=1 (with LNG_SCRIPT) creates the window hidden on both the
 // SDL2 and SDL3 backends, so automated runs never appear on the desktop or
 // take focus; shot: still captures the rendered frame.
+//
+// LNG_TCP_PORT=<port> enables live control on 127.0.0.1 and always hides the
+// window. Port 0 selects a free port; LNG_TCP_PORT_FILE writes the chosen port.
+// Send one command per UTF-8 line (same commands as LNG_SCRIPT, plus state).
+// Each command returns a JSON line. wait:N acknowledges after N frames;
+// other mutations acknowledge after the following rendered frame.
 
 #ifndef LAUNCHER_NG_DEBUG_H
 #define LAUNCHER_NG_DEBUG_H
@@ -41,6 +47,11 @@ extern "C" {
 
 // True when LNG_SCRIPT is set (script mode active).
 bool launcher_debug_active(void);
+// TCP mode is always hidden. Hidden scripting never uses desktop input.
+bool launcher_debug_hidden(void);
+bool launcher_debug_next_event(SDL_Event* event);
+bool launcher_debug_mouse_frame(float* x, float* y, bool* down);
+void launcher_debug_shutdown(void);
 
 // Parse LNG_SCRIPT. Safe to call when unset (script mode simply stays off).
 void launcher_debug_init(void);

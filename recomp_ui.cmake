@@ -98,6 +98,9 @@ function(recomp_target_launcher_ui TGT)
         ${ARGN})
 
     set_target_properties(${TGT} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    if(WIN32)
+        target_link_libraries(${TGT} PRIVATE ws2_32)
+    endif()
 
     # ImGui provider. Normally recomp-ui compiles its OWN vendored Dear ImGui
     # (fully self-contained — the SNES/PSX/GBA standalone consumers). But an
@@ -154,6 +157,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_input.c
         ${RUI_SRC}/common/launcher_files.c
         ${RUI_SRC}/common/launcher_debug.c
+        ${RUI_SRC}/common/launcher_debug_tcp.c
         ${RUI_SRC}/common/launcher_binds.c
         ${RUI_SRC}/common/pad_binds.c          # per-GUID input.ini store (all consoles)
         ${RUI_SRC}/common/launcher_udp_port.c  # host-lobby UDP port probe / auto-pick

@@ -56,7 +56,7 @@ static const char* kHotkeyNames[] = {
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
-static const char* kViewNames[8] = {
+static const char* kViewNames[LNG_VIEW__COUNT] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
     "Assist Tools", "Credits", "Lobby"
 };
@@ -4545,6 +4545,8 @@ const char* launcher_hotkey_name(LngHotkey h) {
 }
 
 const char* launcher_view_name(LngView v) {
-    if (v < 0 || v > LNG_VIEW_LOBBY) return "?";
+    if (v == LNG_VIEW_NETPLAY_MODE) return "Netplay Mode";
+    if (v == LNG_VIEW_NETPLAY_SIGNIN) return "Netplay Sign In";
+    if (v < 0 || v >= LNG_VIEW__COUNT) return "?";
     return kViewNames[v];
 }

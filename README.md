@@ -588,7 +588,23 @@ LNG_VARIANT=genesis ./build/recomp-ui-launcher
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.
 `LNG_SCRIPT="wait:40;view:settings;shot:out.png;quit"` (see
-[`src/launcher_debug.h`](src/launcher_debug.h)).
+[`src/common/launcher_debug.h`](src/common/launcher_debug.h)).
+
+For live headless control, set `LNG_TCP_PORT=0` and
+`LNG_TCP_PORT_FILE=/path/to/port.txt`. The launcher creates a **hidden** window
+and listens only on `127.0.0.1`; no listener starts by default. Connect to the
+port written to that file, send one UTF-8 command per line, and read one JSON
+reply per command. Existing script commands work (`view:settings`,
+`click:790,800`, `text:Player`, `key:Return`, `wait:3`, `shot:/path/frame.png`,
+`quit`); `state` reports the current view, player inputs and actual hidden-window
+flag. `wait:N` replies after N frames. Other changes reply after the next frame.
+Hidden automation ignores physical input and injects input directly into the
+launcher; it never warps the desktop cursor or takes foreground focus.
+
+[`tools/test_launcher_tcp.py`](tools/test_launcher_tcp.py) runs a short TCP
+navigation/capture check. Use a private working directory and pass host options
+after `--`; PSX hosts should include `--launcher --hidden-window` to keep a host
+fallback hidden too. On Linux it can run under `xvfb-run -a`.
 
 Requires SDL3 (`find_package(SDL3 CONFIG)`) by default, OpenGL, and a C++17
 compiler. Configure with `-DSNESRECOMP_SDL_BACKEND=SDL2` to exercise the
