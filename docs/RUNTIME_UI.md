@@ -62,6 +62,19 @@ shared SDL2 platform backend.
 `recomp_runtime_ui_set_backdrop(ui, dim, opacity)` lets the host expose how
 much the menu covers the game (how dark the game behind it gets, and how solid
 the panel is), so a player can see a picture setting's effect through it.
+`RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP` offers both to the player as
+Display rows, "Game dimming" and "Menu opacity" (`RECOMP_RUNTIME_UI_KEY_MENU_DIM`
+/ `_MENU_OPACITY`, percents in steps of 10). The host stores and persists them
+like any other setting and passes them on as `dim / 100.0f, opacity / 100.0f`;
+`RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT` and 100 match the menu's own look.
+
+Two more System rows go with save states and the pause policy:
+`RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT` (the slot Save state / Load state use,
+1 to `state_slot_count`, default 10) and
+`RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU`, which hands the player the host's
+pause policy. The menu still pauses nothing itself; the host reads the value
+and decides.
+
 `recomp_runtime_ui_set_status(ui, text)` shows a message in the footer, e.g. a
 slot summary from a save-state action (return 0 from its `run_action` so
 "Done" does not replace it).

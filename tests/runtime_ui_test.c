@@ -13,6 +13,10 @@ typedef struct TestState {
     int quit_count;
     int save_count;
     int visible;
+    int dim;
+    int opacity;
+    int pause;
+    int slot;
 } TestState;
 
 static int get_value(void *context, const RecompRuntimeUiItem *item, int *out) {
@@ -20,6 +24,10 @@ static int get_value(void *context, const RecompRuntimeUiItem *item, int *out) {
     if (!strcmp(item->key, "enabled")) *out = state->enabled;
     else if (!strcmp(item->key, "level")) *out = state->level;
     else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VIEW_MODE)) *out = state->level;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_MENU_DIM)) *out = state->dim;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_MENU_OPACITY)) *out = state->opacity;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU)) *out = state->pause;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_STATE_SLOT)) *out = state->slot;
     else return 0;
     return 1;
 }
@@ -29,8 +37,16 @@ static int set_value(void *context, const RecompRuntimeUiItem *item, int value) 
     if (!strcmp(item->key, "enabled")) state->enabled = value;
     else if (!strcmp(item->key, "level")) state->level = value;
     else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VIEW_MODE)) state->level = value;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_MENU_DIM)) state->dim = value;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_MENU_OPACITY)) state->opacity = value;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU)) state->pause = value;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_STATE_SLOT)) state->slot = value;
     else return 0;
     return 1;
+}
+
+static void press(RecompRuntimeUi *ui, RecompRuntimeUiInput input) {
+    assert(recomp_runtime_ui_handle_input(ui, input, 1, 0));
 }
 
 static int run_action(void *context, const RecompRuntimeUiItem *item) {
@@ -188,6 +204,55 @@ int main(void) {
         recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
         assert(state.quit_count == 1 && state.launcher_count == 1);
         recomp_runtime_ui_destroy(e);
+    }
+
+    /* The standard backdrop, state slot and pause rows read and write the
+     * host's values within the host's slot count. The backdrop is two rows
+     * from one bit, and extras still follow them. */
+    {
+        static const RecompRuntimeUiItem extra[] = {
+            { "level", "Extra", "Level", "After the standard rows.",
+              RECOMP_RUNTIME_UI_INT, 0, 10, 2, NULL, 0, NULL },
+        };
+        RecompRuntimeUiStandardConfig rows = {0};
+        rows.menu.title = "Menu settings";
+        rows.menu.callbacks = config.callbacks;
+        rows.features = RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP |
+                        RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT |
+                        RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU;
+        rows.state_slot_count = 3;
+        rows.extra_items = extra;
+        rows.extra_item_count = 1;
+        RecompRuntimeUi *m = recomp_runtime_ui_create_standard(&rows);
+        assert(m != NULL);
+        state.dim = RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT;
+        state.opacity = 100;
+        state.pause = 1;
+        state.slot = 1;
+        state.level = 0;
+        recomp_runtime_ui_open(m);
+        press(m, RECOMP_RUNTIME_UI_INPUT_ACCEPT);                /* Display */
+        press(m, RECOMP_RUNTIME_UI_INPUT_RIGHT);
+        assert(state.dim == 70);
+        press(m, RECOMP_RUNTIME_UI_INPUT_DOWN);
+        press(m, RECOMP_RUNTIME_UI_INPUT_RIGHT);
+        assert(state.opacity == 100);                            /* top */
+        press(m, RECOMP_RUNTIME_UI_INPUT_LEFT);
+        assert(state.opacity == 90);
+        press(m, RECOMP_RUNTIME_UI_INPUT_BACK);
+        press(m, RECOMP_RUNTIME_UI_INPUT_DOWN);
+        press(m, RECOMP_RUNTIME_UI_INPUT_ACCEPT);                /* System */
+        for (int i = 0; i < 4; ++i) press(m, RECOMP_RUNTIME_UI_INPUT_RIGHT);
+        assert(state.slot == 3);
+        press(m, RECOMP_RUNTIME_UI_INPUT_DOWN);
+        press(m, RECOMP_RUNTIME_UI_INPUT_ACCEPT);
+        assert(state.pause == 0);
+        press(m, RECOMP_RUNTIME_UI_INPUT_BACK);
+        press(m, RECOMP_RUNTIME_UI_INPUT_DOWN);
+        press(m, RECOMP_RUNTIME_UI_INPUT_ACCEPT);                /* Extra */
+        press(m, RECOMP_RUNTIME_UI_INPUT_RIGHT);
+        assert(state.level == 2);
+        recomp_runtime_ui_destroy(m);
     }
 
     /* Toasts: drawn with the menu closed, only in the frame's top rows, and
