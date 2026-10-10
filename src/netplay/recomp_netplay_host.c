@@ -10,6 +10,7 @@
  * session slot 0 under RECOMP_NETPLAY_SLOTS_HOST_FIRST).
  */
 #include "recomp_netplay_host.h"
+#include "recomp_netplay_account.h"
 
 #include "recomp_net/auth.h"
 #include "recomp_net/lan_lobby.h"
@@ -1390,26 +1391,8 @@ static void cb_pump(void *ctx)
    * Re-init only when the URL actually changes rather than every pump: the
    * worker thread reads g.host while a login is in flight, and memset-ing it
    * under that read 60 times a second would be a data race for no gain. */
-  {
-    static char auth_url[256];
-    const char *url = cb_default_url(NULL);
-    if (url && url[0] && strcmp(url, auth_url) != 0) {
-      /* Anchor the secret to the EXECUTABLE directory before the first init.
-       * Its default is the bare relative name "netplay_secret", resolved
-       * against the working directory -- so the same install signed itself
-       * out depending on where it was launched from, and a rebuild run from a
-       * different directory read as a lost login. rnet_auth.c migrates an old
-       * CWD-relative file into this path on first load, so nobody is signed
-       * out by the move. */
-      char secret_path[512];
-      if (g_h.exe_dir_path &&
-          g_h.exe_dir_path(g_h.ctx, "netplay_secret", secret_path,
-                           sizeof(secret_path)))
-        rnet_account_set_secret_path(secret_path);
-      snprintf(auth_url, sizeof(auth_url), "%s", url);
-      rnet_account_init(url);
-    }
-  }
+  recomp_netplay_account_sync(cb_default_url(NULL), g_h.exe_dir_path,
+                             g_h.ctx);
   rnet_account_pump();
 
   /* Publish the account name to the lobby.
