@@ -2843,6 +2843,11 @@ static void pak_set_kind(LauncherModel* m, int port, int kind) {
 // heading and nothing under it — the panel is simply not in the layout, and
 // draw_dashboard's gap before it goes with it.
 int avail_tpak(const LauncherModel* m) {
+    // The pak cards ride the controller panel (draw_controllers_row: the
+    // selected player's card on the left, that player's accessory on the right)
+    // whenever it draws. Only a locked pad has no controller cards to ride, so
+    // only then does this panel compose on its own.
+    if (!m->lock_device) return 0;
     const int ports = launcher_model_pak_ports(m);
     for (int port = 0; port < ports; ++port)
         if (pak_kind_def(pak_kind_of(m, port))->body) return 1;
@@ -3028,6 +3033,25 @@ static void pak_section_heading(int port, const char* kind_label) {
 // Transfer Pak with a cart is much taller than an empty one, and a future
 // memory-card section will differ again) a non-issue: each card hugs its own
 // content instead of a shared panel forcing every section to the tallest.
+// One player's accessory card: the framing and body of the picked kind. Shared
+// by the standalone panel above and the player-tab view (draw_controllers_row).
+void draw_pak_card(LauncherModel* m, const LauncherTheme& th, int port, float cardw) {
+    char cid[16];
+    std::snprintf(cid, sizeof(cid), "pk%d", port);
+    begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
+    char pid[16];
+    std::snprintf(pid, sizeof(pid), "pak%d", port);
+    if (begin_panel(pid, cardw, false)) {
+        ImGui::PushID(port);
+        const PakKindDef* def = pak_kind_def(pak_kind_of(m, port));
+        pak_section_heading(port, def->label);
+        def->body(m, th, port);
+        ImGui::PopID();
+    }
+    end_panel();
+    end_container();
+}
+
 void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
     const int ports = launcher_model_pak_ports(m);
     int active[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -3046,23 +3070,9 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
     if (cardw < 1.0f) cardw = availw;
 
     for (int i = 0; i < n; ++i) {
-        const int port = active[i];
         if (i % cols) ImGui::SameLine(0, gap);
         else if (i) ImGui::Dummy(ImVec2(0, gap));   // new row of cards
-        char cid[16];
-        std::snprintf(cid, sizeof(cid), "pk%d", port);
-        begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
-        char pid[16];
-        std::snprintf(pid, sizeof(pid), "pak%d", port);
-        if (begin_panel(pid, cardw, false)) {
-            ImGui::PushID(port);
-            const PakKindDef* def = pak_kind_def(pak_kind_of(m, port));
-            pak_section_heading(port, def->label);
-            def->body(m, *th, port);
-            ImGui::PopID();
-        }
-        end_panel();
-        end_container();
+        draw_pak_card(m, *th, active[i], cardw);
     }
 }
 
@@ -3448,30 +3458,72 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     end_panel();
 }
 
-// Lays out player cards: stretch to fill the row until there is room for
-// another card at the standard width, then bump the column count (memcards
-// stay fixed-width via dash_card_width).
+// The selected player tab, kept across frames. Clamped to the visible players on
+// every draw, so a player count that shrinks cannot strand it.
+static int s_player_tab = 0;
+
+// One row of player tabs (segmented, the look of the pad-mode selector). A tab
+// is a button, so a gamepad or keyboard walks them like any other control.
+static void draw_player_tabs(LauncherModel* m, const LauncherTheme& th, int n) {
+    const float gap = px(4.0f);
+    const float seg_w = std::min(px(120.0f), (ImGui::GetContentRegionAvail().x - gap * (float)(n - 1)) / (float)n);
+    for (int p = 0; p < n; ++p) {
+        if (p) ImGui::SameLine(0, gap);
+        const bool sel = p == s_player_tab;
+        // A tab for a player with nothing assigned reads muted, so which seats
+        // are live is visible without opening each one.
+        const bool live = m->s.player_src[p] != 0;
+        char label[32];
+        std::snprintf(label, sizeof(label), "%s %d###ptab%d", ui_text("PLAYER"), p + 1, p);
+        ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              sel ? col(th.accent_text) : (live ? col(th.text) : col(th.text_muted)));
+        if (ImGui::Button(label, ImVec2(seg_w, px(30)))) s_player_tab = p;
+        ImGui::PopStyleColor(4);
+    }
+}
+
+// Player tabs across the top; under them the selected player's controller card
+// on the left and, on the right, that player's accessory (Transfer Pak, ...).
+// The old row showed every player's card at once and the pak cards below it,
+// which put a player's controller and its accessory a screen apart. A game with
+// one player draws no tabs.
+//
+// A console whose pads take no accessory (no pak ports) keeps the card at full
+// width. The right half is simply empty while the selected player's pak kind is
+// None: the picker on the card is how one is added.
 void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     if (m->lock_device) return;   // fixed pad: hide the player controller cards entirely
     int n = launcher_model_visible_player_count(m);
     if (n < 1) n = 1;
     if (n > LNG_MAX_PLAYERS) n = LNG_MAX_PLAYERS;
+    if (s_player_tab < 0 || s_player_tab >= n) s_player_tab = 0;
+    const int p = s_player_tab;
+
+    if (n > 1) {
+        draw_player_tabs(m, th, n);
+        ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
+    }
+
     const float gap = px(th.spacing_md);
     const float availw = ImGui::GetContentRegionAvail().x;
+    const bool has_pak_slot = p < launcher_model_pak_ports(m);
+    const bool has_pak = has_pak_slot && pak_kind_def(pak_kind_of(m, p))->body;
+    // Side by side while each half can hold a standard card; else the accessory
+    // stacks under the controller.
     const float pref = px(300.0f);
-    int cols = (int)((availw + gap) / (pref + gap));
-    if (cols < 1) cols = 1;
-    if (cols > n) cols = n;
-    float cardw = (availw - gap * (float)(cols - 1)) / (float)cols;
-    if (cardw < 1.0f) cardw = availw;
-    for (int p = 0; p < n; ++p) {
-        if (p % cols) ImGui::SameLine(0, gap);
-        else if (p) ImGui::Dummy(ImVec2(0, gap));   // new row of cards
-        char cid[16];
-        std::snprintf(cid, sizeof(cid), "pc%d", p);
-        begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
-        draw_player_panel(m, th, p, cardw);
-        end_container();
+    const bool side_by_side = has_pak_slot && availw >= pref * 2.0f + gap;
+    const float cardw = side_by_side ? (availw - gap) * 0.5f : availw;
+
+    begin_container("pc", ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
+    draw_player_panel(m, th, p, cardw);
+    end_container();
+    if (has_pak) {
+        if (side_by_side) ImGui::SameLine(0, gap);
+        else ImGui::Dummy(ImVec2(0, gap));
+        draw_pak_card(m, th, p, cardw);
     }
 }
 
