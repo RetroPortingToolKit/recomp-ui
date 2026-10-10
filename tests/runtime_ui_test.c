@@ -9,6 +9,8 @@ typedef struct TestState {
     int enabled;
     int level;
     int action_count;
+    int launcher_count;
+    int quit_count;
     int save_count;
     int visible;
 } TestState;
@@ -33,8 +35,12 @@ static int set_value(void *context, const RecompRuntimeUiItem *item, int value) 
 
 static int run_action(void *context, const RecompRuntimeUiItem *item) {
     TestState *state = (TestState *)context;
-    if (strcmp(item->key, "reset")) return 0;
-    ++state->action_count;
+    if (!strcmp(item->key, "reset") || !strcmp(item->key, RECOMP_RUNTIME_UI_KEY_RESET))
+        ++state->action_count;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER))
+        ++state->launcher_count;
+    else if (!strcmp(item->key, RECOMP_RUNTIME_UI_KEY_QUIT)) ++state->quit_count;
+    else return 0;
     return 1;
 }
 
@@ -119,6 +125,70 @@ int main(void) {
         standard_ui, RECOMP_RUNTIME_UI_INPUT_RIGHT, 1, 0));
     assert(state.level == RECOMP_RUNTIME_UI_VIEW_ADAPTIVE);
     recomp_runtime_ui_destroy(standard_ui);
+
+    /* recomp_runtime_ui_confirm: a second press on the same row while its
+     * prompt is up. Another row, another status, the prompt running out, or
+     * closing the menu all withdraw it. */
+    {
+        RecompRuntimeUi *c = recomp_runtime_ui_create(&config);
+        const RecompRuntimeUiItem *reset = &items[2], *level = &items[1];
+        static uint32_t pic[256 * 224];
+        recomp_runtime_ui_open(c);
+        assert(!recomp_runtime_ui_confirm(c, reset, "Press again to reset"));
+        assert(recomp_runtime_ui_confirm(c, reset, "Press again to reset"));
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));   /* starts over */
+        assert(!recomp_runtime_ui_confirm(c, level, NULL));   /* another row */
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));
+        recomp_runtime_ui_set_status(c, "Slot 2 is empty");
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));   /* replaced */
+        for (int i = 0; i < 179; ++i)
+            recomp_runtime_ui_render_argb8888(c, pic, 256, 224, 256 * 4);
+        assert(recomp_runtime_ui_confirm(c, reset, NULL));    /* last frame */
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));
+        for (int i = 0; i < 180; ++i)
+            recomp_runtime_ui_render_argb8888(c, pic, 256, 224, 256 * 4);
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));   /* ran out */
+        recomp_runtime_ui_close(c);
+        recomp_runtime_ui_open(c);
+        assert(!recomp_runtime_ui_confirm(c, reset, NULL));   /* closed */
+        assert(recomp_runtime_ui_confirm(c, reset, NULL));
+        recomp_runtime_ui_destroy(c);
+    }
+
+    /* The standard exits ask for the second press themselves: run_action only
+     * hears the confirmed one, and a held button never confirms. Reset keeps
+     * its single press. */
+    {
+        RecompRuntimeUiStandardConfig exits = {0};
+        exits.menu.title = "Exits";
+        exits.menu.callbacks = config.callbacks;
+        exits.features = RECOMP_RUNTIME_UI_STANDARD_RESET |
+                         RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER |
+                         RECOMP_RUNTIME_UI_STANDARD_QUIT;
+        RecompRuntimeUi *e = recomp_runtime_ui_create_standard(&exits);
+        assert(e != NULL);
+        state.action_count = 0;
+        recomp_runtime_ui_open(e);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        assert(state.action_count == 1);                       /* Reset */
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_DOWN, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 1);
+        assert(state.launcher_count == 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        assert(state.launcher_count == 1);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_DOWN, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_UP, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_DOWN, 1, 0);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        assert(state.quit_count == 0 && state.launcher_count == 1);
+        recomp_runtime_ui_handle_input(e, RECOMP_RUNTIME_UI_INPUT_ACCEPT, 1, 0);
+        assert(state.quit_count == 1 && state.launcher_count == 1);
+        recomp_runtime_ui_destroy(e);
+    }
 
     /* Toasts: drawn with the menu closed, only in the frame's top rows, and
      * nothing at all once cleared. The model keeps no clock of its own. */

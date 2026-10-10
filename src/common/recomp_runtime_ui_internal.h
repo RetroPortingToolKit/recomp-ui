@@ -20,6 +20,12 @@ struct RecompRuntimeUi {
     RecompRuntimeUiItem *owned_items;
     const char **owned_view_choices;
     int *owned_view_values;
+    /* Parallel to owned_items: the prompt for an action the model confirms
+     * before calling run_action, or NULL. NULL as a whole when none does. */
+    const char **owned_confirm_prompts;
+    /* recomp_runtime_ui_confirm: the row whose prompt is in the footer. Any
+     * other status write clears it. */
+    const RecompRuntimeUiItem *confirm_item;
     /*
      * Text-editing state. Owned by the presentation backend (the ImGui one
      * drives an InputText), because the edit lifecycle -- caret, selection,

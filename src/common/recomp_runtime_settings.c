@@ -51,6 +51,15 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
 
     RecompRuntimeUiItem *items = (RecompRuntimeUiItem *)calloc(total, sizeof(*items));
     if (!items) return NULL;
+    const char **confirm_prompts = NULL;
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER) ||
+        has(f, RECOMP_RUNTIME_UI_STANDARD_QUIT)) {
+        confirm_prompts = (const char **)calloc(total, sizeof(*confirm_prompts));
+        if (!confirm_prompts) {
+            free(items);
+            return NULL;
+        }
+    }
     const char **view_choices = NULL;
     int *view_values = NULL;
     size_t view_count = 0;
@@ -61,7 +70,7 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         view_choices = (const char **)calloc(view_count, sizeof(*view_choices));
         view_values = (int *)calloc(view_count, sizeof(*view_values));
         if (!view_choices || !view_values) {
-            free(items); free(view_choices); free(view_values);
+            free(items); free(confirm_prompts); free(view_choices); free(view_values);
             return NULL;
         }
         size_t out = 0;
@@ -156,6 +165,18 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RESET, "System", "Reset game",
                  "Reset the emulated machine.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER, "System",
+                 "Return to launcher", "Close the game, open the launcher. Press twice.",
+                 RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, NULL, 0, NULL);
+        confirm_prompts[count - 1] = "Press again for the launcher";
+    }
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_QUIT)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_QUIT, "System", "Quit game",
+                 "Close the game. Press twice.", RECOMP_RUNTIME_UI_ACTION,
+                 0, 0, 0, NULL, 0, NULL);
+        confirm_prompts[count - 1] = "Press again to quit";
+    }
 
     if (standard->extra_items && standard->extra_item_count) {
         memcpy(items + count, standard->extra_items,
@@ -168,11 +189,12 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
     menu.item_count = count;
     RecompRuntimeUi *ui = recomp_runtime_ui_create(&menu);
     if (!ui) {
-        free(items); free(view_choices); free(view_values);
+        free(items); free(confirm_prompts); free(view_choices); free(view_values);
         return NULL;
     }
     ui->owned_items = items;
     ui->owned_view_choices = view_choices;
     ui->owned_view_values = view_values;
+    ui->owned_confirm_prompts = confirm_prompts;
     return ui;
 }
