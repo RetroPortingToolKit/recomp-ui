@@ -700,11 +700,9 @@ void launcher_model_init(LauncherModel* m,
      * Online start is always lobby SFU (§108). */
     m->netplay_force_input_relay = false;
     m->netplay_force_turn = false;
-    /* Online matches always negotiate with ICE (STUN, then TURN), so nobody
-     * has to forward a port. The host relay needs a reachable UDP port and
-     * has no fallback, so the launcher no longer offers it. */
-    m->netplay_relay_host = false;
-    m->netplay_relay_via_ice = true;
+    /* Online matches always negotiate with ICE (STUN, then TURN), and the
+     * host carries the match over it, so nobody forwards a port. There is no
+     * model state for it: it is not a setting. */
     m->netplay_relay_status[0] = '\0';
     /* Rollback is the legacy default; a title may choose delay-sync for the
      * initial room size through create_default_rollback below. */
@@ -4637,7 +4635,7 @@ const char* launcher_model_relay_error_text(const char* err, bool ice_mode) {
                "press Play again.";
     if (strcmp(err, "host_relay_spectators") == 0)
         return "A match carried by the host can't include spectators. "
-               "Remove them, or turn off \"Host carries the match\".";
+               "Remove them and press Play again.";
     if (strcmp(err, "relay_unavailable") == 0) {
         if (ice_mode)
             return "Couldn't start through the host. A guest has no "

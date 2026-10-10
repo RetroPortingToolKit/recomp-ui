@@ -659,7 +659,7 @@ static RNetLobbyMatchCaps default_caps(const RecompLauncherCSettings *settings)
   caps.input_prediction = clamp_input_prediction(caps.input_prediction);
   caps.force_turn = g_lobby_force_turn ? 1 : 0;
   caps.force_input_relay = g_lobby_force_input_relay ? 1 : 0;
-  /* Host relay (docs/HOST_NETPLAY.md): the host's setting, default off. The
+  /* Host relay (docs/HOST_NETPLAY.md): always asked for online. The
    * lobby client drives the port / probe / reports from this cap once the
    * server echoes it back to the room. */
   caps.relay_host = rnet_lobby_relay_host_pref() ? 1 : 0;
@@ -1192,9 +1192,13 @@ int recomp_netplay_host_init(const RecompNetplayHostHooks *hooks)
   g_local_address_count = 0;
   g_lobby_rollback = 1;
   g_lobby_input_prediction = 0;
-  /* ICE is the online default; the host relay is opt-in (recomp-net's own
-   * default is on). The launcher pushes a saved opt-in after init. */
-  rnet_lobby_set_relay_host_pref(0);
+  /* Online, the host carries the match over ICE and nobody forwards a port;
+   * it is not a setting. LAN / Direct IP rooms are host-carried anyway and
+   * never publish these caps. */
+  rnet_lobby_set_relay_host_pref(1);
+#ifdef RUI_HAVE_ICE_HUB
+  rnet_lobby_set_relay_via_ice(1);
+#endif
 
   /* The lobby client learns what this build is before it can say anything:
    * title and pin for every op, the seat ceiling for create, the platform

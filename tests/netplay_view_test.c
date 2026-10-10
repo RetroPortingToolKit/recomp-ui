@@ -45,8 +45,6 @@ int main(void) {
         CHECK(!launcher_model_relay_error_text("need_players",true));
         CHECK(!launcher_model_relay_error_text("",true));
         CHECK(!launcher_model_relay_error_text(NULL,true));
-        launcher_model_init(&model,&settings,&game,"");
-        CHECK(model.netplay_relay_via_ice);
     }
     return 0;
 }

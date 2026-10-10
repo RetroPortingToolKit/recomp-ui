@@ -541,15 +541,20 @@ pins still compile and run engines that do not declare connection types.
 
 ## Host relay (2026-10-01)
 
-**Not offered by the launcher (2026-10-03).** Online matches always use ICE
-(STUN, then TURN), so no port needs forwarding. The host relay below needs a UDP
-port guests can reach, and the lobby server's UDP relay it once fell back to has
-been retired, so recomp-ui no longer exposes the setting;
-`recomp_netplay_host_init` pins `rnet_lobby_relay_host_pref()` to off. The
-`relay_host_*` callbacks remain for engines that drive it themselves, and a
-saved `relay=` line is ignored.
+**Always on online (2026-10-10); not a setting.** Online, the host carries the
+match over ICE (`match_caps.relay = "host"`, `relay_via = "ice"`), so no port is
+forwarded and the lobby server relays nothing. The launcher no longer offers a
+choice: the "Host carries the match" checkbox and the saved `host_relay_ice=` /
+`relay=` lines are gone (a saved line is ignored), and the launcher pins both
+prefs on at start. `recomp_netplay_host_init` sets `rnet_lobby_relay_host_pref()`
+and `rnet_lobby_set_relay_via_ice()` on. History: the host relay was default on
+(`58604b0`, 2026-10-01), then turned off by `69e7c7e` (2026-10-03) because the
+forwarded-port mode had no fallback; that left a room of 3+ with no way to
+start, since the server's ICE fallback carries exactly one pair. The
+forwarded-port mode below is **LAN / Direct IP only**, where the host is already
+reachable.
 
-The rest of this section describes the mechanism as an engine can still enable it.
+The rest of this section describes the mechanism.
 
 Enabled, online matches run through the **host's own UDP port**. Server contract:
 recomp-net-server `docs/WS_LOBBY.md` "Host relay". Client implementation:
@@ -558,14 +563,14 @@ shared backend here only owns the **setting** and the **room line**:
 
 | piece | where |
 | --- | --- |
-| The ask: `match_caps.relay = "host"` | `default_caps` publishes `RNetLobbyMatchCaps.relay_host` from `rnet_lobby_relay_host_pref()` (default off; `recomp_netplay_host_init` sets it) |
-| The setting | `RecompLauncherCNetplayCallbacks.relay_host_get/set` (host preference; a guest's getter answers what the host published). recomp-ui: Network Settings "Online match relay" and the MATCH SETTINGS checkbox "Host carries the match"; persisted as `relay=host|server` in `saves/netplay/network settings` and pushed to the backend on load |
+| The ask: `match_caps.relay = "host"` | `default_caps` publishes `RNetLobbyMatchCaps.relay_host` from `rnet_lobby_relay_host_pref()` (always on; `recomp_netplay_host_init` sets it) |
+| The setting | `RecompLauncherCNetplayCallbacks.relay_host_get/set` (host preference; a guest's getter answers what the host published). recomp-ui no longer exposes it (no checkbox, nothing persisted); the launcher pins it on at start |
 | The host's port | while the room waits, the lobby client holds the game port (the port in `host_endpoint` passed to `create`, 7777 by default), opens it with UPnP IGD, else NAT-PMP, else learns the STUN mapping, answers guests' probes, and sends `set_host_endpoint` once per address |
 | The guests' proof | each seated guest probes the advertised endpoint and sends `path_report` `direct` / `fail`, refreshed every 45 s (the server trusts 120). Every seat's latest report comes back on `lobby_update` as `path` / `path_fresh` (`RNetLobbyMember`) |
 | The room line | `relay_status` → the ROOM panel's "Match Relay": the host sees its endpoint, how it was opened and how many guests have proven the path; a guest sees whether its probe got through |
 | The launch | `launch.transport == "host"` → `RNetLobbyJoinInfo.transport_host` → `RecompLauncherCNetplayLaunch.transport_host`, `force_input_relay = 0`. The host binds `bind_hostport` and accepts the first packet (2 seats) or runs `rnet_session_start_lan_hub` (3+); guests dial `peer_hostport` = the host's endpoint. The waiting-room socket is released on `launch` so the game binds the port; the router mapping stays until `leave` / disconnect, which unmap it |
-| Host relay over ICE | Opt-in (Lobby Settings "Host carries the match (ICE, no port forward)", persisted `host_relay_ice=1`; sets `relay_host` and `relay_via_ice` together -- the legacy forwarded-port mode is not offered). `launch.relay_via == "ice"` → `RNetLobbyJoinInfo.transport_ice_hub` → `RecompLauncherCNetplayLaunch.transport_ice_hub` (`transport_host` is also 1: test the hub field first). No port is bound; the engine takes the agents with `rnet_lobby_ice_take_hub` / `rnet_lobby_ice_take_guest_agent` before clearing launch-pending. `relay_status` shows per-seat connecting / connected (host\|srflx\|prflx) / failed, never port guidance. Errors `ice_not_connected`, `host_relay_unproven`, `host_relay_spectators` map to specific text (`launcher_model_relay_error_text`) |
-| The fallback | none any more: the server refuses to start (`relay_unavailable`) when any guest's report is missing, stale or `fail`. The host turns the option off to use ICE |
+| Host relay over ICE | Always on online (`relay_host` and `relay_via_ice` are set together; the forwarded-port mode is LAN / Direct IP only). `launch.relay_via == "ice"` → `RNetLobbyJoinInfo.transport_ice_hub` → `RecompLauncherCNetplayLaunch.transport_ice_hub` (`transport_host` is also 1: test the hub field first). No port is bound; the engine takes the agents with `rnet_lobby_ice_take_hub` / `rnet_lobby_ice_take_guest_agent` before clearing launch-pending. `relay_status` shows per-seat connecting / connected (host\|srflx\|prflx) / failed, never port guidance. Errors `ice_not_connected`, `host_relay_unproven`, `host_relay_spectators` map to specific text (`launcher_model_relay_error_text`) |
+| The fallback | none any more: the server refuses to start (`relay_unavailable`) when any guest's report is missing, stale or `fail`. Nothing the host can turn off. |
 
 Engines that bind the game port from the launch need no change beyond
 reading `transport_host`: it takes the LAN / hub transport path (psxrecomp
