@@ -1537,6 +1537,13 @@ struct RecompLauncherCSettings {
     int  render_thread;
     int  present_thread;
     int  frame_generation;
+    /* Graphics preset (GameInfo.quality_offered_mask): 0 = unset, 1 Low,
+     * 2 Medium, 3 High, 4 Ultra, 5 Custom (the player changed a setting a
+     * preset governs; quality_base is the preset it started from, 1..4).
+     * The launcher sets Custom itself; the host owns detection. Appended
+     * additively; a zero-initialized host reads as unset. */
+    int  quality_preset;
+    int  quality_base;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -2312,6 +2319,23 @@ typedef struct RecompLauncherCGameInfo {
      * action index plus one. The title supplies its defaults through
      * assist_default_pad_bind. Appended for ABI stability. */
     int                assist_direct_pad_bind_action;
+
+    /* ---- Graphics presets (Settings.quality_preset) -------------------------
+     * Bit i of quality_offered_mask = preset i+1 (Low, Medium, High, Ultra)
+     * is offered; 0 hides the row. quality_detected is what the host's
+     * detection picked (1..4, 0 unknown); quality_summary names the hardware
+     * ("Apple M1 · 8 threads · 8 GB") and quality_reason the rule. Picking a
+     * preset calls quality_apply, which sets every Settings field that preset
+     * governs; the launcher then watches those fields and switches to Custom
+     * when the player changes one. quality_redetect re-runs detection and
+     * returns the preset it picked (1..4), refreshing the strings (which stay
+     * owned by the host). Appended for ABI stability. */
+    int                quality_offered_mask;
+    int                quality_detected;
+    const char*        quality_summary;
+    const char*        quality_reason;
+    void (*quality_apply)(int preset, RecompLauncherCSettings* s);
+    int  (*quality_redetect)(void);
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
@@ -2320,6 +2344,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_INTERNAL_RESOLUTION 1
 #define RECOMP_LAUNCHER_HAS_DYNAMIC_RESOLUTION 1
 #define RECOMP_LAUNCHER_HAS_RENDER_PIPELINE 1
+#define RECOMP_LAUNCHER_HAS_QUALITY_PRESETS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1

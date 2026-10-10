@@ -554,6 +554,13 @@ void launcher_model_init(LauncherModel* m,
         m->internal_resolution_note   = game->internal_resolution_note;
         m->has_dynamic_resolution      = game->has_dynamic_resolution != 0;
         m->has_render_pipeline         = game->has_render_pipeline != 0;
+        m->quality_offered_mask        = game->quality_offered_mask;
+        m->quality_detected            = game->quality_detected;
+        m->quality_summary             = game->quality_summary;
+        m->quality_reason              = game->quality_reason;
+        m->quality_apply               = game->quality_apply;
+        m->quality_redetect            = game->quality_redetect;
+        m->quality_snapshot_valid      = false;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
@@ -1939,6 +1946,71 @@ void launcher_model_cycle_supersampling(LauncherModel* m) {
 
 bool launcher_model_render_pipeline_offered(const LauncherModel* m) {
     return m && m->has_render_pipeline && m->s.renderer == 1;
+}
+
+bool launcher_model_quality_offered(const LauncherModel* m) {
+    return m && (m->quality_offered_mask & 0xF) != 0 && m->quality_apply != NULL;
+}
+
+const char* launcher_model_quality_label(int preset) {
+    static const char* const k[] = {"", "Low", "Medium", "High", "Ultra", "Custom"};
+    return (preset >= 0 && preset <= 5) ? k[preset] : "";
+}
+
+/* The Settings fields a preset may set. A field the host's preset leaves
+ * alone simply keeps its value in the snapshot, so comparing all of them is
+ * exact. */
+static bool quality_fields_equal(const RecompLauncherCSettings* a,
+                                 const RecompLauncherCSettings* b) {
+    return a->internal_resolution == b->internal_resolution &&
+           a->supersampling == b->supersampling &&
+           a->dynamic_resolution == b->dynamic_resolution &&
+           a->dynamic_resolution_min == b->dynamic_resolution_min &&
+           a->render_thread == b->render_thread &&
+           a->present_thread == b->present_thread &&
+           a->frame_generation == b->frame_generation &&
+           a->antialiasing == b->antialiasing &&
+           a->texture_filter == b->texture_filter &&
+           a->fmv_filter == b->fmv_filter &&
+           a->geometry_correction == b->geometry_correction &&
+           a->perspective_texturing == b->perspective_texturing &&
+           a->frame_interp == b->frame_interp &&
+           a->frame_interp_fps == b->frame_interp_fps;
+}
+
+void launcher_model_quality_select(LauncherModel* m, int preset) {
+    if (!launcher_model_quality_offered(m) || preset < 1 || preset > 4) return;
+    if (!(m->quality_offered_mask & (1 << (preset - 1)))) return;
+    m->quality_apply(preset, &m->s);
+    m->s.quality_preset = preset;
+    m->s.quality_base = preset;
+    m->quality_snapshot = m->s;
+    m->quality_snapshot_valid = true;
+}
+
+void launcher_model_quality_redetect(LauncherModel* m) {
+    if (!launcher_model_quality_offered(m) || !m->quality_redetect) return;
+    const int p = m->quality_redetect();
+    if (p >= 1 && p <= 4) {
+        m->quality_detected = p;
+        launcher_model_quality_select(m, p);
+    }
+}
+
+void launcher_model_quality_track(LauncherModel* m) {
+    if (!launcher_model_quality_offered(m)) return;
+    const int q = m->s.quality_preset;
+    if (q < 1 || q > 4) return;
+    if (!m->quality_snapshot_valid) {
+        /* The host seeded the settings with this preset in force. */
+        m->quality_snapshot = m->s;
+        m->quality_snapshot_valid = true;
+        return;
+    }
+    if (!quality_fields_equal(&m->s, &m->quality_snapshot)) {
+        m->s.quality_base = q;
+        m->s.quality_preset = 5;
+    }
 }
 
 bool launcher_model_render_pipeline_children_enabled(const LauncherModel* m) {
