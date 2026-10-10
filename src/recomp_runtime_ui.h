@@ -71,6 +71,8 @@ enum {
 #define RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE     "display.window_scale"
 #define RECOMP_RUNTIME_UI_KEY_VIEW_MODE        "display.view_mode"
 #define RECOMP_RUNTIME_UI_KEY_WIDESCREEN_HUD   "display.widescreen_hud"
+#define RECOMP_RUNTIME_UI_KEY_MENU_DIM         "display.menu_dim"
+#define RECOMP_RUNTIME_UI_KEY_MENU_OPACITY     "display.menu_opacity"
 #define RECOMP_RUNTIME_UI_KEY_INTEGER_SCALE    "graphics.integer_scale"
 #define RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER    "graphics.linear_filter"
 #define RECOMP_RUNTIME_UI_KEY_TEXTURE_FILTER   "graphics.texture_filter"
@@ -82,8 +84,10 @@ enum {
 #define RECOMP_RUNTIME_UI_KEY_VOLUME           "audio.volume"
 #define RECOMP_RUNTIME_UI_KEY_GYRO_SENSITIVITY "input.gyro_sensitivity"
 #define RECOMP_RUNTIME_UI_KEY_RESUME            "system.resume"
+#define RECOMP_RUNTIME_UI_KEY_STATE_SLOT        "system.state_slot"
 #define RECOMP_RUNTIME_UI_KEY_SAVE_STATE        "system.save_state"
 #define RECOMP_RUNTIME_UI_KEY_LOAD_STATE        "system.load_state"
+#define RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU     "system.pause_in_menu"
 #define RECOMP_RUNTIME_UI_KEY_RESET             "system.reset"
 #define RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER "system.return_to_launcher"
 #define RECOMP_RUNTIME_UI_KEY_QUIT              "system.quit"
@@ -182,6 +186,19 @@ enum {
      */
     RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER = UINT64_C(1) << 17,
     RECOMP_RUNTIME_UI_STANDARD_QUIT              = UINT64_C(1) << 18,
+    /*
+     * Two Display rows, MENU_DIM and MENU_OPACITY, both percents (0-100 in
+     * steps of 10). The host stores and persists them like any setting and
+     * hands them to recomp_runtime_ui_set_backdrop(ui, dim / 100.0f,
+     * opacity / 100.0f); RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT and 100 are
+     * the menu's own look.
+     */
+    RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP     = UINT64_C(1) << 19,
+    /* Whether an open menu holds the game. The menu never pauses anything
+     * itself; this is the host's policy, offered to the player. */
+    RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU     = UINT64_C(1) << 20,
+    /* The slot Save state / Load state use, 1 to state_slot_count. */
+    RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT        = UINT64_C(1) << 21,
 };
 
 typedef struct RecompRuntimeUiStandardConfig {
@@ -195,6 +212,7 @@ typedef struct RecompRuntimeUiStandardConfig {
     int resolution_scale_max;        /* default: 8 */
     const RecompRuntimeUiItem *extra_items;
     size_t extra_item_count;
+    int state_slot_count;            /* default: 10 */
 } RecompRuntimeUiStandardConfig;
 
 /*
@@ -233,6 +251,9 @@ int recomp_runtime_ui_wants_text_input(const RecompRuntimeUi *ui);
  * default).
  */
 #define RECOMP_RUNTIME_UI_DEFAULT_DIM (150.0f / 255.0f)
+/* The step of RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP's dimming row nearest
+ * RECOMP_RUNTIME_UI_DEFAULT_DIM. */
+#define RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT 60
 void recomp_runtime_ui_set_backdrop(RecompRuntimeUi *ui, float dim, float opacity);
 
 /*

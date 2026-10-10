@@ -46,6 +46,7 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
     RecompRuntimeUiStandardFeatures f = standard->features;
     for (unsigned bit = 0; bit < 64; ++bit)
         if (f & (UINT64_C(1) << bit)) ++standard_count;
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP)) ++standard_count;  /* two rows */
     size_t total = standard_count + standard->extra_item_count;
     if (!total) return NULL;
 
@@ -111,6 +112,15 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_WIDESCREEN_HUD, "Display",
                  "Edge HUD", "Anchor status groups to widescreen edges.",
                  RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL);
+    /* Short descriptions: the ImGui row's -/+ buttons sit over their ends. */
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_MENU_DIM, "Display",
+                 "Game dimming", "How dark the game gets behind a menu.",
+                 RECOMP_RUNTIME_UI_INT, 0, 100, 10, NULL, 0, NULL);
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_MENU_OPACITY, "Display",
+                 "Menu opacity", "How solid the menus' backgrounds are.",
+                 RECOMP_RUNTIME_UI_INT, 0, 100, 10, NULL, 0, NULL);
+    }
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_INTEGER_SCALE))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_INTEGER_SCALE, "Graphics",
                  "Integer scaling", "Snap output to whole native-pixel multiples.",
@@ -153,6 +163,11 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RESUME, "System", "Resume game",
                  "Close settings and return to the game.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT))
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_STATE_SLOT, "System", "State slot",
+                 "The slot Save state and Load state use.", RECOMP_RUNTIME_UI_INT, 1,
+                 standard->state_slot_count > 0 ? standard->state_slot_count : 10,
+                 1, NULL, 0, NULL);
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_SAVE_STATE))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_SAVE_STATE, "System", "Save state",
                  "Save the current state.", RECOMP_RUNTIME_UI_ACTION,
@@ -161,6 +176,10 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_LOAD_STATE, "System", "Load state",
                  "Load the current state slot.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU))
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU, "System",
+                 "Pause in menu", "Hold the game while a menu is open.",
+                 RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL);
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_RESET))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RESET, "System", "Reset game",
                  "Reset the emulated machine.", RECOMP_RUNTIME_UI_ACTION,
