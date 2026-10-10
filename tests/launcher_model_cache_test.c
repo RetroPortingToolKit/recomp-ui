@@ -14,7 +14,9 @@
 #define mkdir1(path) mkdir(path, 0777)
 #endif
 
+static int zapper_writes;
 void launcher_binds_set_zapper(int mouse_enabled, int crosshair) {
+    ++zapper_writes;
     (void)mouse_enabled;
     (void)crosshair;
 }
@@ -96,5 +98,20 @@ int main(int argc, char** argv) {
                      "valid initial_rom should win"))
         return 9;
 
+    /* A host that owns its bindings must receive Zapper edits through the
+     * settings object. A legacy host still uses its native keybind writer. */
+    model.settings_bindings = true;
+    model.zapper = true;
+    model.zapper_mouse = model.zapper_crosshair = true;
+    launcher_model_toggle_zapper_mouse(&model);
+    launcher_model_toggle_zapper_crosshair(&model);
+    if (model.s.zapper_mouse != -1 || model.s.zapper_crosshair != -1 || zapper_writes) return 10;
+    launcher_model_toggle_zapper_mouse(&model);
+    launcher_model_toggle_zapper_crosshair(&model);
+    if (model.s.zapper_mouse != 1 || model.s.zapper_crosshair != 1 || zapper_writes) return 11;
+    model.settings_bindings = false;
+    launcher_model_toggle_zapper_mouse(&model);
+    launcher_model_toggle_zapper_crosshair(&model);
+    if (zapper_writes != 2) return 12;
     return 0;
 }

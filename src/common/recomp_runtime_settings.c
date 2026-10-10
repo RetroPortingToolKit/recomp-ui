@@ -46,11 +46,21 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
     RecompRuntimeUiStandardFeatures f = standard->features;
     for (unsigned bit = 0; bit < 64; ++bit)
         if (f & (UINT64_C(1) << bit)) ++standard_count;
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP)) ++standard_count;  /* two rows */
     size_t total = standard_count + standard->extra_item_count;
     if (!total) return NULL;
 
     RecompRuntimeUiItem *items = (RecompRuntimeUiItem *)calloc(total, sizeof(*items));
     if (!items) return NULL;
+    const char **confirm_prompts = NULL;
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER) ||
+        has(f, RECOMP_RUNTIME_UI_STANDARD_QUIT)) {
+        confirm_prompts = (const char **)calloc(total, sizeof(*confirm_prompts));
+        if (!confirm_prompts) {
+            free(items);
+            return NULL;
+        }
+    }
     const char **view_choices = NULL;
     int *view_values = NULL;
     size_t view_count = 0;
@@ -61,7 +71,7 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         view_choices = (const char **)calloc(view_count, sizeof(*view_choices));
         view_values = (int *)calloc(view_count, sizeof(*view_values));
         if (!view_choices || !view_values) {
-            free(items); free(view_choices); free(view_values);
+            free(items); free(confirm_prompts); free(view_choices); free(view_values);
             return NULL;
         }
         size_t out = 0;
@@ -102,6 +112,15 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_WIDESCREEN_HUD, "Display",
                  "Edge HUD", "Anchor status groups to widescreen edges.",
                  RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL);
+    /* Short descriptions: the ImGui row's -/+ buttons sit over their ends. */
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_MENU_DIM, "Display",
+                 "Game dimming", "How dark the game gets behind a menu.",
+                 RECOMP_RUNTIME_UI_INT, 0, 100, 10, NULL, 0, NULL);
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_MENU_OPACITY, "Display",
+                 "Menu opacity", "How solid the menus' backgrounds are.",
+                 RECOMP_RUNTIME_UI_INT, 0, 100, 10, NULL, 0, NULL);
+    }
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_INTEGER_SCALE))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_INTEGER_SCALE, "Graphics",
                  "Integer scaling", "Snap output to whole native-pixel multiples.",
@@ -144,6 +163,11 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RESUME, "System", "Resume game",
                  "Close settings and return to the game.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT))
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_STATE_SLOT, "System", "State slot",
+                 "The slot Save state and Load state use.", RECOMP_RUNTIME_UI_INT, 1,
+                 standard->state_slot_count > 0 ? standard->state_slot_count : 10,
+                 1, NULL, 0, NULL);
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_SAVE_STATE))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_SAVE_STATE, "System", "Save state",
                  "Save the current state.", RECOMP_RUNTIME_UI_ACTION,
@@ -152,10 +176,26 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_LOAD_STATE, "System", "Load state",
                  "Load the current state slot.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU))
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU, "System",
+                 "Pause in menu", "Hold the game while a menu is open.",
+                 RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL);
     if (has(f, RECOMP_RUNTIME_UI_STANDARD_RESET))
         add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RESET, "System", "Reset game",
                  "Reset the emulated machine.", RECOMP_RUNTIME_UI_ACTION,
                  0, 0, 0, NULL, 0, NULL);
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER, "System",
+                 "Return to launcher", "Close the game, open the launcher. Press twice.",
+                 RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, NULL, 0, NULL);
+        confirm_prompts[count - 1] = "Press again for the launcher";
+    }
+    if (has(f, RECOMP_RUNTIME_UI_STANDARD_QUIT)) {
+        add_item(items, &count, RECOMP_RUNTIME_UI_KEY_QUIT, "System", "Quit game",
+                 "Close the game. Press twice.", RECOMP_RUNTIME_UI_ACTION,
+                 0, 0, 0, NULL, 0, NULL);
+        confirm_prompts[count - 1] = "Press again to quit";
+    }
 
     if (standard->extra_items && standard->extra_item_count) {
         memcpy(items + count, standard->extra_items,
@@ -168,11 +208,12 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
     menu.item_count = count;
     RecompRuntimeUi *ui = recomp_runtime_ui_create(&menu);
     if (!ui) {
-        free(items); free(view_choices); free(view_values);
+        free(items); free(confirm_prompts); free(view_choices); free(view_values);
         return NULL;
     }
     ui->owned_items = items;
     ui->owned_view_choices = view_choices;
     ui->owned_view_values = view_values;
+    ui->owned_confirm_prompts = confirm_prompts;
     return ui;
 }

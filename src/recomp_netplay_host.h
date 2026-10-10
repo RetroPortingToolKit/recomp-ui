@@ -92,6 +92,14 @@ typedef struct RecompNetplayModHooks {
     RNetLobbyModFreeFn    free_blob;
     RNetLobbyModInstallFn install_blob;
     void *ctx;
+    /* Optional (append-only): features of installed `package_id` that cannot
+     * run because a required owner-supplied file is unselected or wrong,
+     * comma-separated into `out`; returns how many. Every feature, enabled or
+     * not. Carried in the lobby offer (RNetLobbyModPkg.nf) so the host can
+     * hold the match and say who still has to pick a file. NULL = this build
+     * claims nothing is missing. */
+    int  (*missing_files)(void *ctx, const char *package_id, char *out,
+                          uint32_t cap);
 } RecompNetplayModHooks;
 
 typedef struct RecompNetplaySessionVariant {

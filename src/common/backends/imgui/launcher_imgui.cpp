@@ -15,6 +15,7 @@
 #include "launcher_gl.h"
 #include "launcher_input.h"
 #include "launcher_files.h"
+#include "launcher_directory_url.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
 #include "launcher_udp_port.h"
@@ -22,6 +23,7 @@
 #include "launcher_system.h"
 #include "launcher_i18n.h"
 #include "launcher_mod_visibility.h"
+#include "launcher_mod_preparation.h"
 #include "recomp_moderation.h"   // local ignore/block list (online only)
 #include "consoles/n64/n64_binds.h"   // RUI_N64_FIELD_* for the pad-capture path
 
@@ -2841,6 +2843,11 @@ static void pak_set_kind(LauncherModel* m, int port, int kind) {
 // heading and nothing under it — the panel is simply not in the layout, and
 // draw_dashboard's gap before it goes with it.
 int avail_tpak(const LauncherModel* m) {
+    // The pak cards ride the controller panel (draw_controllers_row: the
+    // selected player's card on the left, that player's accessory on the right)
+    // whenever it draws. Only a locked pad has no controller cards to ride, so
+    // only then does this panel compose on its own.
+    if (!m->lock_device) return 0;
     const int ports = launcher_model_pak_ports(m);
     for (int port = 0; port < ports; ++port)
         if (pak_kind_def(pak_kind_of(m, port))->body) return 1;
@@ -3026,6 +3033,25 @@ static void pak_section_heading(int port, const char* kind_label) {
 // Transfer Pak with a cart is much taller than an empty one, and a future
 // memory-card section will differ again) a non-issue: each card hugs its own
 // content instead of a shared panel forcing every section to the tallest.
+// One player's accessory card: the framing and body of the picked kind. Shared
+// by the standalone panel above and the player-tab view (draw_controllers_row).
+void draw_pak_card(LauncherModel* m, const LauncherTheme& th, int port, float cardw) {
+    char cid[16];
+    std::snprintf(cid, sizeof(cid), "pk%d", port);
+    begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
+    char pid[16];
+    std::snprintf(pid, sizeof(pid), "pak%d", port);
+    if (begin_panel(pid, cardw, false)) {
+        ImGui::PushID(port);
+        const PakKindDef* def = pak_kind_def(pak_kind_of(m, port));
+        pak_section_heading(port, def->label);
+        def->body(m, th, port);
+        ImGui::PopID();
+    }
+    end_panel();
+    end_container();
+}
+
 void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
     const int ports = launcher_model_pak_ports(m);
     int active[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -3044,23 +3070,9 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
     if (cardw < 1.0f) cardw = availw;
 
     for (int i = 0; i < n; ++i) {
-        const int port = active[i];
         if (i % cols) ImGui::SameLine(0, gap);
         else if (i) ImGui::Dummy(ImVec2(0, gap));   // new row of cards
-        char cid[16];
-        std::snprintf(cid, sizeof(cid), "pk%d", port);
-        begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
-        char pid[16];
-        std::snprintf(pid, sizeof(pid), "pak%d", port);
-        if (begin_panel(pid, cardw, false)) {
-            ImGui::PushID(port);
-            const PakKindDef* def = pak_kind_def(pak_kind_of(m, port));
-            pak_section_heading(port, def->label);
-            def->body(m, *th, port);
-            ImGui::PopID();
-        }
-        end_panel();
-        end_container();
+        draw_pak_card(m, *th, active[i], cardw);
     }
 }
 
@@ -3468,30 +3480,72 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     end_panel();
 }
 
-// Lays out player cards: stretch to fill the row until there is room for
-// another card at the standard width, then bump the column count (memcards
-// stay fixed-width via dash_card_width).
+// The selected player tab, kept across frames. Clamped to the visible players on
+// every draw, so a player count that shrinks cannot strand it.
+static int s_player_tab = 0;
+
+// One row of player tabs (segmented, the look of the pad-mode selector). A tab
+// is a button, so a gamepad or keyboard walks them like any other control.
+static void draw_player_tabs(LauncherModel* m, const LauncherTheme& th, int n) {
+    const float gap = px(4.0f);
+    const float seg_w = std::min(px(120.0f), (ImGui::GetContentRegionAvail().x - gap * (float)(n - 1)) / (float)n);
+    for (int p = 0; p < n; ++p) {
+        if (p) ImGui::SameLine(0, gap);
+        const bool sel = p == s_player_tab;
+        // A tab for a player with nothing assigned reads muted, so which seats
+        // are live is visible without opening each one.
+        const bool live = m->s.player_src[p] != 0;
+        char label[32];
+        std::snprintf(label, sizeof(label), "%s %d###ptab%d", ui_text("PLAYER"), p + 1, p);
+        ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              sel ? col(th.accent_text) : (live ? col(th.text) : col(th.text_muted)));
+        if (ImGui::Button(label, ImVec2(seg_w, px(30)))) s_player_tab = p;
+        ImGui::PopStyleColor(4);
+    }
+}
+
+// Player tabs across the top; under them the selected player's controller card
+// on the left and, on the right, that player's accessory (Transfer Pak, ...).
+// The old row showed every player's card at once and the pak cards below it,
+// which put a player's controller and its accessory a screen apart. A game with
+// one player draws no tabs.
+//
+// A console whose pads take no accessory (no pak ports) keeps the card at full
+// width. The right half is simply empty while the selected player's pak kind is
+// None: the picker on the card is how one is added.
 void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     if (m->lock_device) return;   // fixed pad: hide the player controller cards entirely
     int n = launcher_model_visible_player_count(m);
     if (n < 1) n = 1;
     if (n > LNG_MAX_PLAYERS) n = LNG_MAX_PLAYERS;
+    if (s_player_tab < 0 || s_player_tab >= n) s_player_tab = 0;
+    const int p = s_player_tab;
+
+    if (n > 1) {
+        draw_player_tabs(m, th, n);
+        ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
+    }
+
     const float gap = px(th.spacing_md);
     const float availw = ImGui::GetContentRegionAvail().x;
+    const bool has_pak_slot = p < launcher_model_pak_ports(m);
+    const bool has_pak = has_pak_slot && pak_kind_def(pak_kind_of(m, p))->body;
+    // Side by side while each half can hold a standard card; else the accessory
+    // stacks under the controller.
     const float pref = px(300.0f);
-    int cols = (int)((availw + gap) / (pref + gap));
-    if (cols < 1) cols = 1;
-    if (cols > n) cols = n;
-    float cardw = (availw - gap * (float)(cols - 1)) / (float)cols;
-    if (cardw < 1.0f) cardw = availw;
-    for (int p = 0; p < n; ++p) {
-        if (p % cols) ImGui::SameLine(0, gap);
-        else if (p) ImGui::Dummy(ImVec2(0, gap));   // new row of cards
-        char cid[16];
-        std::snprintf(cid, sizeof(cid), "pc%d", p);
-        begin_container(cid, ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
-        draw_player_panel(m, th, p, cardw);
-        end_container();
+    const bool side_by_side = has_pak_slot && availw >= pref * 2.0f + gap;
+    const float cardw = side_by_side ? (availw - gap) * 0.5f : availw;
+
+    begin_container("pc", ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
+    draw_player_panel(m, th, p, cardw);
+    end_container();
+    if (has_pak) {
+        if (side_by_side) ImGui::SameLine(0, gap);
+        else ImGui::Dummy(ImVec2(0, gap));
+        draw_pak_card(m, th, p, cardw);
     }
 }
 
@@ -3803,8 +3857,64 @@ void draw_shader_row(LauncherModel* m, const LauncherTheme& th, float col_w = 0.
     ImGui::EndDisabled();
 }
 
+/* Graphics preset (GameInfo.quality_*): Low / Medium / High / Ultra set every
+ * quality row at once; changing any of those rows afterwards turns it into
+ * Custom (launcher_model_quality_track), which the host never overrides.
+ * Re-detect runs the host's hardware detection again. */
+void draw_quality_preset_row(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_quality_offered(m)) return;
+    launcher_model_quality_track(m);
+    row_label_right("Graphics preset", th, px(SETTINGS_CTRL_W));
+    const int cur = m->s.quality_preset;
+    const float gap = px(th.spacing_sm);
+    const float btn_w = px(92);
+    float combo_w = px(SETTINGS_CTRL_W) - btn_w - gap;
+    if (combo_w < px(90)) combo_w = px(90);
+    ImGui::SetNextItemWidth(combo_w);
+    if (ImGui::BeginCombo("##quality_preset",
+                          ui_text(cur ? launcher_model_quality_label(cur) : "Detected"))) {
+        for (int p = 1; p <= 4; ++p) {
+            if (!(m->quality_offered_mask & (1 << (p - 1)))) continue;
+            std::string label = ui_text(launcher_model_quality_label(p));
+            if (p == m->quality_detected) label += std::string(" (") + ui_text("detected") + ")";
+            if (ImGui::Selectable(label.c_str(), cur == p))
+                launcher_model_quality_select(m, p);
+        }
+        if (cur == 5)
+            ImGui::Selectable(ui_text("Custom"), true, ImGuiSelectableFlags_Disabled);
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("%s", ui_text(
+            "Sets every graphics option below for your hardware.\n"
+            "Change any of them and the preset becomes Custom;\n"
+            "your choices are then kept until you pick a preset again.\n"
+            "Dynamic resolution still steps down if a frame runs late."));
+    ImGui::SameLine(0, gap);
+    ImGui::BeginDisabled(m->quality_redetect == NULL);
+    if (ImGui::Button(ui_text("Re-detect"), ImVec2(btn_w, 0)))
+        launcher_model_quality_redetect(m);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ui_text("Detect this computer again and apply the preset it suits."));
+    if (m->quality_summary && *m->quality_summary) {
+        ImGui::PushTextWrapPos(0.0f);
+        if (m->quality_detected >= 1 && m->quality_detected <= 4)
+            ImGui::TextColored(col(th.text_muted), "%s %s: %s", ui_text("Detected"),
+                               ui_text(launcher_model_quality_label(m->quality_detected)),
+                               m->quality_summary);
+        else
+            ImGui::TextColored(col(th.text_muted), "%s", m->quality_summary);
+        if (cur == 5 && m->s.quality_base >= 1 && m->s.quality_base <= 4)
+            ImGui::TextColored(col(th.text_muted), "%s %s", ui_text("Custom, based on"),
+                               ui_text(launcher_model_quality_label(m->s.quality_base)));
+        ImGui::PopTextWrapPos();
+    }
+}
+
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
+    draw_quality_preset_row(m, th);
 
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
@@ -3813,7 +3923,34 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // grid flush on both sides.
         const float cb = ImGui::GetFrameHeight();   // a checkbox is square
         row_window_scale(m, th);
-        // Universal fullscreen row (every console; Off/Borderless/Exclusive,
+        if (launcher_model_render_pipeline_offered(m)) {
+        row_label_right("Render thread", th, px(SETTINGS_CTRL_W));
+        bool rt = m->s.render_thread != 0;
+        if (ImGui::Checkbox("##render_thread", &rt))
+            m->s.render_thread = rt ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
+                              "Turn off if you see stutter or glitches. Applies at next launch.");
+        const bool kids = launcher_model_render_pipeline_children_enabled(m);
+        ImGui::BeginDisabled(!kids);
+        row_label_right("Present thread", th, px(SETTINGS_CTRL_W));
+        bool pt = m->s.present_thread != 0;
+        if (ImGui::Checkbox("##present_thread", &pt))
+            m->s.present_thread = pt ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
+                              "Needs Render thread. Applies at next launch.");
+        row_label_right("Smooth motion", th, px(SETTINGS_CTRL_W));
+        bool fg = m->s.frame_generation != 0;
+        if (ImGui::Checkbox("##frame_generation", &fg))
+            m->s.frame_generation = fg ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
+                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
+        ImGui::EndDisabled();
+    }
+
+    // Universal fullscreen row (every console; Off/Borderless/Exclusive,
         // the legacy launcher's vocabulary). Sits right under Window scale,
         // matching the old Display panel order.
         row_fullscreen(m, th);
@@ -4017,6 +4154,31 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
                 "Offline: full software/GL supersampling.\n"
                 "Netplay (OpenGL): present quality via GPU FBO;\n"
                 "CPU VRAM authority stays at 1x for snaps/digests.");
+        }
+    }
+
+    if (m->has_dynamic_resolution && m->s.renderer == 1 &&
+        m->s.internal_resolution != 1) {
+        row_label_right("Dynamic resolution", th, px(SETTINGS_CTRL_W));
+        bool enabled = m->s.dynamic_resolution != 0;
+        if (ImGui::Checkbox("##dynamic_resolution", &enabled))
+            m->s.dynamic_resolution = enabled ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Steps down when the game misses frame budgets, then returns to full resolution when there is room.");
+        if (enabled) {
+            static const int floors[] = {1, 720, 1080, 1440};
+            static const char* labels[] = {"Native", "720p", "1080p", "1440p"};
+            int cur = 1;
+            for (int i = 0; i < 4; ++i)
+                if (m->s.dynamic_resolution_min == floors[i]) cur = i;
+            row_label_right("Lowest resolution", th, px(SETTINGS_CTRL_W));
+            ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+            if (ImGui::BeginCombo("##dynamic_resolution_min", labels[cur])) {
+                for (int i = 0; i < 4; ++i)
+                    if (ImGui::Selectable(labels[i], cur == i))
+                        m->s.dynamic_resolution_min = floors[i];
+                ImGui::EndCombo();
+            }
         }
     }
 
@@ -6498,6 +6660,16 @@ void np_connect_and_list(LauncherModel* m) {
 
 /* Reload server lobby table + UDP-browse LAN hosts (BEACON) / file registry. */
 void np_refresh_lobby_list(LauncherModel* m) {
+    if (m->netplay_mode == 1) {
+        const auto* np = np_cb(m);
+        if (np && np->list_scope_set)
+            np->list_scope_set(np->ctx, RECOMP_LAUNCHER_LIST_SCOPE_LAN);
+        if (np && np->request_list) np->request_list(np->ctx);
+        m->netplay_list_fresh = true;
+        m->netplay_status[0] = '\0';
+        m->netplay_selected_lobby = -1;
+        return;
+    }
     np_connect_and_list(m);
     m->netplay_selected_lobby = -1;
     /* Keep Connecting… status from np_connect_and_list; clear only when
@@ -6510,6 +6682,205 @@ static bool mod_commit_launch(LauncherModel* m);
 static void draw_mod_feature_option(LauncherModel* m,
                                     const RecompLauncherCModFeature& feature,
                                     const RecompLauncherCModOption& option);
+
+static bool mod_resource_is_directory(const RecompLauncherCModResource& resource) {
+    return std::strcmp(resource.format, "directory") == 0 ||
+           std::strcmp(resource.format, "folder") == 0;
+}
+
+/* Opens the picker for one owner-supplied feature resource and hands the
+ * choice to the provider. on_done, when given, runs after the picker closes
+ * with the chosen path (nullptr on cancel) and whether the provider stored it. */
+static void pick_mod_feature_resource(
+    LauncherModel* m, const char* package_id, const char* feature_id,
+    const RecompLauncherCModResource& resource,
+    std::function<void(const char* path, bool stored)> on_done = nullptr) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->feature_resource_set_path) return;
+    std::vector<std::string> patterns;
+    const std::string remaining = resource.file_patterns;
+    size_t start = 0;
+    while (start <= remaining.size()) {
+        const size_t comma = remaining.find(',', start);
+        std::string pattern = remaining.substr(
+            start, comma == std::string::npos ? std::string::npos
+                                              : comma - start);
+        if (!pattern.empty()) patterns.push_back(pattern);
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    /* The ids and label are copied into the closure: on the built-in-browser
+     * path this runs many frames later, when the caller's RecompLauncherCMod*
+     * structs are long gone. */
+    const std::string pkg_id = package_id;
+    const std::string feat_id = feature_id;
+    const std::string res_id = resource.id;
+    const std::string res_label = resource.label;
+    auto apply_resource = [m, mods, pkg_id, feat_id, res_id, res_label,
+                           on_done](const char* path) {
+        bool stored = false;
+        if (path) {
+            if (!mods->feature_resource_set_path(mods->ctx, pkg_id.c_str(),
+                                                 feat_id.c_str(),
+                                                 res_id.c_str(), path)) {
+                mod_note_error(m);
+            } else {
+                stored = true;
+                std::snprintf(m->mod_status, sizeof(m->mod_status),
+                              "%s verified. Changes apply on PLAY.",
+                              res_label.c_str());
+            }
+        }
+        if (on_done) on_done(path, stored);
+    };
+    if (mod_resource_is_directory(resource)) {
+        ui_pick_folder(m, resource.label, apply_resource);
+    } else {
+        ui_pick_file(m, resource.label, std::move(patterns),
+                     resource.file_description[0] ? resource.file_description
+                                                  : nullptr,
+                     apply_resource);
+    }
+}
+
+/* Enabling a feature whose required file has never been chosen asks for it
+ * right away, instead of leaving the player to find the Files section after
+ * the feature reports an error. A file shared with another feature
+ * (shared_key) already resolves to a path and is not asked for again. One
+ * picker at a time: a stored pick moves on to the next missing file, a cancel
+ * stops and says what is still needed. */
+static void prompt_missing_mod_resources(LauncherModel* m,
+                                         const std::string& package_id,
+                                         const std::string& feature_id,
+                                         int first_index = 0) {
+    const auto* mods = m ? m->mods : nullptr;
+    if (!mods || !mods->feature_resource_count || !mods->feature_resource_get ||
+        !mods->feature_resource_set_path)
+        return;
+    const int count = mods->feature_resource_count(
+        mods->ctx, package_id.c_str(), feature_id.c_str());
+    for (int index = first_index; index < count; ++index) {
+        RecompLauncherCModResource resource{};
+        if (!mods->feature_resource_get(mods->ctx, package_id.c_str(),
+                                        feature_id.c_str(), index, &resource))
+            continue;
+        if (!resource.required || resource.path[0]) continue;
+        const std::string label = resource.label;
+        pick_mod_feature_resource(
+            m, package_id.c_str(), feature_id.c_str(), resource,
+            [m, package_id, feature_id, index, label](const char* path,
+                                                      bool stored) {
+                if (stored) {
+                    prompt_missing_mod_resources(m, package_id, feature_id,
+                                                 index + 1);
+                } else if (!path) {
+                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                  "%s not selected. Select it under Files "
+                                  "before PLAY.",
+                                  label.c_str());
+                }
+            });
+        return;
+    }
+}
+
+/* One owner file (a source ROM, say) the lobby's mod plan needs from THIS
+ * peer before the match can start. */
+struct LobbyMissingFile {
+    std::string package_id;
+    std::string feature_id;
+    std::string mod_name;
+    RecompLauncherCModResource resource;
+};
+
+/* Calls fn(item) for each non-empty entry of a `sep`-separated list. */
+template <typename Fn>
+static void for_each_listed(const char* list, char sep, Fn&& fn) {
+    if (!list) return;
+    const char* p = list;
+    while (*p) {
+        const char* end = std::strchr(p, sep);
+        const size_t len = end ? (size_t)(end - p) : std::strlen(p);
+        if (len) fn(std::string(p, len));
+        if (!end) break;
+        p = end + 1;
+    }
+}
+
+/* What the lobby's plan needs from this peer's own disk: for each plan package
+ * installed here, the required files of the features the plan enables that
+ * the local catalog does not verify. A package that is not installed is the
+ * download flow's business. Files are folded by label, so two features that
+ * share one source ROM ask for it once. */
+static std::vector<LobbyMissingFile> lobby_local_missing_files(
+    LauncherModel* m, const RecompLauncherCNetplayCallbacks* np) {
+    std::vector<LobbyMissingFile> out;
+    const auto* mods = m ? m->mods : nullptr;
+    if (!np || !mods || !np->lobby_mods_count || !np->lobby_mods_get ||
+        !mods->feature_resource_count || !mods->feature_resource_get)
+        return out;
+    const int plan_n = np->lobby_mods_count(np->ctx);
+    for (int i = 0; i < plan_n; ++i) {
+        RecompLauncherCNetplayLobbyMod lm{};
+        if (!np->lobby_mods_get(np->ctx, i, &lm) || !lm.installed) continue;
+        for_each_listed(lm.features, ',', [&](const std::string& feature) {
+            const int count = mods->feature_resource_count(
+                mods->ctx, lm.id, feature.c_str());
+            for (int r = 0; r < count; ++r) {
+                RecompLauncherCModResource resource{};
+                if (!mods->feature_resource_get(mods->ctx, lm.id,
+                                                feature.c_str(), r, &resource))
+                    continue;
+                if (!resource.required || resource.verified) continue;
+                bool seen = false;
+                for (const LobbyMissingFile& have : out)
+                    if (std::strcmp(have.resource.label, resource.label) == 0)
+                        seen = true;
+                if (!seen)
+                    out.push_back({lm.id, feature, lm.name, resource});
+            }
+        });
+    }
+    return out;
+}
+
+/* "Mega Man X3 ROM, Mega Man X2 ROM" for a peer's ';'-separated
+ * "package/feature" pairs, named from this peer's own catalog (the host holds
+ * every plan package). A pair the catalog cannot name falls back to its
+ * feature id rather than vanishing. */
+static std::string lobby_files_labels(const LauncherModel* m,
+                                      const char* pairs) {
+    std::vector<std::string> labels;
+    const auto* mods = m ? m->mods : nullptr;
+    for_each_listed(pairs, ';', [&](const std::string& pair) {
+        const size_t slash = pair.find('/');
+        if (slash == std::string::npos) return;
+        const std::string package = pair.substr(0, slash);
+        const std::string feature = pair.substr(slash + 1);
+        std::vector<std::string> found;
+        if (mods && mods->feature_resource_count && mods->feature_resource_get) {
+            const int count = mods->feature_resource_count(
+                mods->ctx, package.c_str(), feature.c_str());
+            for (int r = 0; r < count; ++r) {
+                RecompLauncherCModResource resource{};
+                if (mods->feature_resource_get(mods->ctx, package.c_str(),
+                                               feature.c_str(), r, &resource) &&
+                    resource.required)
+                    found.push_back(resource.label);
+            }
+        }
+        if (found.empty()) found.push_back(feature);
+        for (const std::string& label : found)
+            if (std::find(labels.begin(), labels.end(), label) == labels.end())
+                labels.push_back(label);
+    });
+    std::string text;
+    for (const std::string& label : labels) {
+        if (!text.empty()) text += ", ";
+        text += label;
+    }
+    return text;
+}
 
 /* Netplay commits through the provider's commit_netplay hook: it applies the
  * HOST's lobby mod plan (match_caps.mods) on every peer without touching the
@@ -6542,6 +6913,20 @@ void np_try_launch(LauncherModel* m) {
     if (!np || !np->fill_launch) return;
     RecompLauncherCNetplayLaunch launch{};
     if (!np->fill_launch(np->ctx, &launch) || !launch.enabled) return;
+    /* The host hands the game a ROM path from this model and nothing else.
+     * Arming a launch without one sent the game to its console fallback --
+     * an OS file dialog after the match had already started. The lobby holds
+     * this peer not-ready until the image verifies (local_launch_gate_set),
+     * so reaching here without one is a gate that failed: refuse, loudly. */
+    if (!launcher_model_can_launch(m)) {
+        const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+        std::fprintf(stderr, "netplay: launch refused: no verified %s selected\n",
+                     noun);
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start: select your %s first.", noun);
+        if (np->clear_launch_pending) np->clear_launch_pending(np->ctx);
+        return;
+    }
     if (mod_commit_netplay_launch(m)) {
         m->s.netplay_launch = launch;
         if (np->clear_launch_pending) np->clear_launch_pending(np->ctx);
@@ -6661,7 +7046,6 @@ static void np_save_network_settings(const LauncherModel* m) {
                  m->netplay_host_local_ip[0] ? m->netplay_host_local_ip
                                              : m->netplay_host_ip);
     std::fprintf(f, "preferred_port=%s\n", m->netplay_host_port);
-    std::fprintf(f, "relay=%s\n", m->netplay_relay_host ? "host" : "server");
     std::fclose(f);
 }
 
@@ -6691,19 +7075,27 @@ static void np_load_network_settings(LauncherModel* m) {
         } else if (std::strcmp(key, "preferred_port") == 0 && val[0]) {
             std::snprintf(m->netplay_host_port, sizeof(m->netplay_host_port),
                           "%s", val);
-        } else if (std::strcmp(key, "relay") == 0 && val[0]) {
-            /* "host" (default) or "server"; anything else keeps the default. */
-            if (std::strcmp(val, "server") == 0) m->netplay_relay_host = false;
-            else if (std::strcmp(val, "host") == 0) m->netplay_relay_host = true;
         }
-        /* Legacy force_turn= lines are ignored — Lobby Settings owns relay. */
+        /* Legacy force_turn=, relay= and host_relay_ice= lines are ignored:
+         * online matches always use ICE and the host always carries the
+         * match over it, so there is no relay choice to restore. */
     }
     std::fclose(f);
     const auto* np = np_cb(m);
     if (np && np->set_lobby_url && m->netplay_lobby_url[0])
         np->set_lobby_url(np->ctx, m->netplay_lobby_url);
+}
+
+/* Online, the host carries the match over ICE -- not a setting. Pushed on
+ * every launcher start (before the settings file is read, so a missing file
+ * is not a different answer) so an engine whose own default is off is
+ * brought into line. LAN / Direct IP rooms ignore it. */
+static void np_pin_host_ice_relay(LauncherModel* m) {
+    const auto* np = np_cb(m);
+    if (np && np->relay_via_ice_set)
+        (void)np->relay_via_ice_set(np->ctx, 1);
     if (np && np->relay_host_set)
-        (void)np->relay_host_set(np->ctx, m->netplay_relay_host ? 1 : 0);
+        (void)np->relay_host_set(np->ctx, 1);
 }
 
 static void np_ensure_public_ip(LauncherModel* m) {
@@ -7409,40 +7801,11 @@ void draw_netplay_network_modal(LauncherModel* m, const LauncherTheme& th) {
                                      sizeof(m->netplay_lobby_url),
                                      ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::Spacing();
-        {
-            const auto* np = np_cb(m);
-            if (np && np->relay_host_set) {
-                ImGui::TextColored(col(th.text_muted), "Online match relay");
-                ImGui::SetNextItemWidth(px(440));
-                const char* labels[] = { "Host (your connection)", "Lobby server" };
-                int sel = m->netplay_relay_host ? 0 : 1;
-                if (ImGui::Combo("##online_relay", &sel, labels, 2))
-                    m->netplay_relay_host = (sel == 0);
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-                    ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(px(380));
-                    ImGui::TextUnformatted(
-                        "Host (default): when you host, your PC carries the match "
-                        "on its own UDP port and your guests connect to you. The "
-                        "lobby opens the port with UPnP or NAT-PMP when your router "
-                        "allows it, otherwise it needs a forwarded port. A guest who "
-                        "cannot reach you falls back to the lobby server's relay "
-                        "automatically, so matches always connect.\n\n"
-                        "Lobby server: every match you host goes through the lobby "
-                        "server's relay.");
-                    ImGui::PopTextWrapPos();
-                    ImGui::EndTooltip();
-                }
-                ImGui::Spacing();
-            }
-        }
         if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
             const auto* np = np_cb(m);
             const char* current = np && np->default_url ? np->default_url(np->ctx) : "";
             std::snprintf(m->netplay_lobby_url, sizeof(m->netplay_lobby_url), "%s",
                           current ? current : "");
-            if (np && np->relay_host_get)
-                m->netplay_relay_host = np->relay_host_get(np->ctx) != 0;
             m->netplay_network_modal_open = false;
             ImGui::CloseCurrentPopup();
         }
@@ -7453,8 +7816,6 @@ void draw_netplay_network_modal(LauncherModel* m, const LauncherTheme& th) {
             const auto* np = np_cb(m);
             if (np && np->set_lobby_url)
                 np->set_lobby_url(np->ctx, m->netplay_lobby_url);
-            if (np && np->relay_host_set)
-                (void)np->relay_host_set(np->ctx, m->netplay_relay_host ? 1 : 0);
             np_save_network_settings(m);
             np_connect_and_list(m);
             m->netplay_network_modal_open = false;
@@ -7929,10 +8290,11 @@ static void np_ingest_last_error(LauncherModel* m, const RecompLauncherCNetplayC
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Peer connection info missing — have guests rejoin, then "
                       "retry Play.");
-    else if (std::strcmp(err, "relay_unavailable") == 0)
-        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
-                      "Lobby UDP SFU is unavailable. Fix INPUT_RELAY_* on "
-                      "the lobby server (online matches require it).");
+    else if (const char* relay_txt = launcher_model_relay_error_text(
+                 err, np->relay_via_ice_get &&
+                          np->relay_via_ice_get(np->ctx) != 0))
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status), "%s",
+                      relay_txt);
     else if (std::strcmp(err, "host_slot_fixed") == 0)
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Host stays in seat 1. Rearrange guests among the "
@@ -7980,6 +8342,17 @@ static void np_ingest_last_error(LauncherModel* m, const RecompLauncherCNetplayC
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Cannot start yet: a player is missing mods this lobby "
                       "uses. Open Mods to see who, or turn the mod off.");
+    else if (std::strcmp(err, "peer_not_ready") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: a player has not selected their "
+                      "copy of the game.");
+    else if (std::strcmp(err, "local_not_ready") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: select your copy of the game first.");
+    else if (std::strcmp(err, "peer_needs_files") == 0)
+        std::snprintf(m->netplay_status, sizeof(m->netplay_status),
+                      "Cannot start yet: a player has not selected the files "
+                      "this lobby's mods need (a ROM of another game).");
     else if (std::strcmp(err, "need_mods") == 0)
         /* The server refused the seat because the host's plan names packages
          * this peer does not have. Being refused is the correct outcome -- a
@@ -8368,11 +8741,28 @@ static void draw_lobby_seat_row(LauncherModel* m,
             /* Not "Connected": a spectator IS connected, and the thing worth
              * saying about it is that it cannot touch the match. */
             ImGui::TextColored(col(th.text_muted), "Watching");
+        else if (occ && row.mod_readiness_valid && row.mods_missing > 0)
+            ImGui::TextColored(col(th.warn), "Needs mods");
+        else if (occ && row.mod_readiness_valid && row.mod_files_missing > 0)
+            ImGui::TextColored(col(th.warn), "Needs files");
+        else if (occ && !row.is_host && !row.ready)
+            /* Held back by its own launch gate: no verified game image. */
+            ImGui::TextColored(col(th.warn), "Not ready");
         else if (occ)
             ImGui::TextColored(col(th.good), "Connected");
         else
             ImGui::TextColored(col(th.text_muted), "Waiting");
-        if (occ && view.spectator && ImGui::IsItemHovered())
+        if (occ && !row.is_host && !view.spectator && !row.ready &&
+            !(row.mod_readiness_valid &&
+              (row.mods_missing > 0 || row.mod_files_missing > 0)) &&
+            ImGui::IsItemHovered())
+            ImGui::SetTooltip("Has not selected their copy of the game yet.");
+        else if (occ && !row.is_host && !view.spectator &&
+            row.mod_readiness_valid && row.mods_missing == 0 &&
+            row.mod_files_missing > 0 && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Has to select: %s",
+                              lobby_files_labels(m, row.mod_files_what).c_str());
+        else if (occ && view.spectator && ImGui::IsItemHovered())
             ImGui::SetTooltip("Runs the match in sync. Its controllers do not "
                               "reach the game.");
         else if (occ && row.bios_offer_valid && ImGui::IsItemHovered()) {
@@ -8476,6 +8866,17 @@ struct LobbySnapshot {
     int  seated_players;
     int  peers_not_ready;
     char not_ready_names[160];
+    /* Other seated players holding the plan's packages but not the owner
+     * files (a source ROM) some enabled feature needs, by their offer:
+     * "Bob (Mega Man X3 ROM)". */
+    int  peers_missing_files;
+    char missing_files_names[256];
+    /* The same, for this peer, from its own catalog. */
+    int  local_missing_files;
+    char local_missing_labels[160];
+    /* This peer has no verified game image to boot (launcher_model_can_launch
+     * is false): PLAY's own gate, applied to the lobby. */
+    bool local_rom_missing;
     bool is_host;
     bool link_kind;
 };
@@ -8493,6 +8894,13 @@ static bool np_lobby_seated(const LauncherModel* m,
  * mid-edit); guests re-read every frame because theirs are read-only echoes
  * of the host's caps. */
 static bool g_lobby_settings_synced = false;
+
+/* "Later" on the lobby's game-ROM prompt (draw_lobby_game_rom_popup). */
+static bool s_lobby_rom_dismissed = false;
+
+/* The lobby's "Mod files needed" prompt (draw_lobby_mod_files_popup). */
+static bool s_lobby_files_open = false;
+static std::string s_lobby_files_seen;
 
 static void np_lobby_snapshot(LauncherModel* m,
                               const RecompLauncherCNetplayCallbacks* np,
@@ -8553,7 +8961,22 @@ static void np_lobby_snapshot(LauncherModel* m,
      * its local catalog (it is the source of the plan). */
     for (int slot = 0; slot < max_slots; ++slot) {
         if (!s->occupied[slot] || s->slots[slot].is_host) continue;
-        if (s->slots[slot].ready) continue;
+        const RecompLauncherCNetplayMember& mem = s->slots[slot];
+        /* Online peers re-arm ready on their own, so `ready` alone never
+         * says a package is missing; the offer they announced does. */
+        if (mem.mod_readiness_valid && !mem.is_local &&
+            mem.mods_missing == 0 && mem.mod_files_missing > 0) {
+            ++s->peers_missing_files;
+            const std::string labels =
+                lobby_files_labels(m, mem.mod_files_what);
+            const size_t used = std::strlen(s->missing_files_names);
+            std::snprintf(s->missing_files_names + used,
+                          sizeof(s->missing_files_names) - used, "%s%s (%s)",
+                          used ? ", " : "", mem.display_name, labels.c_str());
+        }
+        if (mem.ready &&
+            !(mem.mod_readiness_valid && mem.mods_missing > 0))
+            continue;
         ++s->peers_not_ready;
         /* Name them: "somebody is missing mods" is not actionable when the
          * player in question is looking at a green screen. */
@@ -8561,6 +8984,18 @@ static void np_lobby_snapshot(LauncherModel* m,
         std::snprintf(s->not_ready_names + used, sizeof(s->not_ready_names) - used,
                       "%s%s", used ? ", " : "", s->slots[slot].display_name);
     }
+    {
+        const std::vector<LobbyMissingFile> local =
+            lobby_local_missing_files(m, np);
+        s->local_missing_files = (int)local.size();
+        for (const LobbyMissingFile& file : local) {
+            const size_t used = std::strlen(s->local_missing_labels);
+            std::snprintf(s->local_missing_labels + used,
+                          sizeof(s->local_missing_labels) - used, "%s%s",
+                          used ? ", " : "", file.resource.label);
+        }
+    }
+    s->local_rom_missing = !launcher_model_can_launch(m);
     s->link_kind =
         max_slots >= 4 &&
         (((np->lobby_kind_get && np->lobby_kind_get(np->ctx) == 1)) ||
@@ -8627,6 +9062,7 @@ static void np_lobby_start(LauncherModel* m,
 
 static void np_lobby_leave(LauncherModel* m,
                            const RecompLauncherCNetplayCallbacks* np) {
+    s_lobby_rom_dismissed = false;
     m->netplay_local_room = false;
     m->netplay_lobby_settings_open = false;
     m->netplay_lobby_mods_open = false;
@@ -8762,38 +9198,11 @@ static void draw_lobby_match_settings(LauncherModel* m, const LauncherTheme& th,
                     np->force_input_relay_get(np->ctx) != 0;
             if (np->force_turn_get)
                 m->netplay_force_turn = np->force_turn_get(np->ctx) != 0;
-            if (np->relay_host_get)
-                m->netplay_relay_host = np->relay_host_get(np->ctx) != 0;
         }
         g_lobby_settings_synced = true;
     }
     ImGui::BeginDisabled(!is_host);
     {
-        /* Online rooms: who carries the match. The host's choice, published
-         * to the room; the server falls back to its own relay when a guest
-         * cannot reach the host, so this is never a way to break a match. */
-        if (!m->netplay_local_room && np->relay_host_set) {
-            bool host_relay = m->netplay_relay_host;
-            if (ImGui::Checkbox("Host carries the match (host relay)", &host_relay)) {
-                m->netplay_relay_host = host_relay;
-                if (np->relay_host_set(np->ctx, host_relay ? 1 : 0) == 0)
-                    np_save_network_settings(m);
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-                ImGui::BeginTooltip();
-                ImGui::PushTextWrapPos(px(360));
-                ImGui::TextUnformatted(
-                    "On (default): the match runs through the host's own UDP "
-                    "port; guests connect to the host directly. The room opens "
-                    "the port with UPnP / NAT-PMP where the router allows it and "
-                    "each guest checks it can reach the host before Play. A "
-                    "guest who cannot sends the match through the lobby "
-                    "server's relay instead.\n\n"
-                    "Off: the lobby server's relay carries the match.");
-                ImGui::PopTextWrapPos();
-                ImGui::EndTooltip();
-            }
-        }
         if (np->session_variant_count && np->session_variant_label && np->session_variant_get) {
             const int count = np->session_variant_count(np->ctx);
             const int current = np->session_variant_get(np->ctx);
@@ -8970,7 +9379,145 @@ static void draw_lobby_match_settings(LauncherModel* m, const LauncherTheme& th,
     ImGui::EndDisabled();
 }
 
+/* The dashboard's Browse For ROM, from the lobby: same filter, same picker,
+ * same verification (launcher_model_set_rom). */
+static void lobby_pick_game_rom(LauncherModel* m) {
+    const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+    char title[64];
+    std::snprintf(title, sizeof(title), "Select %s", noun);
+    const RomFilterSpec filter =
+        active_rom_filter(m, (const SystemProfile*)m->profile);
+    if (filter.patterns && filter.pattern_count > 0)
+        request_rom_picker(m, title, filter.patterns, filter.pattern_count,
+                           filter.desc, false);
+    else
+        request_rom_picker(m, title, NULL, 0, NULL, false);
+}
+
+/* Seated without a game to boot: ask now, in the lobby, before anyone can
+ * press PLAY -- never after the match has started. Opens on its own each time
+ * this peer is seated without a verified image and closes once one verifies.
+ * "Later" dismisses it for this seating; the footer keeps a button. */
+static void draw_lobby_game_rom_popup(LauncherModel* m, const LauncherTheme& th,
+                                      const LobbySnapshot& s) {
+    static const char* const kTitle = "Game ROM needed";
+    if (!s.local_rom_missing) {
+        s_lobby_rom_dismissed = false;
+        if (ImGui::IsPopupOpen(kTitle)) {
+            /* Closed from inside its own Begin/End below. */
+        } else {
+            return;
+        }
+    }
+    /* The in-app file browser is a root-level modal too; opening this one
+     * over it would close it. */
+    if (s.local_rom_missing && !s_lobby_rom_dismissed && !g_picker.active &&
+        !ImGui::IsPopupOpen(kTitle))
+        ImGui::OpenPopup(kTitle);
+    if (!ImGui::BeginPopupModal(kTitle, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    if (!s.local_rom_missing) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+    const char* game = m->game_name && m->game_name[0] ? m->game_name : "this game";
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + px(520));
+    ImGui::Text("Every player runs the match from their own copy of %s. "
+                "Select your %s so the match can start.", game, noun);
+    if (m->rom_present && m->rom_file[0]) {
+        ImGui::Spacing();
+        ImGui::TextColored(col(th.warn), "%s is not a recognized copy of %s.",
+                           m->rom_file, game);
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    char label[64];
+    std::snprintf(label, sizeof(label), "Select %s…", noun);
+    if (ImGui::Button(label, ImVec2(px(180), 0)))
+        lobby_pick_game_rom(m);
+    ImGui::SameLine();
+    if (ImGui::Button("Later", ImVec2(px(120), 0))) {
+        s_lobby_rom_dismissed = true;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 #if RECOMP_UI_ENABLE_MODS
+/* The lobby's "files needed" prompt. Opens on its own whenever the set of
+ * files this peer is missing grows -- the host enabled a mod that needs one,
+ * or this peer joined a lobby that uses one -- and closes itself once every
+ * file is chosen. "Later" dismisses it until the set changes again; the
+ * lobby's readiness line keeps a button to bring it back. */
+static void draw_lobby_mod_files_popup(LauncherModel* m, const LauncherTheme& th,
+                                       const RecompLauncherCNetplayCallbacks* np,
+                                       bool is_host) {
+    const std::vector<LobbyMissingFile> missing =
+        lobby_local_missing_files(m, np);
+    std::string signature;
+    for (const LobbyMissingFile& file : missing)
+        signature += file.package_id + "/" + file.feature_id + "/" +
+                     file.resource.id + ";";
+    if (signature != s_lobby_files_seen) {
+        /* Only a NEW need reopens it: a file chosen for one of two needs
+         * shrinks the set and must not resurrect a dismissed prompt. */
+        if (signature.size() > s_lobby_files_seen.size() ||
+            (!signature.empty() && s_lobby_files_seen.empty()))
+            s_lobby_files_open = true;
+        s_lobby_files_seen = signature;
+    }
+    if (missing.empty()) s_lobby_files_open = false;
+    /* The in-app file browser is a root-level modal too; reopening this one
+     * while it is up would close it. It comes back when the browser does. */
+    if (s_lobby_files_open && !g_picker.active &&
+        !ImGui::IsPopupOpen("Mod files needed"))
+        ImGui::OpenPopup("Mod files needed");
+    if (!ImGui::BeginPopupModal("Mod files needed", &s_lobby_files_open,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    const float wrap = px(520);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+    ImGui::TextUnformatted(
+        is_host ? "Mods enabled for this lobby use files from your own copy "
+                  "of other games. Select them before you start the match."
+                : "The host enabled mods that use files from your own copy of "
+                  "other games. Select them so the match can start.");
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    for (const LobbyMissingFile& file : missing) {
+        ImGui::PushID((file.package_id + "/" + file.feature_id + "/" +
+                       file.resource.id).c_str());
+        ImGui::Separator();
+        ImGui::TextUnformatted(file.resource.label);
+        ImGui::SameLine();
+        ImGui::TextColored(col(th.text_muted), "(%s)", file.mod_name.c_str());
+        if (file.resource.description[0]) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+            ImGui::TextColored(col(th.text_muted), "%s",
+                               file.resource.description);
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::TextColored(col(th.warn), "%s",
+                           file.resource.status[0] ? file.resource.status
+                                                   : "Not selected");
+        if (ImGui::Button(file.resource.path[0] ? "Change file"
+                                                : "Select file"))
+            pick_mod_feature_resource(m, file.package_id.c_str(),
+                                      file.feature_id.c_str(), file.resource);
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("Later", ImVec2(px(120), 0))) {
+        s_lobby_files_open = false;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 /* Lobby mod picker: the HOST owns the session plan. Every peer applies the
  * host's required-mod list at launch (match_caps.mods), so guests get a
  * read-only view of what they are about to run. Compact by design — the full
@@ -8982,7 +9529,11 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
      * the host's required-mod list at launch (match_caps.mods), so guests get
      * a read-only view of what they are about to run. Compact by design — the
      * full Mods page stays the place to install packages and read details. */
-    if (m->netplay_lobby_mods_open && m->mods)
+    /* Not while the in-app file browser is up: it is a root-level modal
+     * too, and opening this one would close it (enabling a mod here can ask
+     * for its source ROM). This popup comes back when the browser closes. */
+    if (m->netplay_lobby_mods_open && m->mods && !g_picker.active &&
+        !ImGui::IsPopupOpen("Lobby Mods"))
         ImGui::OpenPopup("Lobby Mods");
     if (m->mods &&
         ImGui::BeginPopupModal("Lobby Mods", &m->netplay_lobby_mods_open,
@@ -9279,6 +9830,8 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
                         /* Publish immediately: peers must see the host's plan
                          * without waiting for an unrelated settings change. */
                         if (np->push_match_caps) np->push_match_caps(np->ctx);
+                        if (enabled)
+                            prompt_missing_mod_resources(m, f.package_id, f.id);
                     } else {
                         mod_note_error(m);
                     }
@@ -9386,18 +9939,37 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
         if (lobby_mod_n <= 0) {
             ImGui::TextColored(col(th.text_muted),
                                "No mods required — vanilla match.");
-        } else if (s.peers_not_ready == 0) {
+        } else if (s.peers_not_ready == 0 && s.peers_missing_files == 0 &&
+                   s.local_missing_files == 0) {
             ImGui::TextColored(col(th.good),
                                "All players have this lobby's mods installed "
                                "and are ready.");
         } else {
-            ImGui::TextColored(col(th.warn),
-                               "Waiting on: %s — this lobby's mods are not "
-                               "confirmed installed there yet. They can open "
-                               "'View mods' to download them from the host. "
-                               "The match cannot start until then.",
-                               s.not_ready_names[0] ? s.not_ready_names
-                                                    : "another player");
+            if (s.peers_not_ready > 0)
+                ImGui::TextColored(col(th.warn),
+                                   "Waiting on: %s — not ready yet: their copy "
+                                   "of the game is not selected, or this "
+                                   "lobby's mods are not installed there (they "
+                                   "can open 'View mods' to download them from "
+                                   "the host). The match cannot start until "
+                                   "then.",
+                                   s.not_ready_names[0] ? s.not_ready_names
+                                                        : "another player");
+            if (s.peers_missing_files > 0)
+                ImGui::TextColored(col(th.warn),
+                                   "Waiting on: %s — the mods need files from "
+                                   "their own copy of those games, which they "
+                                   "have not selected yet. The match cannot "
+                                   "start until then.",
+                                   s.missing_files_names);
+            if (s.local_missing_files > 0) {
+                ImGui::TextColored(col(th.warn),
+                                   "You need to select: %s. These mods use "
+                                   "files from your own copy of those games.",
+                                   s.local_missing_labels);
+                if (ImGui::Button("Select files…"))
+                    s_lobby_files_open = true;
+            }
         }
         if (lobby_mod_n > 0) {
             ImGui::TextColored(col(th.text_muted),
@@ -9823,6 +10395,9 @@ void draw_lobby(LauncherModel* m, const LauncherTheme& th) {
         const int has_card = np_local_memcard_has_card(m);
         if (has_card >= 0) (void)np->memcard_offer_set(np->ctx, has_card, -1);
     }
+    /* Before the launch check: PLAY's own gate, announced to the room. */
+    if (np->local_launch_gate_set)
+        np->local_launch_gate_set(np->ctx, launcher_model_can_launch(m) ? 1 : 0);
     if (np->launch_pending && np->launch_pending(np->ctx))
         np_try_launch(m);
     if (!np_lobby_seated(m, np)) {
@@ -9911,8 +10486,13 @@ void draw_lobby(LauncherModel* m, const LauncherTheme& th) {
             }
         }
     }
+    draw_lobby_game_rom_popup(m, th, s);
 #if RECOMP_UI_ENABLE_MODS
     draw_lobby_mods_popup(m, th, np, s.is_host);
+    /* After the plan picker: a host enabling a mod there sees this prompt
+     * once that picker closes, not stacked over it. The game itself first. */
+    if (!m->netplay_lobby_mods_open && !s.local_rom_missing)
+        draw_lobby_mod_files_popup(m, th, np, s.is_host);
 #endif
 }
 
@@ -9980,14 +10560,25 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         /* Require two seated players, without waiting for every open seat.
          * Count only visible game slots: a host sitting alone in P2 after a
          * seat swap must not satisfy the start gate. */
-        const bool can_start = s.seated_players >= 2 && s.peers_not_ready == 0;
+        const bool can_start = s.seated_players >= 2 &&
+                               !s.local_rom_missing &&
+                               s.peers_not_ready == 0 &&
+                               s.peers_missing_files == 0 &&
+                               s.local_missing_files == 0;
         const char* blocked_why =
             s.seated_players < 2
                 ? "Waiting for another player to join"
-                : (s.peers_not_ready > 0
-                       ? "Waiting for every player to install this "
-                         "lobby's mods"
-                       : nullptr);
+            : s.local_rom_missing
+                ? "Select your copy of the game first"
+            : s.local_missing_files > 0
+                ? "Select the files this lobby's mods need first"
+            : s.peers_not_ready > 0
+                ? "Waiting for every player to be ready (their copy of the "
+                  "game, or this lobby's mods)"
+            : s.peers_missing_files > 0
+                ? "Waiting for every player to select the files this "
+                  "lobby's mods need"
+                : nullptr;
         ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - play_w, cta_y));
         if (neon_cta("##lobby_play", ui_text("PLAY"), ImVec2(play_w, play_h),
                      can_start))
@@ -9996,6 +10587,18 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         else if (blocked_why &&
                  ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", blocked_why);
+    } else if (s.local_rom_missing) {
+        /* The one thing a guest can do to unblock the match: here, where the
+         * host's PLAY would be, not after the match has started. */
+        const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
+        char label[64];
+        std::snprintf(label, sizeof(label), "Select %s…", noun);
+        ImGui::SetCursorScreenPos(ImVec2(origin.x + fullw - play_w, cta_y));
+        if (neon_cta("##lobby_select_rom", label, ImVec2(play_w, play_h), true))
+            lobby_pick_game_rom(m);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The match cannot start until you select your "
+                              "copy of the game.");
     } else {
         ImGui::SetCursorScreenPos(ImVec2(
             origin.x + fullw - play_w,
@@ -10450,6 +11053,7 @@ void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     if (!network_settings_loaded) {
         network_settings_loaded = true;
         np_load_network_settings(m);
+        np_pin_host_ice_relay(m);
         np_refresh_host_ip(m);
     }
     /* Only nag for a name when there is genuinely none. A signed-in player
@@ -10743,6 +11347,34 @@ static bool mod_commit_launch(LauncherModel* m) {
     }
     mod_note_error(m);
     return false;
+}
+
+struct LaunchCommitState : LauncherModPreparation {
+    bool close_requested = false;
+};
+/* Drawing helpers borrow the backend-owned state; no detached/static job may
+ * retain a LauncherModel or provider after launcher_backend_run returns. */
+static LaunchCommitState* s_launch_commit = nullptr;
+
+static bool launch_commit_pending() {
+    return s_launch_commit && s_launch_commit->job.pending();
+}
+
+static void request_mod_commit_launch(LauncherModel* m) {
+    if (s_launch_commit) {
+        const auto request = s_launch_commit->launch(
+            m->mods, m->in_session, launcher_model_effective_rom_path(m));
+        if (request == LauncherModPreparation::Request::Ready) {
+            m->mod_status[0] = '\0';
+            m->action = LNG_ACTION_LAUNCH;
+        } else if (request == LauncherModPreparation::Request::Failed) {
+            std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
+                          s_launch_commit->error());
+            launcher_model_set_view(m, LNG_VIEW_MODS);
+        }
+    } else if (mod_commit_launch(m)) {
+        m->action = LNG_ACTION_LAUNCH;
+    }
 }
 
 struct ModIntegerEditState {
@@ -11253,7 +11885,7 @@ static void draw_mod_feature_diagnostics(
     }
 }
 
-static bool set_all_mod_features(LauncherModel* m, bool enabled) {
+static bool disable_all_mod_features(LauncherModel* m) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
         !mods->feature_enable) {
@@ -11279,10 +11911,10 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
         /* A concealed feature keeps whatever its package and saved state
          * say; the player cannot see it, so a bulk action must not flip it. */
         if (launcher_mod_feature_concealed(mods, &feature) ||
-            (feature.enabled != 0) == enabled)
+            !feature.enabled)
             continue;
         if (!mods->feature_enable(mods->ctx, feature.package_id, feature.id,
-                                  enabled ? 1 : 0)) {
+                                  0)) {
             char failure[sizeof(m->mod_status)] = {};
             const char* error =
                 mods->last_error ? mods->last_error(mods->ctx) : nullptr;
@@ -11307,8 +11939,7 @@ static bool set_all_mod_features(LauncherModel* m, bool enabled) {
         changed.push_back(index);
     }
     std::snprintf(m->mod_status, sizeof(m->mod_status),
-                  enabled ? "All mod features enabled. Changes apply on PLAY."
-                          : "All mod features disabled. Changes apply on PLAY.");
+                  "All mod features disabled. Changes apply on PLAY.");
     return true;
 }
 
@@ -11391,14 +12022,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             }
         });
     }
-    ImGui::SameLine();
-    if (ImGui::Button(ui_text("Enable all")))
-        set_all_mod_features(m, true);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", ui_text("Enable every installed mod feature"));
+    /* No "Enable all": in a title with many mods it turns on features that
+     * need owner files or conflict with each other, all at once. */
     ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
-        set_all_mod_features(m, false);
+        disable_all_mod_features(m);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("%s", ui_text("Disable every installed mod feature"));
     ImGui::SameLine();
@@ -11478,6 +12106,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 mods->ctx, feature.package_id, feature.id,
                                 enabled ? 1 : 0)) {
                             mod_note_error(m);
+                        } else if (enabled) {
+                            prompt_missing_mod_resources(
+                                m, feature.package_id, feature.id);
                         }
                     }
                     if (ImGui::IsItemHovered())
@@ -11635,66 +12266,15 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 ImGui::SetTooltip("%s", resource.path);
                         }
                         const bool directory_resource =
-                            std::strcmp(resource.format, "directory") == 0 ||
-                            std::strcmp(resource.format, "folder") == 0;
+                            mod_resource_is_directory(resource);
                         if (ImGui::Button(
                                 resource.path[0]
                                     ? (directory_resource ? ui_text("Change folder")
                                                           : ui_text("Change file"))
                                     : (directory_resource ? ui_text("Select folder")
                                                           : ui_text("Select file")))) {
-                            std::vector<std::string> owned_patterns;
-                            std::vector<const char*> patterns;
-                            std::string remaining = resource.file_patterns;
-                            size_t start = 0;
-                            while (start <= remaining.size()) {
-                                const size_t comma = remaining.find(',', start);
-                                std::string pattern = remaining.substr(
-                                    start, comma == std::string::npos
-                                               ? std::string::npos
-                                               : comma - start);
-                                if (!pattern.empty())
-                                    owned_patterns.push_back(pattern);
-                                if (comma == std::string::npos) break;
-                                start = comma + 1;
-                            }
-                            for (const std::string& pattern : owned_patterns)
-                                patterns.push_back(pattern.c_str());
-                            /* The ids and label are copied into the closure:
-                             * on the built-in-browser path this runs many
-                             * frames later, when the RecompLauncherCMod*
-                             * structs this loop walks are long gone. */
-                            const std::string pkg_id = feature.package_id;
-                            const std::string feat_id = feature.id;
-                            const std::string res_id = resource.id;
-                            const std::string res_label = resource.label;
-                            auto apply_resource = [m, mods, pkg_id, feat_id,
-                                                   res_id,
-                                                   res_label](const char* path) {
-                                if (!path) return;
-                                if (!mods->feature_resource_set_path(
-                                        mods->ctx, pkg_id.c_str(),
-                                        feat_id.c_str(), res_id.c_str(),
-                                        path)) {
-                                    mod_note_error(m);
-                                } else {
-                                    std::snprintf(
-                                        m->mod_status,
-                                        sizeof(m->mod_status),
-                                        "%s verified. Changes apply on PLAY.",
-                                        res_label.c_str());
-                                }
-                            };
-                            if (directory_resource) {
-                                ui_pick_folder(m, resource.label,
-                                               apply_resource);
-                            } else {
-                                ui_pick_file(m, resource.label, owned_patterns,
-                                             resource.file_description[0]
-                                                 ? resource.file_description
-                                                 : nullptr,
-                                             apply_resource);
-                            }
+                            pick_mod_feature_resource(m, feature.package_id,
+                                                      feature.id, resource);
                         }
                         if (!resource.required && resource.path[0]) {
                             ImGui::SameLine();
@@ -11707,6 +12287,29 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                     std::snprintf(m->mod_status, sizeof(m->mod_status),
                                         "%s selection cleared. Changes apply on PLAY.", resource.label);
                                 }
+                            }
+                        }
+                        if (directory_resource && resource.path[0]) {
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui_text("Open folder"))) {
+                                std::string url, error;
+                                if (launcher_directory_url(resource.path, url, error)) {
+#if defined(LNG_SDL3)
+                                    const bool opened = SDL_OpenURL(url.c_str());
+#else
+                                    const bool opened = SDL_OpenURL(url.c_str()) == 0;
+#endif
+                                    if (!opened) {
+                                        error = SDL_GetError();
+                                        if (error.empty()) error = "The system folder opener failed.";
+                                    } else {
+                                        std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                                      "%s opened.", resource.label);
+                                    }
+                                }
+                                if (!error.empty())
+                                    std::snprintf(m->mod_status, sizeof(m->mod_status),
+                                                  "Could not open folder: %s", error.c_str());
                             }
                         }
                         ImGui::PopID();
@@ -12174,8 +12777,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
              * an image the runtime's identity gate would reject. */
             if (m->rom_patch_supported && m->s.rom_patch_enabled)
                 launcher_model_set_view(m, LNG_VIEW_MODS);
-        } else if (mod_commit_launch(m))
-            m->action = LNG_ACTION_LAUNCH;
+        } else {
+            request_mod_commit_launch(m);
+        }
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const char* noun = m->rom_noun ? m->rom_noun : "ROM";
         if (m->bios_name && launcher_model_bios_missing(m)) {
@@ -13354,6 +13958,24 @@ void draw_restore_defaults_modal(LauncherModel* m) {
     }
 }
 
+static void draw_launch_commit_progress(const LauncherTheme& th) {
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    draw_crt_background(vp->Pos, vp->Size);
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(420.0f), 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, col(th.background));
+    ImGui::Begin("Preparing game##launch_commit", nullptr,
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted(ui_text("Preparing your game..."));
+    ImGui::ProgressBar(-float(ImGui::GetTime()), ImVec2(-1.0f, px(12.0f)), "");
+    ImGui::TextWrapped("%s", ui_text(s_launch_commit->close_requested
+        ? "Closing when preparation finishes."
+        : "Checking and preparing your selected content. Please wait."));
+    ImGui::End();
+    ImGui::PopStyleColor();
+}
+
 void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logical_h) {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->Pos);
@@ -13552,6 +14174,12 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     end_container();
 
     draw_footer(m, th, footer_h);
+    if (launch_commit_pending()) {
+        /* PLAY queued a job in the footer. Finish this drawing stack without
+         * any later modal/provider/model callbacks; start only after return. */
+        ImGui::End();
+        return;
+    }
     draw_setup_wizard_modal(m, th);
     draw_bios_confirm_modal(m, th);
     draw_bios_play_modal(m, th);
@@ -13678,7 +14306,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                 if (settings_pad_button_is_select(button))
                     return true;
                 launcher_model_set_captured_pad(
-                    m, RECOMP_LAUNCHER_PAD_BUTTON(button));
+                    m, launcher_model_assist_pad_button_capture_binding(
+                           m, m->capture_btn, button));
                 launcher_model_cancel_capture(m);
                 return true;
             }
@@ -13953,6 +14582,11 @@ extern "C" bool launcher_panel_available(const LauncherPanel* p, const LauncherM
 extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                                           LauncherModel* m,
                                           const LauncherTheme* th) {
+    LaunchCommitState launch_commit;
+    struct CommitBinding {
+        explicit CommitBinding(LaunchCommitState& state) { s_launch_commit = &state; }
+        ~CommitBinding() { s_launch_commit = nullptr; }
+    } commit_binding(launch_commit);
     launcher_boot_timing_mark("rui:backend_run:begin");
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -14111,19 +14745,46 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     // reads the env var any more.
     bool first_present_marked = false;
 
-    while (m->action == LNG_ACTION_NONE && !p->should_quit) {
+    while ((m->action == LNG_ACTION_NONE && !p->should_quit) ||
+           launch_commit.job.pending()) {
+        /* finish() joins before model/provider access, returning the borrowed
+         * ctx to the UI. A queued close wins even when commit succeeded. */
+        const auto completion = launch_commit.finish(launch_commit.close_requested || p->should_quit);
+        if (completion != LauncherModPreparation::Completion::None) {
+            if (completion == LauncherModPreparation::Completion::Closed) {
+                p->should_quit = true;
+            } else if (completion == LauncherModPreparation::Completion::Prepared ||
+                       completion == LauncherModPreparation::Completion::Launch) {
+                m->mod_status[0] = '\0';
+                if (completion == LauncherModPreparation::Completion::Launch) m->action = LNG_ACTION_LAUNCH;
+            } else {
+                std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
+                              launch_commit.job.error());
+                launcher_model_set_view(m, LNG_VIEW_MODS);
+            }
+            if (p->should_quit || m->action != LNG_ACTION_NONE) break;
+        }
         /* The smoke test closes the window, which is QUIT before boot and
          * RESUME in session -- the same as a player's close box. */
-        if (smoke_frames > 0 && ++frame > smoke_frames) { p->should_quit = true; break; }
+        if (smoke_frames > 0 && ++frame > smoke_frames) {
+            if (launch_commit.job.pending()) launch_commit.close_requested = true;
+            else { p->should_quit = true; break; }
+        }
 
         SDL_Event ev;
         if (SDL_WaitEventTimeout(&ev, 16)) do {
             /* Window coordinates -> logical units, before anything reads the
              * event. No-op unless the platform layer synthesized the split. */
             scale_mouse_event(ev, p->input_scale);
-            if (ev.type == SDL_EVENT_QUIT) p->should_quit = true;
-            if (ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) p->should_quit = true;
+            if (ev.type == SDL_EVENT_QUIT || ev.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                if (launch_commit.job.pending()) launch_commit.close_requested = true;
+                else p->should_quit = true;
+            }
             if (launcher_debug_hidden()) continue; // physical input belongs to the desktop
+            if (launch_commit.job.pending()) {
+                LNG_ImplSDL_ProcessEvent(&ev);
+                continue;
+            }
             if (try_capture(m, ev)) continue;
             /* Arm gamepad navigation on the first REAL pad input.
              *
@@ -14173,63 +14834,66 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
 
         // Re-poll connected gamepads every frame so hot-plugged pads (e.g. a
         // DualSense powered on after launch) appear without a relaunch.
-        g_pad_count = launcher_input_poll(
-            g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
+        if (!launch_commit.job.pending()) {
+            g_pad_count = launcher_input_poll(
+                g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
 
-        // PSX: keep Input source labels on concrete pad names (live SDL name
-        // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
-        launcher_binds_sync_psx_pad_sources(m, g_pads, g_pad_count);
+            // PSX: keep Input source labels on concrete pad names (live SDL name
+            // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
+            launcher_binds_sync_psx_pad_sources(m, g_pads, g_pad_count);
 
-        // SNES: same purpose, from this console's own profile store. Run every
-        // frame so a pad plugged in after start-up picks up its label too.
-        launcher_binds_hydrate_snes_pad_names(m, g_pads, g_pad_count);
+            // SNES: same purpose, from this console's own profile store. Run every
+            // frame so a pad plugged in after start-up picks up its label too.
+            launcher_binds_hydrate_snes_pad_names(m, g_pads, g_pad_count);
 
-        // Pad capture release-gate: clear once the selected pad is fully at
-        // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
-        if (m->capturing && m->capture_pad && m->map_all_wait_release) {
-            const uint32_t id = m->player_pad_id[m->cfg_player];
-            if (id && launcher_input_gamepad_at_rest(id))
-                m->map_all_wait_release = false;
-        }
-
-        // PSX D-pad poll fallback: some Windows Xbox backends miss
-        // GAMEPAD_BUTTON_DOWN for a cardinal; commit from live button state
-        // when capturing Up/Down/Left/Right and that exact bit is held.
-        if (m->capturing && m->capture_pad && !m->map_all_wait_release &&
-            m->capture_btn >= 0 && m->capture_btn <= 3) {
-            const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
-            if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
+            // Pad capture release-gate: clear once the selected pad is fully at
+            // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
+            if (m->capturing && m->capture_pad && m->map_all_wait_release) {
                 const uint32_t id = m->player_pad_id[m->cfg_player];
-                if (id) {
-#if defined(LNG_SDL3)
-                    static const int kExpect[4] = {
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT,
-                        (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
-                    };
-#else
-                    static const int kExpect[4] = {
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_UP,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-                        (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-                    };
-#endif
-                    const int expect = kExpect[m->capture_btn];
-                    const uint32_t mask = launcher_input_gamepad_button_mask(id);
-                    if (expect >= 0 && expect < 32 &&
-                        (mask & (uint32_t)(1u << expect))) {
-                        launcher_binds_set_pad_button(
-                            m, m->cfg_player + 1, m->capture_btn,
-                            LNG_PADBIND_BUTTON, expect, 0);
-                        if (m->map_all_active)
-                            launcher_model_map_all_advance(m);
-                        else
-                            launcher_model_cancel_capture(m);
+                if (id && launcher_input_gamepad_at_rest(id))
+                    m->map_all_wait_release = false;
+            }
+
+            // PSX D-pad poll fallback: some Windows Xbox backends miss
+            // GAMEPAD_BUTTON_DOWN for a cardinal; commit from live button state
+            // when capturing Up/Down/Left/Right and that exact bit is held.
+            if (m->capturing && m->capture_pad && !m->map_all_wait_release &&
+                m->capture_btn >= 0 && m->capture_btn <= 3) {
+                const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
+                if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
+                    const uint32_t id = m->player_pad_id[m->cfg_player];
+                    if (id) {
+    #if defined(LNG_SDL3)
+                        static const int kExpect[4] = {
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+                            (int)SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
+                        };
+    #else
+                        static const int kExpect[4] = {
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_UP,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+                            (int)SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+                        };
+    #endif
+                        const int expect = kExpect[m->capture_btn];
+                        const uint32_t mask = launcher_input_gamepad_button_mask(id);
+                        if (expect >= 0 && expect < 32 &&
+                            (mask & (uint32_t)(1u << expect))) {
+                            launcher_binds_set_pad_button(
+                                m, m->cfg_player + 1, m->capture_btn,
+                                LNG_PADBIND_BUTTON, expect, 0);
+                            if (m->map_all_active)
+                                launcher_model_map_all_advance(m);
+                            else
+                                launcher_model_cancel_capture(m);
+                        }
                     }
                 }
             }
+
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -14244,7 +14908,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * and Enter still work while listening. */
         {
             ImGuiIO& nav_io = ImGui::GetIO();
-            if (m->capturing || m->hk_capturing || m->camera_capturing ||
+            if (launch_commit.job.pending() || m->capturing || m->hk_capturing || m->camera_capturing ||
                 automap_in_progress() || !s_pad_nav_armed)
                 nav_io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
             else
@@ -14271,15 +14935,48 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             }
         }
         ImGui::NewFrame();
-        draw_ui(m, *th, p->logical_w, p->logical_h);
+        if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
+        else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
+
+        /* Disc pickers, source/option edits and setup outputs have completed
+         * this frame's provider reads. Coalesce the selected effective image
+         * and provider revision here, never an unselected roster slot. A
+         * prepared warm plan does not queue a job or flash a progress view.
+         * Defer while an edit/popup/setup operation still owns the model. */
+        if (!launch_commit.job.pending() && m->action == LNG_ACTION_NONE &&
+            !p->should_quit && m->rom_present && !m->setup_preparing &&
+            m->view != LNG_VIEW_NETPLAY && m->view != LNG_VIEW_NETPLAY_MODE &&
+            m->view != LNG_VIEW_NETPLAY_SIGNIN && m->view != LNG_VIEW_LOBBY &&
+            !ImGui::IsAnyItemActive() &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+            const auto request = launch_commit.prepare_if_changed(
+                m->mods, m->in_session, launcher_model_effective_rom_path(m));
+            if (request == LauncherModPreparation::Request::Failed) {
+                std::snprintf(m->mod_status, sizeof m->mod_status, "%s", launch_commit.error());
+                launcher_model_set_view(m, LNG_VIEW_MODS);
+            } else if (request == LauncherModPreparation::Request::Ready) {
+                m->mod_status[0] = '\0';
+            }
+        }
+
+        /* All provider reads in this frame have finished. The queued image
+         * and callback/ctx were copied before any worker was started. */
+        if (launch_commit.job.queued()) {
+            if (p->should_quit) launch_commit.close_requested = true;
+            launch_commit.job.start();
+        }
 
         glViewport(0, 0, p->pixel_w, p->pixel_h);
         const LngColor bg = th->background;
         glClearColor(bg.r, bg.g, bg.b, bg.a);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
+        if (launch_commit.job.pending()) {
+            if (launcher_debug_step_pending(p)) launch_commit.close_requested = true;
+        } else {
+            launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
+        }
         launcher_platform_present(p);
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");

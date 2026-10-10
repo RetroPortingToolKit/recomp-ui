@@ -531,6 +531,10 @@ void launcher_model_init(LauncherModel* m,
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
+        m->assist_direct_pad_bind_action =
+            game->assist_direct_pad_bind_action > 0 &&
+            game->assist_direct_pad_bind_action <= m->assist_binding_count
+                ? game->assist_direct_pad_bind_action - 1 : -1;
         m->credits_text         = game->credits_text;
         m->assist_fast_forward_min = game->assist_fast_forward_min > 0
             ? game->assist_fast_forward_min : 2;
@@ -549,6 +553,15 @@ void launcher_model_init(LauncherModel* m,
         m->internal_resolution_values = game->internal_resolution_values;
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
+        m->has_dynamic_resolution      = game->has_dynamic_resolution != 0;
+        m->has_render_pipeline         = game->has_render_pipeline != 0;
+        m->quality_offered_mask        = game->quality_offered_mask;
+        m->quality_detected            = game->quality_detected;
+        m->quality_summary             = game->quality_summary;
+        m->quality_reason              = game->quality_reason;
+        m->quality_apply               = game->quality_apply;
+        m->quality_redetect            = game->quality_redetect;
+        m->quality_snapshot_valid      = false;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
@@ -581,6 +594,7 @@ void launcher_model_init(LauncherModel* m,
         m->platform     = NULL;
         m->player_count = 2;
         m->rom_noun     = "ROM";
+        m->assist_direct_pad_bind_action = -1;
     }
 
     if (io) m->s = *io;
@@ -687,9 +701,9 @@ void launcher_model_init(LauncherModel* m,
      * Online start is always lobby SFU (§108). */
     m->netplay_force_input_relay = false;
     m->netplay_force_turn = false;
-    /* Host relay is the online default (2026-10-01): the lobby server's relay
-     * carries a match only when a guest cannot reach the host. */
-    m->netplay_relay_host = true;
+    /* Online matches always negotiate with ICE (STUN, then TURN), and the
+     * host carries the match over it, so nobody forwards a port. There is no
+     * model state for it: it is not a setting. */
     m->netplay_relay_status[0] = '\0';
     /* Rollback is the legacy default; a title may choose delay-sync for the
      * initial room size through create_default_rollback below. */
@@ -1928,6 +1942,79 @@ const char* launcher_model_renderer_label(const LauncherModel* m) {
 void launcher_model_cycle_supersampling(LauncherModel* m) {
     int v = clampi(m->s.supersampling ? m->s.supersampling : 1, 1, 4);
     m->s.supersampling = (v % 4) + 1;
+}
+
+bool launcher_model_render_pipeline_offered(const LauncherModel* m) {
+    return m && m->has_render_pipeline && m->s.renderer == 1;
+}
+
+bool launcher_model_quality_offered(const LauncherModel* m) {
+    return m && (m->quality_offered_mask & 0xF) != 0 && m->quality_apply != NULL;
+}
+
+const char* launcher_model_quality_label(int preset) {
+    static const char* const k[] = {"", "Low", "Medium", "High", "Ultra", "Custom"};
+    return (preset >= 0 && preset <= 5) ? k[preset] : "";
+}
+
+/* The Settings fields a preset may set. A field the host's preset leaves
+ * alone simply keeps its value in the snapshot, so comparing all of them is
+ * exact. */
+static bool quality_fields_equal(const RecompLauncherCSettings* a,
+                                 const RecompLauncherCSettings* b) {
+    return a->internal_resolution == b->internal_resolution &&
+           a->supersampling == b->supersampling &&
+           a->dynamic_resolution == b->dynamic_resolution &&
+           a->dynamic_resolution_min == b->dynamic_resolution_min &&
+           a->render_thread == b->render_thread &&
+           a->present_thread == b->present_thread &&
+           a->frame_generation == b->frame_generation &&
+           a->antialiasing == b->antialiasing &&
+           a->texture_filter == b->texture_filter &&
+           a->fmv_filter == b->fmv_filter &&
+           a->geometry_correction == b->geometry_correction &&
+           a->perspective_texturing == b->perspective_texturing &&
+           a->frame_interp == b->frame_interp &&
+           a->frame_interp_fps == b->frame_interp_fps;
+}
+
+void launcher_model_quality_select(LauncherModel* m, int preset) {
+    if (!launcher_model_quality_offered(m) || preset < 1 || preset > 4) return;
+    if (!(m->quality_offered_mask & (1 << (preset - 1)))) return;
+    m->quality_apply(preset, &m->s);
+    m->s.quality_preset = preset;
+    m->s.quality_base = preset;
+    m->quality_snapshot = m->s;
+    m->quality_snapshot_valid = true;
+}
+
+void launcher_model_quality_redetect(LauncherModel* m) {
+    if (!launcher_model_quality_offered(m) || !m->quality_redetect) return;
+    const int p = m->quality_redetect();
+    if (p >= 1 && p <= 4) {
+        m->quality_detected = p;
+        launcher_model_quality_select(m, p);
+    }
+}
+
+void launcher_model_quality_track(LauncherModel* m) {
+    if (!launcher_model_quality_offered(m)) return;
+    const int q = m->s.quality_preset;
+    if (q < 1 || q > 4) return;
+    if (!m->quality_snapshot_valid) {
+        /* The host seeded the settings with this preset in force. */
+        m->quality_snapshot = m->s;
+        m->quality_snapshot_valid = true;
+        return;
+    }
+    if (!quality_fields_equal(&m->s, &m->quality_snapshot)) {
+        m->s.quality_base = q;
+        m->s.quality_preset = 5;
+    }
+}
+
+bool launcher_model_render_pipeline_children_enabled(const LauncherModel* m) {
+    return launcher_model_render_pipeline_offered(m) && m->s.render_thread != 0;
 }
 
 bool launcher_model_internal_resolution_offered(const LauncherModel* m) {
@@ -3922,21 +4009,22 @@ void launcher_model_password_commit(LauncherModel* m, const char* text) {
     launcher_model_password_reload(m);   // reflect what actually landed on disk
 }
 
-// Zapper switches: flip the model state and persist through launcher_binds'
-// [zapper] section writer immediately (same persist-on-change behavior as the
-// rebind chips). launcher_binds_set_zapper is a no-op-safe plain writer.
+// Zapper switches: host-owned bindings return edits through Settings; legacy
+// hosts persist immediately through launcher_binds' [zapper] section writer.
 void launcher_binds_set_zapper(int mouse_enabled, int crosshair);   // launcher_binds.c
 
 void launcher_model_toggle_zapper_mouse(LauncherModel* m) {
     if (!m->zapper) return;
     m->zapper_mouse = !m->zapper_mouse;
-    launcher_binds_set_zapper(m->zapper_mouse ? 1 : 0, m->zapper_crosshair ? 1 : 0);
+    if (m->settings_bindings) m->s.zapper_mouse = m->zapper_mouse ? 1 : -1;
+    else launcher_binds_set_zapper(m->zapper_mouse ? 1 : 0, m->zapper_crosshair ? 1 : 0);
 }
 
 void launcher_model_toggle_zapper_crosshair(LauncherModel* m) {
     if (!m->zapper) return;
     m->zapper_crosshair = !m->zapper_crosshair;
-    launcher_binds_set_zapper(m->zapper_mouse ? 1 : 0, m->zapper_crosshair ? 1 : 0);
+    if (m->settings_bindings) m->s.zapper_crosshair = m->zapper_crosshair ? 1 : -1;
+    else launcher_binds_set_zapper(m->zapper_mouse ? 1 : 0, m->zapper_crosshair ? 1 : 0);
 }
 
 // ---- MSU-1 IPS auto-patching (mirrors the legacy launcher's do_patch() /
@@ -4454,6 +4542,14 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
                 encoded_binding;
     }
 }
+
+int launcher_model_assist_pad_button_capture_binding(
+    const LauncherModel* m, int action, int button) {
+    if (button < 0 || button >= 32) return 0;
+    if (m && action == m->assist_direct_pad_bind_action)
+        return RECOMP_LAUNCHER_PAD_BUTTON_COMBO(1u << button);
+    return RECOMP_LAUNCHER_PAD_BUTTON(button);
+}
 void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
     if (!m || !m->settings_bindings || !m->has_default_settings) return;
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
@@ -4549,4 +4645,30 @@ const char* launcher_view_name(LngView v) {
     if (v == LNG_VIEW_NETPLAY_SIGNIN) return "Netplay Sign In";
     if (v < 0 || v >= LNG_VIEW__COUNT) return "?";
     return kViewNames[v];
+}
+
+const char* launcher_model_relay_error_text(const char* err, bool ice_mode) {
+    if (!err || !err[0]) return NULL;
+    if (strcmp(err, "ice_not_connected") == 0)
+        return "Couldn't start: not every player has a connection to the host "
+               "yet. Wait for each seat to show connected, remove anyone "
+               "stuck, and press Play again. Spectators can't join a match "
+               "carried by the host.";
+    if (strcmp(err, "host_relay_unproven") == 0)
+        return "Couldn't start through the host: a guest hasn't proven it "
+               "can reach you. Wait for every seat to show connected, then "
+               "press Play again.";
+    if (strcmp(err, "host_relay_spectators") == 0)
+        return "A match carried by the host can't include spectators. "
+               "Remove them and press Play again.";
+    if (strcmp(err, "relay_unavailable") == 0) {
+        if (ice_mode)
+            return "Couldn't start through the host. A guest has no "
+                   "connection to you yet. Wait for each seat to show "
+                   "connected and remove any spectators.";
+        return "Couldn't start through the host. A guest can't reach "
+               "your port, or no public endpoint was found. Check "
+               "port forwarding/UPnP and remove any spectators.";
+    }
+    return NULL;
 }

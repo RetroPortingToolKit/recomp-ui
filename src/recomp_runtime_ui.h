@@ -22,6 +22,7 @@ extern "C" {
 #define RECOMP_RUNTIME_UI_HAS_BACKDROP 1
 #define RECOMP_RUNTIME_UI_HAS_STATUS 1
 #define RECOMP_RUNTIME_UI_HAS_TOAST 1
+#define RECOMP_RUNTIME_UI_HAS_CONFIRM 1
 
 typedef struct RecompRuntimeUi RecompRuntimeUi;
 
@@ -70,6 +71,8 @@ enum {
 #define RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE     "display.window_scale"
 #define RECOMP_RUNTIME_UI_KEY_VIEW_MODE        "display.view_mode"
 #define RECOMP_RUNTIME_UI_KEY_WIDESCREEN_HUD   "display.widescreen_hud"
+#define RECOMP_RUNTIME_UI_KEY_MENU_DIM         "display.menu_dim"
+#define RECOMP_RUNTIME_UI_KEY_MENU_OPACITY     "display.menu_opacity"
 #define RECOMP_RUNTIME_UI_KEY_INTEGER_SCALE    "graphics.integer_scale"
 #define RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER    "graphics.linear_filter"
 #define RECOMP_RUNTIME_UI_KEY_TEXTURE_FILTER   "graphics.texture_filter"
@@ -81,9 +84,13 @@ enum {
 #define RECOMP_RUNTIME_UI_KEY_VOLUME           "audio.volume"
 #define RECOMP_RUNTIME_UI_KEY_GYRO_SENSITIVITY "input.gyro_sensitivity"
 #define RECOMP_RUNTIME_UI_KEY_RESUME            "system.resume"
+#define RECOMP_RUNTIME_UI_KEY_STATE_SLOT        "system.state_slot"
 #define RECOMP_RUNTIME_UI_KEY_SAVE_STATE        "system.save_state"
 #define RECOMP_RUNTIME_UI_KEY_LOAD_STATE        "system.load_state"
+#define RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU     "system.pause_in_menu"
 #define RECOMP_RUNTIME_UI_KEY_RESET             "system.reset"
+#define RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER "system.return_to_launcher"
+#define RECOMP_RUNTIME_UI_KEY_QUIT              "system.quit"
 
 typedef struct RecompRuntimeUiItem {
     const char *key;
@@ -172,6 +179,26 @@ enum {
     RECOMP_RUNTIME_UI_STANDARD_LOAD_STATE        = UINT64_C(1) << 14,
     RECOMP_RUNTIME_UI_STANDARD_RESET             = UINT64_C(1) << 15,
     RECOMP_RUNTIME_UI_STANDARD_FMV_FILTER        = UINT64_C(1) << 16,
+    /*
+     * Leaving the game. The model asks for a second press (see
+     * recomp_runtime_ui_confirm) before it calls run_action, so the host's
+     * run_action only has to leave.
+     */
+    RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER = UINT64_C(1) << 17,
+    RECOMP_RUNTIME_UI_STANDARD_QUIT              = UINT64_C(1) << 18,
+    /*
+     * Two Display rows, MENU_DIM and MENU_OPACITY, both percents (0-100 in
+     * steps of 10). The host stores and persists them like any setting and
+     * hands them to recomp_runtime_ui_set_backdrop(ui, dim / 100.0f,
+     * opacity / 100.0f); RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT and 100 are
+     * the menu's own look.
+     */
+    RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP     = UINT64_C(1) << 19,
+    /* Whether an open menu holds the game. The menu never pauses anything
+     * itself; this is the host's policy, offered to the player. */
+    RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU     = UINT64_C(1) << 20,
+    /* The slot Save state / Load state use, 1 to state_slot_count. */
+    RECOMP_RUNTIME_UI_STANDARD_STATE_SLOT        = UINT64_C(1) << 21,
 };
 
 typedef struct RecompRuntimeUiStandardConfig {
@@ -185,6 +212,7 @@ typedef struct RecompRuntimeUiStandardConfig {
     int resolution_scale_max;        /* default: 8 */
     const RecompRuntimeUiItem *extra_items;
     size_t extra_item_count;
+    int state_slot_count;            /* default: 10 */
 } RecompRuntimeUiStandardConfig;
 
 /*
@@ -223,6 +251,9 @@ int recomp_runtime_ui_wants_text_input(const RecompRuntimeUi *ui);
  * default).
  */
 #define RECOMP_RUNTIME_UI_DEFAULT_DIM (150.0f / 255.0f)
+/* The step of RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP's dimming row nearest
+ * RECOMP_RUNTIME_UI_DEFAULT_DIM. */
+#define RECOMP_RUNTIME_UI_DEFAULT_DIM_PERCENT 60
 void recomp_runtime_ui_set_backdrop(RecompRuntimeUi *ui, float dim, float opacity);
 
 /*
@@ -231,6 +262,24 @@ void recomp_runtime_ui_set_backdrop(RecompRuntimeUi *ui, float dim, float opacit
  * wants a second press (return 0 from it, or "Done" replaces the text).
  */
 void recomp_runtime_ui_set_status(RecompRuntimeUi *ui, const char *text);
+
+/*
+ * A second press for an action that is hard to undo -- restart, quit, return
+ * to the launcher. Call it from run_action and return 0 while it does:
+ *
+ *     if (!recomp_runtime_ui_confirm(ui, item, "Press again to quit"))
+ *         return 0;
+ *
+ * The first press shows `prompt` in the footer (NULL: "Press again to
+ * confirm") and returns 0; pressing the same row again while that prompt is
+ * still up returns 1. The prompt lasts as long as any status (about three
+ * seconds; the model keeps no clock of its own), and any other status or
+ * closing the menu withdraws it. A held button cannot confirm: the menu does
+ * not run actions on repeat.
+ */
+int recomp_runtime_ui_confirm(RecompRuntimeUi *ui,
+                              const RecompRuntimeUiItem *item,
+                              const char *prompt);
 
 /*
  * A toast: a small notice over the game that shows whether or not the menu is

@@ -69,6 +69,53 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(recomp-ui-launcher-mod-commit-job-test
+        tests/launcher_mod_commit_job_test.cpp)
+    target_include_directories(recomp-ui-launcher-mod-commit-job-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-launcher-mod-commit-job-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-launcher-mod-commit-job
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-commit-job-test>)
+
+    add_executable(recomp-ui-launcher-mod-preparation-test
+        tests/launcher_mod_preparation_test.cpp)
+    target_include_directories(recomp-ui-launcher-mod-preparation-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-launcher-mod-preparation-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-launcher-mod-preparation
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-preparation-test>)
+
+    add_executable(recomp-ui-launcher-debug-pending-test
+        tests/launcher_debug_pending_test.c src/common/launcher_debug.c
+        src/common/launcher_debug_tcp.c)
+    target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
+    target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS} SDL_MAIN_HANDLED=1)
+    target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+    if(WIN32)
+        target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ws2_32)
+    endif()
+    foreach(_rui_pending_case wait model launch)
+        add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
+            COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
+    endforeach()
+
+    # Real desktop/backend evidence is opt-in, not a headless CI requirement.
+    add_executable(recomp-ui-worker-commit-probe EXCLUDE_FROM_ALL
+        tests/launcher_worker_commit_probe.cpp)
+    target_link_libraries(recomp-ui-worker-commit-probe PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+    set(_rui_saved_mods ${RECOMP_UI_ENABLE_MODS})
+    set(RECOMP_UI_ENABLE_MODS ON)
+    recomp_target_launcher_ui(recomp-ui-worker-commit-probe CONSOLE all)
+    set(RECOMP_UI_ENABLE_MODS ${_rui_saved_mods})
+    if(WIN32 AND RUI_SDL_RUNTIME_TARGET)
+        add_custom_command(TARGET recomp-ui-worker-commit-probe POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:${RUI_SDL_RUNTIME_TARGET}>
+                $<TARGET_FILE_DIR:recomp-ui-worker-commit-probe>)
+    endif()
+
+    add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
+    target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
+    add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c
@@ -251,6 +298,38 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-internal-resolution
         COMMAND $<TARGET_FILE:recomp-ui-launcher-internal-resolution-test>)
 
+    # Rendering pipeline rows (Render thread / Present thread / Frame
+    # generation): host-gated, OpenGL only, children need Render thread.
+    add_executable(recomp-ui-launcher-render-pipeline-test
+        tests/launcher_render_pipeline_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-render-pipeline-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-render-pipeline-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-render-pipeline
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-render-pipeline-test>)
+
+    # Graphics presets: host-applied values, Custom on a governed edit,
+    # Re-detect, offered mask.
+    add_executable(recomp-ui-launcher-quality-preset-test
+        tests/launcher_quality_preset_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-quality-preset-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-quality-preset-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-quality-preset
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-quality-preset-test>)
+
     # First-run wizard: staging a retail BIOS that has no linked backend.
     # Same include-the-TU shape as the discs test above.
     add_executable(recomp-ui-launcher-setup-bios-test
@@ -396,6 +475,19 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-nds-profile
         COMMAND $<TARGET_FILE:recomp-ui-nds-profile-test>)
+
+    add_executable(recomp-ui-assist-pad-capture-test
+        tests/launcher_assist_pad_capture_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-assist-pad-capture-test PRIVATE
+        src src/common src/consoles/psx)
+    add_test(NAME recomp-ui-assist-pad-capture
+             COMMAND $<TARGET_FILE:recomp-ui-assist-pad-capture-test>)
 
     # The shared presentation blend, including the holding variant a host with
     # a decoupled presentation clock needs. Pure arithmetic on two buffers, so

@@ -903,7 +903,11 @@ void launcher_binds_load(LauncherModel* m, const char* config_path_in, const cha
         rui_n64_binds_init(n64_binds_file_path());      // load input.cfg (defaults if absent; never seeds the file)
         rui_n64_pad_binds_init(n64_input_ini_path());   // gamepad maps (input.ini, per GUID)
     } else if (is_nes_profile(m)) {
-        if (!nes_native_store(m)) goto loaded;      // host-owned bindings: no native file
+        if (!nes_native_store(m)) {
+            m->zapper_mouse = m->s.zapper_mouse >= 0;
+            m->zapper_crosshair = m->s.zapper_crosshair >= 0;
+            goto loaded;                         // host-owned bindings: no native file
+        }
         rui_nes_binds_init(keybinds_file_path());   // load/generate nesrecomp-format keybinds.ini
         // Zapper switches live in the same file ([zapper]); surface them on
         // the model for the controller page's Zapper block.

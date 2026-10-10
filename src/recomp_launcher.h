@@ -161,6 +161,17 @@ typedef struct RecompLauncherCNetplayMember {
     /* Country, ISO 3166-1 alpha-2, from the server's GeoIP on this peer's
      * address. Empty when unknown, private, or LAN. Drawn as a flag. */
     char country[4];
+    /* Mod readiness against the lobby's plan (append-only), from this peer's
+     * announced offer. Valid only when mod_readiness_valid: 0 for LAN/Direct
+     * rooms, which carry no offer, and when there is no plan.
+     *   mods_missing      plan packages the peer does not have
+     *   mod_files_missing plan features it has the package for but has not
+     *                     provided a required file (a source ROM) for
+     *   mod_files_what    those features, ';'-separated "package/feature" */
+    int  mod_readiness_valid;
+    int  mods_missing;
+    int  mod_files_missing;
+    char mod_files_what[256];
 } RecompLauncherCNetplayMember;
 
 typedef struct RecompLauncherCNetplayNeedMod {
@@ -193,6 +204,10 @@ typedef struct RecompLauncherCNetplayLobbyMod {
      * published caps, so it tracks a host changing a dropdown without the
      * guest doing anything. Empty when the host published no configuration. */
     char options[192];
+    /* The plan's enabled feature ids for this package, comma-separated
+     * (append-only). A peer checks these against its own mod catalog to find
+     * owner files (a source ROM) it still has to provide before the match. */
+    char features[192];
 } RecompLauncherCNetplayLobbyMod;
 
 /* One lobby chat line, oldest first. Backends keep a short ring (the last
@@ -330,6 +345,15 @@ typedef struct RecompLauncherCNetplayLaunch {
      * seats) or runs recomp-net's LAN hub (3+). 0 = the server's relay (SFU)
      * or a LAN / direct room. recomp-ui docs/HOST_NETPLAY.md "Host relay". */
     int      transport_host;
+    /* 1 = the launch said transport "host" AND relay_via "ice" (host-as-relay
+     * over ICE). transport_host is ALSO 1 in that case, so test this first.
+     * No port is bound and nothing is dialled: bind_hostport is a placeholder
+     * and peer_hostport is empty. The engine takes the connected ICE agents
+     * from recomp-net (host: rnet_lobby_ice_take_hub + rnet_session_start_
+     * ice_hub_adopt; guest: rnet_lobby_ice_take_guest_agent + rnet_session_
+     * adopt_ice_agent) BEFORE rnet_lobby_clear_launch_pending(). 0 = legacy
+     * endpoint relay, the server's relay, or LAN. */
+    int      transport_ice_hub;
 } RecompLauncherCNetplayLaunch;
 
 /* Dense position of session slot `slot` in LOBBY-SEAT order: the rank of its
@@ -378,6 +402,9 @@ typedef struct RecompLauncherCNetplayLocalAddress {
  * RecompLauncherCNetplayLaunch.transport_host only against a recomp-ui that
  * has them (older pins compile the wiring out). */
 #define RECOMP_LAUNCHER_HAS_HOST_RELAY 1
+/* Present since RecompLauncherCNetplayLaunch.transport_ice_hub and
+ * relay_via_ice_get/set were appended (host relay over ICE). */
+#define RECOMP_LAUNCHER_HAS_HOST_RELAY_ICE 1
 
 typedef struct RecompLauncherCNetplayCallbacks {
     void* ctx;
@@ -829,6 +856,22 @@ typedef struct RecompLauncherCNetplayCallbacks {
      * 1 when there is something to show, 0 when idle (not a host-relay room,
      * LAN, or not seated). */
     int  (*relay_status)(void* ctx, char* out, size_t out_cap);
+    /* Optional (append-only): can THIS peer boot the game right now -- the
+     * same answer that enables PLAY (launcher_model_can_launch: a present,
+     * verified game image). The lobby view calls it every frame it is seated.
+     * 0 makes the engine announce not-ready and keep announcing it, so the
+     * host's PLAY stays disabled and names this player until the image is
+     * chosen; nothing launches into a match without one. NULL = the engine
+     * cannot hold a seat back, and the launch backstop alone refuses. */
+    void (*local_launch_gate_set)(void* ctx, int can_launch);
+    /* Optional (append-only): host relay over ICE. 1 (default) = with the host
+     * relay on, guests reach the host through ICE and nobody forwards a port;
+     * 0 = the legacy advertised-UDP-port relay. The host's preference,
+     * published in match_caps.relay_via; a guest's getter answers what the
+     * host published. Unavailable (always 0 effective) in a build without ICE.
+     * Servers that predate it simply keep the legacy path. */
+    int  (*relay_via_ice_get)(void* ctx);
+    int  (*relay_via_ice_set)(void* ctx, int on);
 } RecompLauncherCNetplayCallbacks;
 
 /* recomp_launcher_run_window honours RECOMP_NETPLAY_LAUNCH through
@@ -1129,12 +1172,38 @@ typedef struct RecompLauncherCModProvider {
     int (*catalog_diagnostic_get)(void* ctx, int index,
                                   RecompLauncherCModDiagnostic* out);
     /* Title opt-in: non-zero never presents a hidden feature (not even
-     * while enabled), leaves it out of "Enable all" / "Disable all", and
+     * while enabled), leaves it out of "Disable all", and
      * omits a package whose every feature is hidden. The feature still runs
      * as its package and the saved state say. Zero keeps the default rule
      * above. Appended for ABI stability. */
     int hide_hidden_features;
+    /* Explicit opt-in for preboot offline PLAY: commit and last_error may
+     * run on an owned worker while the UI excludes ALL other provider access.
+     * The host guarantees ctx/callback lifetime until the launcher returns,
+     * no main-thread/SDL/GL affinity, and no concurrent runtime access. Zero
+     * retains synchronous behavior, as do netplay and in-session commits.
+     * Earlier preparation requires the additional callbacks below.
+     * Source compatibility for statically paired builds, not an older binary
+     * provider object: this struct has no negotiated byte size. */
+    int commit_worker_safe;
+    /* Optional warm-launch/preparation contract, paired with commit_worker_safe.
+     * try_commit never prepares resources or performs heavy reads: 1 means an
+     * authoritative prepared plan was committed, 0 requires commit on the
+     * worker, and -1 is a failure reported by last_error. A UI path match is
+     * not proof of readiness. The provider validates its complete input ticket.
+     * preparation_revision is a cheap, non-mutating generation for selection,
+     * options, sources and catalog changes; it stays stable during commit.
+     * With BOTH callbacks present, the preboot offline UI may call commit when
+     * the selected effective image or revision changes, before PLAY is pressed.
+     * Such preparation does not launch. Provider access remains exclusive while
+     * the owned worker runs; close joins before ctx can die. NULL callbacks
+     * preserve commit-only behavior, as do netplay and in-session launches.
+     * Appended for statically paired source compatibility, not binary sizing. */
+    int (*try_commit)(void* ctx, const char* image_path);
+    unsigned long long (*preparation_revision)(void* ctx);
 } RecompLauncherCModProvider;
+#define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
+#define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
@@ -1474,7 +1543,29 @@ struct RecompLauncherCSettings {
      * Only meaningful when the host supplied a vocabulary. Appended
      * additively; a zero-initialized host reads as unset. */
     int  internal_resolution;
+    /* Host-owned NES Zapper switches when GameInfo.settings_bindings is set.
+     * 0 = unset (enabled), 1 = enabled, -1 = disabled. */
+    int zapper_mouse, zapper_crosshair;
+    /* Host opt-in scale controller. The minimum uses the same line-height
+     * encoding as internal_resolution (1 = Native, 720/1080/1440). */
+    int  dynamic_resolution;
+    int  dynamic_resolution_min;
+    /* Host rendering pipeline (GameInfo.has_render_pipeline), 0/1 each.
+     * render_thread runs the renderer on its own thread; present_thread and
+     * frame_generation only take effect with it on. Applied at next launch.
+     * Appended additively; a zero-initialized host reads as off. */
+    int  render_thread;
+    int  present_thread;
+    int  frame_generation;
+    /* Graphics preset (GameInfo.quality_offered_mask): 0 = unset, 1 Low,
+     * 2 Medium, 3 High, 4 Ultra, 5 Custom (the player changed a setting a
+     * preset governs; quality_base is the preset it started from, 1..4).
+     * The launcher sets Custom itself; the host owns detection. Appended
+     * additively; a zero-initialized host reads as unset. */
+    int  quality_preset;
+    int  quality_base;
 };
+#define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
 /* Largest run-ahead depth the launcher will offer for
  * RecompLauncherCSettings.run_ahead. Deeper than this and the cost (one full
@@ -2204,6 +2295,11 @@ typedef struct RecompLauncherCGameInfo {
     const int*         internal_resolution_values;
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
+    int                has_dynamic_resolution;
+    /* Nonzero: the host offers Settings.render_thread / present_thread /
+     * frame_generation (Display rows, OpenGL only); shown as "Smooth motion". Appended for ABI
+     * stability. */
+    int                has_render_pipeline;
     /* Entering the netplay flow / returning to the offline dashboard.
      * Optional title policy (e.g. stage required co-op mods). The callback
      * remains active through controller/settings subviews and a match launch.
@@ -2232,6 +2328,34 @@ typedef struct RecompLauncherCGameInfo {
     const char* bios_prepare_button;         /* "Prepare BIOS" */
     const char* bios_prepare_busy_status;    /* "Compiling your BIOS…" */
     const char* bios_prepare_success_status; /* "BIOS ready." */
+
+    /* Optional assist action index whose single-button capture is stored as
+     * an explicit one-button combination (RECOMP_LAUNCHER_PAD_BUTTON_COMBO of
+     * one bit) instead of the implicit-Select button encoding. The host
+     * decides what a one-button combination means at run time (e.g. a direct
+     * shortcut only while the title allows it, else Select+button); the
+     * launcher only keeps the two encodings distinct. Zero leaves the
+     * historical implicit-Select capture unchanged; otherwise the value is the
+     * action index plus one. The title supplies its defaults through
+     * assist_default_pad_bind. Appended for ABI stability. */
+    int                assist_direct_pad_bind_action;
+
+    /* ---- Graphics presets (Settings.quality_preset) -------------------------
+     * Bit i of quality_offered_mask = preset i+1 (Low, Medium, High, Ultra)
+     * is offered; 0 hides the row. quality_detected is what the host's
+     * detection picked (1..4, 0 unknown); quality_summary names the hardware
+     * ("Apple M1 · 8 threads · 8 GB") and quality_reason the rule. Picking a
+     * preset calls quality_apply, which sets every Settings field that preset
+     * governs; the launcher then watches those fields and switches to Custom
+     * when the player changes one. quality_redetect re-runs detection and
+     * returns the preset it picked (1..4), refreshing the strings (which stay
+     * owned by the host). Appended for ABI stability. */
+    int                quality_offered_mask;
+    int                quality_detected;
+    const char*        quality_summary;
+    const char*        quality_reason;
+    void (*quality_apply)(int preset, RecompLauncherCSettings* s);
+    int  (*quality_redetect)(void);
     /* Development hosts may assign one physical gamepad to multiple local
      * seats. Zero keeps the normal exclusive picker. Appended for ABI stability. */
     int allow_shared_gamepad;
@@ -2242,9 +2366,14 @@ typedef struct RecompLauncherCGameInfo {
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that
  * lacks Settings.internal_resolution and the GameInfo vocabulary. */
 #define RECOMP_LAUNCHER_HAS_INTERNAL_RESOLUTION 1
+#define RECOMP_LAUNCHER_HAS_DYNAMIC_RESOLUTION 1
+#define RECOMP_LAUNCHER_HAS_RENDER_PIPELINE 1
+#define RECOMP_LAUNCHER_HAS_QUALITY_PRESETS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
+/* Host may #ifdef this when setting assist_direct_pad_bind_action. */
+#define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0

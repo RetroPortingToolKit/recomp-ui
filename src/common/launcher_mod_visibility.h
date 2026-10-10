@@ -6,8 +6,8 @@
  *
  * Opt-in (hide_hidden_features != 0, set by the host for its title): a hidden
  * feature is never presented -- not in the Mods list, the lobby picker or its
- * summary, not as the detail pane's selection -- and "Enable all" /
- * "Disable all" leave it alone. It still runs exactly as its package and the
+ * summary, not as the detail pane's selection -- and "Disable all"
+ * leaves it alone. It still runs exactly as its package and the
  * player's saved state say, so a hidden default-on feature is simply active.
  * A package whose every feature is hidden is not listed under "Installed
  * packages" either. Providers without the feature surface have no hidden

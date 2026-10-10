@@ -10,6 +10,7 @@
  * session slot 0 under RECOMP_NETPLAY_SLOTS_HOST_FIRST).
  */
 #include "recomp_netplay_host.h"
+#include "recomp_netplay_account.h"
 
 #include "recomp_net/auth.h"
 #include "recomp_net/lan_lobby.h"
@@ -18,6 +19,14 @@
 #include "recomp_net/chat_filter.h"
 #include "recomp_net/address.h"
 #include "recomp_net/host_relay.h"
+/* Host relay over ICE needs a recomp-net that carries it (host_ice.h). Older
+ * pins keep compiling: the ICE wiring drops out and the legacy path stays. */
+#if defined(__has_include)
+#  if __has_include("recomp_net/host_ice.h")
+#    include "recomp_net/host_ice.h"
+#    define RUI_HAVE_ICE_HUB 1
+#  endif
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -560,10 +569,64 @@ static int mod_offer_rows(RNetLobbyModPkg *out, int max, void *ctx)
     snprintf(out[o].id, sizeof(out[o].id), "%s", rows[i].id);
     snprintf(out[o].ver, sizeof(out[o].ver), "%s", rows[i].ver);
     /* Name and features are the host plan's business; an offer claims
-     * possession and nothing else. */
+     * possession -- and, per feature, that a file it needs is still missing,
+     * which the host cannot see from its own disk. */
+    if (g_mods->missing_files)
+      (void)g_mods->missing_files(g_mods->ctx, out[o].id, out[o].nf,
+                                  (uint32_t)sizeof(out[o].nf));
     o++;
   }
   return o;
+}
+
+/* Re-send the offer when what it says has changed.
+ *
+ * The offer rides on set_ready, which goes out on join and after a transfer.
+ * Choosing a mod's source ROM changes it too -- from the lobby's prompt, the
+ * Mods page, anywhere -- and the host's launch gate holds the match on the
+ * last offer it saw. Polled about once a second rather than hooked into every
+ * place a file can be chosen; the check is a stat per resource (the runtime
+ * memoizes the hash). Not from the gallery: a spectator's set_ready is
+ * answered with a lobby_update and nothing reads its offer. */
+static void reannounce_offer_on_change(void)
+{
+  static unsigned s_tick;
+  static int s_primed;
+  static char s_last[RNET_LOBBY_MAX_MODS * (RNET_LOBBY_MOD_ID_LEN +
+                                            RNET_LOBBY_MOD_FEATS_LEN + 2)];
+  char now[sizeof(s_last)];
+  RNetLobbyModPkg rows[RNET_LOBBY_MAX_MODS];
+  size_t used = 0;
+  int n;
+  int i;
+
+  if (!rnet_lobby_in_lobby()) {
+    s_primed = 0;
+    return;
+  }
+  /* The host checks its own files locally; only a guest's offer is read. */
+  if (!g_mods || !g_mods->missing_files || rnet_lobby_is_host() ||
+      rnet_lobby_local_is_spectator())
+    return;
+  if ((++s_tick % 60) != 0)
+    return;
+  n = mod_offer_rows(rows, RNET_LOBBY_MAX_MODS, NULL);
+  now[0] = '\0';
+  for (i = 0; i < n && used + 1 < sizeof(now); ++i) {
+    const int w = snprintf(now + used, sizeof(now) - used, "%s:%s;",
+                           rows[i].id, rows[i].nf);
+    if (w < 0) break;
+    used += (size_t)w;
+  }
+  if (s_primed && !strcmp(now, s_last))
+    return;
+  /* The first poll in a lobby announces too: a file chosen between the join's
+   * offer and this poll would otherwise never be told. */
+  if (s_primed)
+    fprintf(stderr, "netplay: mod files changed; re-announcing the offer\n");
+  (void)rnet_lobby_set_ready(rnet_lobby_local_ready() ? 1 : 0);
+  s_primed = 1;
+  snprintf(s_last, sizeof(s_last), "%s", now);
 }
 
 /* The mod runtime's cosmetic grant, through the hook when there is one. */
@@ -597,10 +660,15 @@ static RNetLobbyMatchCaps default_caps(const RecompLauncherCSettings *settings)
   caps.input_prediction = clamp_input_prediction(caps.input_prediction);
   caps.force_turn = g_lobby_force_turn ? 1 : 0;
   caps.force_input_relay = g_lobby_force_input_relay ? 1 : 0;
-  /* Host relay (docs/HOST_NETPLAY.md): the host's setting, default on. The
+  /* Host relay (docs/HOST_NETPLAY.md): always asked for online. The
    * lobby client drives the port / probe / reports from this cap once the
    * server echoes it back to the room. */
   caps.relay_host = rnet_lobby_relay_host_pref() ? 1 : 0;
+#ifdef RUI_HAVE_ICE_HUB
+  /* The lobby client publishes match_caps.relay_via only when this is on AND
+   * the build has ICE; it owns that decision. */
+  caps.relay_via_ice = rnet_lobby_relay_via_ice() ? 1 : 0;
+#endif
   fill_caps_mods(&caps);
   return caps;
 }
@@ -1125,6 +1193,13 @@ int recomp_netplay_host_init(const RecompNetplayHostHooks *hooks)
   g_local_address_count = 0;
   g_lobby_rollback = 1;
   g_lobby_input_prediction = 0;
+  /* Online, the host carries the match over ICE and nobody forwards a port;
+   * it is not a setting. LAN / Direct IP rooms are host-carried anyway and
+   * never publish these caps. */
+  rnet_lobby_set_relay_host_pref(1);
+#ifdef RUI_HAVE_ICE_HUB
+  rnet_lobby_set_relay_via_ice(1);
+#endif
 
   /* The lobby client learns what this build is before it can say anything:
    * title and pin for every op, the seat ceiling for create, the platform
@@ -1316,26 +1391,8 @@ static void cb_pump(void *ctx)
    * Re-init only when the URL actually changes rather than every pump: the
    * worker thread reads g.host while a login is in flight, and memset-ing it
    * under that read 60 times a second would be a data race for no gain. */
-  {
-    static char auth_url[256];
-    const char *url = cb_default_url(NULL);
-    if (url && url[0] && strcmp(url, auth_url) != 0) {
-      /* Anchor the secret to the EXECUTABLE directory before the first init.
-       * Its default is the bare relative name "netplay_secret", resolved
-       * against the working directory -- so the same install signed itself
-       * out depending on where it was launched from, and a rebuild run from a
-       * different directory read as a lost login. rnet_auth.c migrates an old
-       * CWD-relative file into this path on first load, so nobody is signed
-       * out by the move. */
-      char secret_path[512];
-      if (g_h.exe_dir_path &&
-          g_h.exe_dir_path(g_h.ctx, "netplay_secret", secret_path,
-                           sizeof(secret_path)))
-        rnet_account_set_secret_path(secret_path);
-      snprintf(auth_url, sizeof(auth_url), "%s", url);
-      rnet_account_init(url);
-    }
-  }
+  recomp_netplay_account_sync(cb_default_url(NULL), g_h.exe_dir_path,
+                             g_h.ctx);
   rnet_account_pump();
 
   /* Publish the account name to the lobby.
@@ -1392,6 +1449,7 @@ static void cb_pump(void *ctx)
   if (g_h.auto_ready_guests && rnet_lobby_in_lobby() &&
       !rnet_lobby_is_host() && !rnet_lobby_local_ready())
     (void)rnet_lobby_set_ready(1);
+  reannounce_offer_on_change();
 }
 
 static void cb_set_player_name(void *ctx, const char *name)
@@ -1557,6 +1615,14 @@ static int cb_list_get(void *ctx, int index, RecompLauncherCNetplayLobby *out)
   out->allow_spectators = row.allow_spectators;
   out->max_spectators = row.max_spectators;
   out->spectator_count = row.spectator_count;
+#if defined(RNET_LOBBY_HAS_LIST_LATENCY)
+  /* Ours + the host's round trip to the lobby server: an estimate through
+   * the server, since there is no direct link to a room's host before
+   * joining. -1 ("—") until both are known or from an older server. */
+  out->latency_ms = rnet_lobby_list_latency_estimate_ms(index);
+#else
+  out->latency_ms = -1;
+#endif
   return 1;
 }
 
@@ -1839,6 +1905,11 @@ static int cb_member_get(void *ctx, int index,
   snprintf(out->display_name, sizeof(out->display_name), "%s",
            member.display_name);
   out->latency_ms = rnet_lobby_member_latency_ms(member.slot);
+  out->mod_readiness_valid =
+      rnet_lobby_member_mod_readiness(index, &out->mods_missing,
+                                      &out->mod_files_missing,
+                                      out->mod_files_what,
+                                      sizeof(out->mod_files_what));
   return 1;
 }
 
@@ -2383,6 +2454,16 @@ static int cb_set_ready(void *ctx, int ready)
   return rnet_lobby_set_ready(ready);
 }
 
+static void cb_local_launch_gate_set(void *ctx, int can_launch)
+{
+  (void)ctx;
+#ifdef RNET_HAS_LAUNCH_BLOCKED
+  rnet_lobby_set_launch_blocked(!can_launch);
+#else
+  (void)can_launch;
+#endif
+}
+
 static int cb_request_start(void *ctx, const RecompLauncherCSettings *settings)
 {
   RNetLobbyMatchCaps caps = default_caps(settings);
@@ -2574,6 +2655,108 @@ static int cb_relay_host_set(void *ctx, int on)
   return 0;
 }
 
+#ifdef RUI_HAVE_ICE_HUB
+static int cb_relay_via_ice_get(void *ctx)
+{
+  const RNetLobbyMatchCaps *caps;
+  (void)ctx;
+  if (g_hosting_lan || g_joined_lan || !rnet_host_ice_available())
+    return 0;
+  caps = rnet_lobby_match_caps();
+  if (caps && caps->valid && rnet_lobby_in_lobby())
+    return (caps->relay_host && caps->relay_via_ice) ? 1 : 0;
+  return rnet_lobby_relay_via_ice();
+}
+
+static int cb_relay_via_ice_set(void *ctx, int on)
+{
+  (void)ctx;
+  rnet_lobby_set_relay_via_ice(on);
+  if (g_hosting_lan || g_joined_lan)
+    return 0;
+  if (rnet_lobby_in_lobby() && rnet_lobby_is_host()) {
+    RNetLobbyMatchCaps caps = default_caps(NULL);
+    return rnet_lobby_set_match_caps(&caps);
+  }
+  return 0;
+}
+
+/* One line (guest) or one line per seat (host) for the waiting room, from the
+ * agents' own state. Never says "port": no port is held in this mode. */
+static const char *ice_state_word(int state)
+{
+  switch (state) {
+  case RNET_ICE_STATE_COMPLETED: return "connected";
+  case RNET_ICE_STATE_FAILED: return "failed";
+  default: return "connecting";
+  }
+}
+
+static void ice_peer_text(const RNetHostIcePeerStatus *p, char *out, size_t cap)
+{
+  if (p->state == RNET_ICE_STATE_COMPLETED && p->path[0])
+    snprintf(out, cap, "connected (%s)", p->path);
+  else
+    snprintf(out, cap, "%s", ice_state_word(p->state));
+}
+
+static int recomp_netplay_ice_status_line(const RNetHostIceStatus *st, char *out,
+                                   size_t out_cap)
+{
+  size_t n = 0;
+  int i;
+  if (!out || !out_cap)
+    return 0;
+  out[0] = '\0';
+  if (!st || st->role == 0)
+    return 0;
+  if (st->role == 2) {
+    char w[40];
+    if (st->peer_count < 1) {
+      snprintf(out, out_cap, "Connecting to the host...");
+      return 1;
+    }
+    ice_peer_text(&st->peer[0], w, sizeof(w));
+    if (st->peer[0].state == RNET_ICE_STATE_FAILED)
+      snprintf(out, out_cap,
+               "Connection to the host failed. Check that your firewall allows "
+               "the game, then rejoin.");
+    else
+      snprintf(out, out_cap, "Connection to the host: %s.", w);
+    return 1;
+  }
+  if (st->peer_count < 1) {
+    snprintf(out, out_cap, "Waiting for guests to connect through you...");
+    return 1;
+  }
+  for (i = 0; i < st->peer_count && i < RNET_HOST_ICE_MAX_PEERS; ++i) {
+    char w[40];
+    int k;
+    ice_peer_text(&st->peer[i], w, sizeof(w));
+    k = snprintf(out + n, out_cap - n, "%sSeat %d: %s", i ? "\n" : "",
+                 st->peer[i].slot + 1, w);
+    if (k < 0 || (size_t)k >= out_cap - n)
+      break;
+    n += (size_t)k;
+  }
+  if (st->completed < st->peer_count && n < out_cap)
+    snprintf(out + n, out_cap - n,
+             "\nPlay starts once every seat is connected. A seat that "
+             "stays on failed can't reach you; check its firewall.");
+  return 1;
+}
+
+/* 1 = the room runs ICE agents and `out` holds the line. */
+static int ice_relay_status(char *out, size_t out_cap)
+{
+  RNetHostIceStatus st;
+  memset(&st, 0, sizeof(st));
+  if (!rnet_lobby_host_ice_status(&st))
+    return 0;
+  return recomp_netplay_ice_status_line(&st, out, out_cap);
+}
+#endif /* RUI_HAVE_ICE_HUB */
+
 static int cb_relay_status(void *ctx, char *out, size_t out_cap)
 {
   RNetHostRelayStatus st;
@@ -2583,6 +2766,17 @@ static int cb_relay_status(void *ctx, char *out, size_t out_cap)
   out[0] = '\0';
   if (g_hosting_lan || g_joined_lan || !rnet_lobby_in_lobby())
     return 0;
+#ifdef RUI_HAVE_ICE_HUB
+  /* ICE mode replaces the port/reachability guidance entirely: the legacy
+   * status would talk about a forwarded port that this room never opens. */
+  if (ice_relay_status(out, out_cap))
+    return 1;
+  {
+    const RNetLobbyMatchCaps *c = rnet_lobby_match_caps();
+    if (c && c->valid && c->relay_host && c->relay_via_ice)
+      return 0; /* ICE room, agents not up yet: say nothing, never port text */
+  }
+#endif
   if (!rnet_lobby_host_relay_status(&st))
     return 0;
   if (st.role == 1) {
@@ -2747,6 +2941,9 @@ static int cb_fill_launch(void *ctx, RecompLauncherCNetplayLaunch *out)
    * arrives before we get here. See RNetLobbyJoinInfo::force_input_relay. */
   out->force_input_relay = join.force_input_relay ? 1 : 0;
   out->transport_host = join.transport_host ? 1 : 0;
+#ifdef RUI_HAVE_ICE_HUB
+  out->transport_ice_hub = join.transport_ice_hub ? 1 : 0;
+#endif
   out->max_slots = join.max_slots >= 2 ? clamp_lobby_max_slots(join.max_slots)
                                        : clamp_lobby_max_slots(g_lobby_max_slots);
   out->player_count = join.player_count > 0 ? join.player_count : out->max_slots;
@@ -2890,6 +3087,7 @@ static int cb_lobby_mods_get(void *ctx, int index,
   version = row->ver;
   snprintf(out->id, sizeof(out->id), "%s", id);
   snprintf(out->version, sizeof(out->version), "%s", version);
+  snprintf(out->features, sizeof(out->features), "%s", row->feats);
   /* The host published a display name; prefer it, and fall back to the id.
    * The local lookup below overrides it when this peer has the package, so a
    * player sees the same name the host sees either way. */
@@ -3633,6 +3831,11 @@ static RecompLauncherCNetplayCallbacks g_callbacks = {
     .relay_host_get = cb_relay_host_get,
     .relay_host_set = cb_relay_host_set,
     .relay_status = cb_relay_status,
+    .local_launch_gate_set = cb_local_launch_gate_set,
+#ifdef RUI_HAVE_ICE_HUB
+    .relay_via_ice_get = cb_relay_via_ice_get,
+    .relay_via_ice_set = cb_relay_via_ice_set,
+#endif
     .input_prediction_get = cb_input_prediction_get,
     .input_prediction_set = cb_input_prediction_set,
     .connecting = cb_connecting,

@@ -293,6 +293,41 @@ success. A failed commit keeps the launcher open and displays `last_error`; the
 host can perform final target verification, dependency resolution, collision
 checks, persistence, and plan construction there.
 
+For statically paired builds, a host may set `commit_worker_safe = 1` when
+`RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT` is defined. This explicitly certifies
+that `commit`, `last_error`, and every service they invoke have no UI, SDL, GL,
+or main-thread affinity, and that their context stays alive until the launcher
+returns. Only preboot offline PLAY uses the owned worker. The UI renders a
+progress view and pumps events without any provider access or model edits;
+close requests wait for completion and join before returning QUIT. The image
+path and failure text are copied, and a failed commit stays in the launcher.
+Verification gates remain unchanged. Zero-initialized providers, netplay, and
+in-session Resume/close retain synchronous behavior. This struct has no
+negotiated size: the appended capability supports source compatibility, not
+loading an older binary provider object.
+
+An audited host may additionally supply `try_commit(ctx, image_path)` and
+`preparation_revision(ctx)` when `RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT` is
+defined. Both callbacks and the worker-safe opt-in are required. `try_commit`
+returns 1 only after committing an authoritative prepared plan, 0 when the
+worker must prepare it, or -1 for an error from `last_error`. It must perform
+no resource preparation or heavy reads. The revision is a cheap generation
+for selection, option, source and catalog changes, stable during commit.
+The host owns complete ticket validation and invalidation; the UI never
+accepts its remembered path/revision as proof that a launch is ready.
+
+With this capability, initial selected-image/source changes can prepare on
+the owned worker before PLAY. Requests coalesce after the frame's provider
+reads, once active edits, popups and setup operations finish. Adding an
+unselected disc slot does not prepare another image. Preparation success
+stays in the launcher; errors remain visible without an automatic retry loop,
+and closing still waits for the worker and wins over success. Unchanged warm
+PLAY succeeds through `try_commit` without a worker or progress view. Cold
+PLAY retains the existing progress and validation behavior. Netplay and
+in-session commits keep their existing paths; commit-only hosts never
+auto-prepare. A host can prime a validated warm ticket before opening the UI
+so an ordinary warm launcher does not need a preparation screen at all.
+
 Hosted-lobby, LAN, and direct netplay launches never call the normal `commit()`.
 If supplied, `commit_netplay()` should clear any in-session mod plan without
 changing the user's persisted offline selection. If it is `NULL`, recomp-ui

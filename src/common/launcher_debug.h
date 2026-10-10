@@ -60,6 +60,10 @@ void launcher_debug_init(void);
 // BEFORE presenting, so `shot:` captures the completed frame. Sets
 // m->action = LNG_ACTION_QUIT when the script ends or hits `quit`.
 void launcher_debug_step(LauncherPlatform* p, LauncherModel* m);
+/* While an owned provider job is pending, allow window/event/wait/screenshot
+ * commands, defer direct model commands, and return true for quit/exhaustion.
+ * Never reads or mutates the model; the backend queues the close until join. */
+bool launcher_debug_step_pending(LauncherPlatform* p);
 
 // Write the current GL framebuffer to a PNG (RGB, row-flipped).
 bool launcher_capture_png(const char* path, int w, int h);

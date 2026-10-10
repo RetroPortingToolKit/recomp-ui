@@ -37,6 +37,13 @@ const RecompRuntimeUiItem *recomp_runtime_ui_section_item(
     return NULL;
 }
 
+/* Every status write withdraws a pending confirmation: its prompt is gone. */
+static void show_status(RecompRuntimeUi *ui, const char *text, unsigned frames) {
+    snprintf(ui->status, sizeof(ui->status), "%s", text);
+    ui->status_frames = ui->status[0] ? frames : 0;
+    ui->confirm_item = NULL;
+}
+
 static void visibility(RecompRuntimeUi *ui, int open) {
     if (!ui || ui->open == open) return;
     ui->open = open;
@@ -76,6 +83,7 @@ void recomp_runtime_ui_destroy(RecompRuntimeUi *ui) {
     free(ui->owned_items);
     free(ui->owned_view_choices);
     free(ui->owned_view_values);
+    free(ui->owned_confirm_prompts);
     free(ui);
 }
 
@@ -92,8 +100,12 @@ void recomp_runtime_ui_open(RecompRuntimeUi *ui) {
 
 void recomp_runtime_ui_close(RecompRuntimeUi *ui) {
     /* Abandon any in-progress edit, so reopening never resumes a stale buffer
-     * and wants_text_input cannot stay stuck on with the menu shut. */
-    if (ui) ui->editing_text = 0;
+     * and wants_text_input cannot stay stuck on with the menu shut. A pending
+     * "press again" goes too: reopening must not leave one press from quitting. */
+    if (ui) {
+        ui->editing_text = 0;
+        if (ui->confirm_item) show_status(ui, "", 0);
+    }
     visibility(ui, 0);
 }
 
@@ -112,15 +124,21 @@ int recomp_runtime_ui_current_value(RecompRuntimeUi *ui,
 }
 
 static void accepted_change(RecompRuntimeUi *ui, const char *status) {
-    snprintf(ui->status, sizeof(ui->status), "%s", status ? status : "Applied");
-    ui->status_frames = 90;
+    show_status(ui, status ? status : "Applied", 90);
     if (ui->config.callbacks.save)
         ui->config.callbacks.save(ui->config.callbacks.context);
 }
 
 static void accepted_action(RecompRuntimeUi *ui) {
-    snprintf(ui->status, sizeof(ui->status), "%s", "Done");
-    ui->status_frames = 90;
+    show_status(ui, "Done", 90);
+}
+
+/* Items always come from config.items, which are owned_items when the
+ * standard builder made the menu. */
+static const char *owned_confirm_prompt(const RecompRuntimeUi *ui,
+                                        const RecompRuntimeUiItem *item) {
+    if (!ui->owned_confirm_prompts) return NULL;
+    return ui->owned_confirm_prompts[item - ui->config.items];
 }
 
 void recomp_runtime_ui_adjust_current(RecompRuntimeUi *ui, int direction,
@@ -130,6 +148,8 @@ void recomp_runtime_ui_adjust_current(RecompRuntimeUi *ui, int direction,
     if (!item || !recomp_runtime_ui_item_enabled(ui, item)) return;
     if (item->type == RECOMP_RUNTIME_UI_ACTION) {
         if (!activate || repeat || !ui->config.callbacks.run_action) return;
+        const char *prompt = owned_confirm_prompt(ui, item);
+        if (prompt && !recomp_runtime_ui_confirm(ui, item, prompt)) return;
         if (ui->config.callbacks.run_action(ui->config.callbacks.context, item))
             accepted_action(ui);
         return;
@@ -213,8 +233,23 @@ void recomp_runtime_ui_set_backdrop(RecompRuntimeUi *ui, float dim, float opacit
 
 void recomp_runtime_ui_set_status(RecompRuntimeUi *ui, const char *text) {
     if (!ui) return;
-    snprintf(ui->status, sizeof(ui->status), "%s", text ? text : "");
-    ui->status_frames = ui->status[0] ? 180 : 0;
+    show_status(ui, text ? text : "", 180);
+}
+
+int recomp_runtime_ui_confirm(RecompRuntimeUi *ui,
+                              const RecompRuntimeUiItem *item,
+                              const char *prompt) {
+    if (!ui || !item) return 0;
+    /* The prompt still showing is the window: status_frames runs down only
+     * while a presentation draws the open menu. */
+    if (ui->confirm_item && ui->status_frames &&
+        same_text(ui->confirm_item->key, item->key)) {
+        ui->confirm_item = NULL;
+        return 1;
+    }
+    show_status(ui, prompt ? prompt : "Press again to confirm", 180);
+    ui->confirm_item = item;
+    return 0;
 }
 
 void recomp_runtime_ui_set_toast(RecompRuntimeUi *ui, const char *title, const char *body) {

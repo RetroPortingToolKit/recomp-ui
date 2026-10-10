@@ -554,6 +554,79 @@ static void case_session_variant(void)
 }
 #endif
 
+#ifdef RUI_HAVE_ICE_HUB
+static void case_ice_relay(void)
+{
+    RNetHostIceStatus st;
+    RecompLauncherCNetplayLaunch l;
+    char line[512];
+    printf("  host relay over ICE\n");
+    hooks_with(RECOMP_NETPLAY_SLOTS_HOST_FIRST, 4);
+
+    /* The pref reaches the caps the host publishes; default on. */
+    rnet_lobby_set_relay_via_ice(1);
+    ck(default_caps(NULL).relay_via_ice == 1, "caps carry relay_via_ice on");
+    ck(cb_relay_via_ice_set(NULL, 0) == 0, "set off before a room: pending");
+    ck(default_caps(NULL).relay_via_ice == 0, "caps carry relay_via_ice off");
+    ck(cb_relay_via_ice_get(NULL) == 0,
+       "getter answers the pref");
+    (void)cb_relay_via_ice_set(NULL, 1);
+
+    /* cb_fill_launch's copy of join.transport_ice_hub needs a live lobby
+     * launch (recomp-net's join record is private), so it is not driven here. */
+    memset(&l, 0, sizeof(l));
+    ck(l.transport_ice_hub == 0, "launch record starts without the hub");
+
+    /* Status line: idle -> nothing. */
+    memset(&st, 0, sizeof(st));
+    ck(recomp_netplay_ice_status_line(&st, line, sizeof(line)) == 0 && !line[0],
+       "idle: no line");
+
+    /* Host, three seats: connecting / connected direct / failed. */
+    st.role = 1; st.peer_count = 3; st.completed = 1;
+    st.peer[0].slot = 1; st.peer[0].state = RNET_ICE_STATE_CONNECTING;
+    st.peer[1].slot = 2; st.peer[1].state = RNET_ICE_STATE_COMPLETED;
+    strcpy(st.peer[1].path, "srflx");
+    st.peer[2].slot = 3; st.peer[2].state = RNET_ICE_STATE_FAILED;
+    ck(recomp_netplay_ice_status_line(&st, line, sizeof(line)) == 1, "host line");
+    ck(strstr(line, "Seat 2: connecting") != NULL, "seat 2 connecting");
+    ck(strstr(line, "Seat 3: connected (srflx)") != NULL, "seat 3 srflx");
+    ck(strstr(line, "Seat 4: failed") != NULL, "seat 4 failed");
+    ck(strstr(line, "forward") == NULL, "never says forward");
+
+    st.completed = 3;
+    st.peer[0].state = RNET_ICE_STATE_COMPLETED;
+    strcpy(st.peer[0].path, "host");
+    st.peer[2].state = RNET_ICE_STATE_COMPLETED;
+    strcpy(st.peer[2].path, "prflx");
+    recomp_netplay_ice_status_line(&st, line, sizeof(line));
+    ck(strstr(line, "Seat 2: connected (host)") != NULL &&
+       strstr(line, "Seat 4: connected (prflx)") != NULL, "host/prflx words");
+    ck(strstr(line, "Play starts once") == NULL, "no waiting hint when all up");
+
+    /* Guest. */
+    memset(&st, 0, sizeof(st));
+    st.role = 2; st.peer_count = 1;
+    st.peer[0].state = RNET_ICE_STATE_CONNECTING;
+    recomp_netplay_ice_status_line(&st, line, sizeof(line));
+    ck(strstr(line, "connecting") != NULL, "guest connecting");
+    st.peer[0].state = RNET_ICE_STATE_COMPLETED; strcpy(st.peer[0].path, "direct");
+    recomp_netplay_ice_status_line(&st, line, sizeof(line));
+    ck(strstr(line, "connected (direct)") != NULL, "guest connected direct");
+    st.peer[0].state = RNET_ICE_STATE_FAILED;
+    recomp_netplay_ice_status_line(&st, line, sizeof(line));
+    ck(strstr(line, "failed") != NULL, "guest failed");
+
+    /* Truncation stays terminated. */
+    {
+        char tiny[12];
+        st.role = 1; st.peer_count = 1; st.peer[0].slot = 1;
+        recomp_netplay_ice_status_line(&st, tiny, sizeof(tiny));
+        ck(memchr(tiny, 0, sizeof(tiny)) != NULL, "tiny buffer terminated");
+    }
+}
+#endif
+
 int main(void)
 {
     case_host_first_standard_and_swapped();
@@ -568,6 +641,9 @@ int main(void)
     case_lan_rematch_as_guest();
 #ifdef RNET_HAS_SESSION_VARIANT
     case_session_variant();
+#endif
+#ifdef RUI_HAVE_ICE_HUB
+    case_ice_relay();
 #endif
     printf(fails ? "\n%d failure(s)\n" : "\nall netplay host cases passed\n",
            fails);

@@ -27,6 +27,8 @@ static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
 static bool g_tcp_failed, g_reply_pending;
+static char g_deferred_command[2048];
+static bool g_deferred_ready, g_deferred_tcp;
 static unsigned long g_frame;
 static SDL_Event g_events[8];
 static int g_event_count;
@@ -67,7 +69,7 @@ void launcher_debug_init(void) {
     launcher_debug_shutdown();
     g_cmd_count = g_cmd_index = g_wait_frames = g_event_count = g_click_phase = 0;
     g_frame = 0;
-    g_mouse_valid = g_reply_pending = g_tcp_failed = false;
+    g_mouse_valid = g_reply_pending = g_tcp_failed = g_deferred_ready = g_deferred_tcp = false;
     const char* port = SDL_getenv("LNG_TCP_PORT");
     if (port) {
         g_active = true;
@@ -203,39 +205,52 @@ static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
     debug_event(&e);
 }
 
-void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
-    if (!g_active) return;
+static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
+    if (!g_active) return false;
     ++g_frame;
-    if (g_tcp_failed) { m->action = LNG_ACTION_QUIT; return; }
+    if (g_tcp_failed) return true;
 
     // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
     // otherwise a script that clicks PLAY and then ends would overwrite LAUNCH
     // with the script-exhausted QUIT below.
-    if (m->action != LNG_ACTION_NONE) return;
+    if (m && m->action != LNG_ACTION_NONE) return false;
 
-    if (g_wait_frames > 0) { --g_wait_frames; return; }
+    if (g_wait_frames > 0) { --g_wait_frames; return false; }
     if (g_reply_pending) {
         char reply[128];
         snprintf(reply, sizeof(reply), "{\"ok\":true,\"frame\":%lu}", g_frame);
         launcher_debug_tcp_reply(reply);
         g_reply_pending = false;
-        return;
+        return false;
     }
 
     char tcp_command[2048];
     bool tcp = false, ok = true;
     const char* c;
-    if (g_cmd_index < g_cmd_count) c = g_cmds[g_cmd_index++];
+    if (g_deferred_ready) {
+        snprintf(tcp_command, sizeof(tcp_command), "%s", g_deferred_command);
+        c = tcp_command; tcp = g_deferred_tcp;
+        g_deferred_ready = false;
+    } else if (g_cmd_index < g_cmd_count) c = g_cmds[g_cmd_index++];
     else if (launcher_debug_tcp_active()) {
         int result = launcher_debug_tcp_command(tcp_command, sizeof(tcp_command));
-        if (!result) return;
+        if (!result) return false;
         if (result < 0) {
             launcher_debug_tcp_reply("{\"ok\":false,\"error\":\"invalid_command\"}");
-            return;
+            return false;
         }
         c = tcp_command; tcp = true;
-    } else { m->action = LNG_ACTION_QUIT; return; }
+    } else return true;
 
+    // During exclusive preparation the UI cannot access the live model.
+    // Keep model commands queued until the preparation worker returns ownership.
+    if (!m && strncmp(c, "size:", 5) && strncmp(c, "click:", 6) &&
+        strncmp(c, "key:", 4) && strncmp(c, "text:", 5) &&
+        strncmp(c, "wait:", 5) && strncmp(c, "shot:", 5) && strcmp(c, "quit")) {
+        snprintf(g_deferred_command, sizeof(g_deferred_command), "%s", c);
+        g_deferred_tcp = tcp; g_deferred_ready = true;
+        return false;
+    }
     if (!strcmp(c, "state")) {
         char reply[2048];
         int at = snprintf(reply, sizeof(reply),
@@ -251,7 +266,7 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
                 m->s.player_src[i], m->s.player_gamepad_instance[i]);
         snprintf(reply + at, sizeof(reply) - (size_t)at, "]}");
         launcher_debug_tcp_reply(reply);
-        return;
+        return false;
     }
 
     if (strncmp(c, "view:", 5) == 0) {
@@ -323,15 +338,25 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
     } else if (strncmp(c, "shot:", 5) == 0) {
         ok = launcher_capture_png(c + 5, p->pixel_w, p->pixel_h);
     } else if (strcmp(c, "quit") == 0) {
-        m->action = LNG_ACTION_QUIT;
+        if (tcp) launcher_debug_tcp_reply("{\"ok\":true}");
+        return true;
     } else {
         fprintf(stderr, "[dbg] unknown command: %s\n", c);
         ok = false;
     }
     if (tcp) {
         if (!ok) launcher_debug_tcp_reply("{\"ok\":false,\"error\":\"command_failed\"}");
-        else if (m->action == LNG_ACTION_QUIT)
+        else if (m && m->action == LNG_ACTION_QUIT)
             launcher_debug_tcp_reply("{\"ok\":true}");
         else g_reply_pending = true; // acknowledge after the next rendered frame / wait
     }
+    return false;
+}
+
+void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
+    if (launcher_debug_step_impl(p, m)) m->action = LNG_ACTION_QUIT;
+}
+
+bool launcher_debug_step_pending(LauncherPlatform* p) {
+    return launcher_debug_step_impl(p, NULL);
 }

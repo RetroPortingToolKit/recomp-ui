@@ -337,6 +337,19 @@ typedef struct {
     const int*         internal_resolution_values;
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
+    bool               has_dynamic_resolution;
+    bool               has_render_pipeline;   // GameInfo.has_render_pipeline
+    // ---- graphics presets (GameInfo.quality_*; Settings.quality_preset) ----
+    int                quality_offered_mask;
+    int                quality_detected;
+    const char*        quality_summary;
+    const char*        quality_reason;
+    void (*quality_apply)(int preset, RecompLauncherCSettings* s);
+    int  (*quality_redetect)(void);
+    // The governed fields as the last preset set them; any difference means
+    // the player customised (launcher_model_quality_track).
+    RecompLauncherCSettings quality_snapshot;
+    bool               quality_snapshot_valid;
 
     // ---- rebind-page opt-out (GameInfo.hide_rebind) ------------------------
     bool hide_rebind;
@@ -391,6 +404,7 @@ typedef struct {
     bool settings_bindings;
     const char* const* assist_binding_labels;
     int assist_binding_count;
+    int assist_direct_pad_bind_action;
     const char* credits_text;
     int assist_fast_forward_min;
     int assist_fast_forward_max;
@@ -637,10 +651,6 @@ typedef struct {
     /* Lobby UDP SFU (online default). Not exposed in Lobby Settings; LAN clears. */
     bool      netplay_force_input_relay;
     bool      netplay_force_turn;
-    /* Online rooms: the host carries the match (host relay) rather than the
-     * lobby server's relay. Persisted in the network settings file (relay=);
-     * published by the host in match_caps.relay; guests read the host's. */
-    bool      netplay_relay_host;
     /* One line of live host-relay state from the backend, for the ROOM panel. */
     char      netplay_relay_status[200];
     /* True = rollback invent path. The title may set the initial room mode. */
@@ -731,6 +741,12 @@ int  launcher_model_disc_selected(const LauncherModel* m);
 int  launcher_model_disc_number(const LauncherModel* m, int idx);
 // Dropdown row text for slot `idx` — the host's label when it gave one, else
 // "Disc <number>". Never NULL; "" when idx is out of range.
+/* User-facing text for a lobby/launch error that concerns the host relay, or
+ * NULL when `err` is not one. `ice_mode` selects ICE wording (no port forward
+ * advice) over the legacy-port wording; relay_unavailable from a legacy server
+ * keeps the legacy text. Pure; the returned string is static. */
+const char* launcher_model_relay_error_text(const char* err, bool ice_mode);
+
 const char* launcher_model_disc_label(const LauncherModel* m, int idx);
 // Effective image path for slot `idx`: this run's browse-in when the player
 // made one, otherwise the path the build was made against. "" out of range.
@@ -887,6 +903,23 @@ const char* launcher_model_supersampling_label(const LauncherModel* m);
  * getters speak the vocabulary; set stores the entry's value, and a value
  * outside the vocabulary never becomes the selection. */
 bool        launcher_model_internal_resolution_offered(const LauncherModel* m);
+/* Rendering pipeline rows (Render thread / Present thread / Frame
+ * generation): offered when the host sets has_render_pipeline and the
+ * renderer is OpenGL (index 1). The two child rows are editable only while
+ * Render thread is on. */
+bool        launcher_model_render_pipeline_offered(const LauncherModel* m);
+/* Graphics presets: offered when the host set quality_offered_mask. */
+bool        launcher_model_quality_offered(const LauncherModel* m);
+/* Apply preset 1..4 through the host and remember what it set. */
+void        launcher_model_quality_select(LauncherModel* m, int preset);
+/* Re-run the host's detection and apply the result. */
+void        launcher_model_quality_redetect(LauncherModel* m);
+/* Call every frame: a governed field that differs from the preset's value
+ * switches the state to Custom (5), keeping quality_base. */
+void        launcher_model_quality_track(LauncherModel* m);
+/* "Low" .. "Ultra", "Custom", "" for 0. */
+const char* launcher_model_quality_label(int preset);
+bool        launcher_model_render_pipeline_children_enabled(const LauncherModel* m);
 int         launcher_model_internal_resolution_count(const LauncherModel* m);
 const char* launcher_model_internal_resolution_label_at(const LauncherModel* m, int i);
 int         launcher_model_internal_resolution_index(const LauncherModel* m);
@@ -1216,6 +1249,10 @@ void launcher_model_begin_assist_capture(LauncherModel* m, int action,
                                          bool gamepad);
 void launcher_model_set_captured_key(LauncherModel* m, int scancode);
 void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding);
+/* Encode a single captured assist button. One action may opt into a direct
+ * single-button encoding; other actions retain their implicit Select chord. */
+int launcher_model_assist_pad_button_capture_binding(
+    const LauncherModel* m, int action, int button);
 void launcher_model_reset_player_bindings(LauncherModel* m, int player);
 void launcher_model_reset_assist_bindings(LauncherModel* m);
 void launcher_model_cancel_capture(LauncherModel* m);
