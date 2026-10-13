@@ -390,10 +390,29 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
         const float close_h = touch_friendly
             ? std::max(ImGui::GetFrameHeight(), theme.row_height * 0.82f)
             : 0.0f;
-        const float footer_h = touch_friendly
-            ? close_h + theme.spacing_sm * 2.0f
-            : ImGui::GetTextLineHeightWithSpacing() + theme.spacing_lg + 2.0f;
-        const float content_h = ImGui::GetContentRegionAvail().y - footer_h;
+        const char *close_label = "Resume";
+        const float available_w = ImGui::GetContentRegionAvail().x;
+        const float wanted_close_w = touch_friendly
+            ? std::max(320.0f, ImGui::CalcTextSize(close_label).x + theme.spacing_lg * 2.0f)
+            : ImGui::CalcTextSize(close_label).x + theme.spacing_lg * 2.0f;
+        const float close_w = std::min(wanted_close_w, available_w * 0.4f);
+        const float text_w = std::max(1.0f, available_w - close_w - ImGui::GetStyle().ItemSpacing.x);
+        char hint[384];
+        if (touch_friendly) {
+            std::snprintf(hint, sizeof hint, "Tap a section or setting");
+        } else {
+            std::snprintf(hint, sizeof hint, "%s  Select    %s  Back    D-pad / Arrows  Navigate",
+                ui->config.accept_label ? ui->config.accept_label : "Select",
+                ui->config.back_label ? ui->config.back_label : "Back");
+        }
+        float text_h = ImGui::CalcTextSize(hint, nullptr, false, text_w).y;
+        if (ui->status_frames)
+            text_h += ImGui::GetStyle().ItemSpacing.y +
+                      ImGui::CalcTextSize(ui->status, nullptr, false, text_w).y;
+        const float footer_content_h = std::max(text_h,
+            touch_friendly ? close_h : ImGui::GetFrameHeight());
+        const float footer_h = footer_content_h + theme.spacing_lg + 2.0f;
+        const float content_h = std::max(1.0f, ImGui::GetContentRegionAvail().y - footer_h);
         if (wide) {
             const float sidebar_w = touch_friendly
                 ? std::clamp(width * 0.20f, 280.0f, 520.0f)
@@ -434,32 +453,20 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
         }
 
         ImGui::Separator();
-        if (touch_friendly) {
-            ImGui::TextDisabled("Tap a section or setting");
-        } else {
-            const char *accept = ui->config.accept_label
-                                     ? ui->config.accept_label : "Select";
-            const char *back = ui->config.back_label
-                                   ? ui->config.back_label : "Back";
-            ImGui::TextDisabled(
-                "%s  Select    %s  Back    D-pad / Arrows  Navigate",
-                accept, back);
-        }
+        // Text owns its own wrapping region; it cannot run behind Resume.
+        ImGui::BeginChild("##footer", ImVec2(text_w, footer_content_h), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", hint);
         if (ui->status_frames) {
-            ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Text, col(theme.accent2));
             ImGui::TextUnformatted(ui->status);
             ImGui::PopStyleColor();
             --ui->status_frames;
         }
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
         ImGui::SameLine();
-        const char *close_label = "Resume";
-        const float close_w = touch_friendly
-            ? std::max(320.0f, ImGui::CalcTextSize(close_label).x +
-                                   theme.spacing_lg * 2.0f)
-            : ImGui::CalcTextSize(close_label).x + theme.spacing_lg * 2.0f;
-        ImGui::SetCursorPosX(ImGui::GetWindowWidth() -
-                             ImGui::GetStyle().WindowPadding.x - close_w);
         if (ImGui::Button(close_label, ImVec2(close_w, close_h)))
             recomp_runtime_ui_close(ui);
     }
