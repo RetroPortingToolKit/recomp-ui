@@ -203,5 +203,18 @@ int main() {
     check(old.launch(&old_api, true, "session.cue") == Policy::Request::Ready &&
           legacy.worker == legacy.owner && legacy.probes == before_probe,
           "in-session commit retains synchronous legacy path without warm probe");
+    Provider canceled_provider;
+    auto canceled_api=callbacks(canceled_provider);
+    canceled_api.commit_with_progress=[](void* ctx,const char* image,
+        int (*report)(void*,float,const char*),void* progress_ctx) -> int {
+        if(!report(progress_ctx,0.0f,"Starting"))return 0;
+        return commit(ctx,image);
+    };
+    Policy canceled;
+    check(canceled.launch(&canceled_api,false,"cancel.cue")==Policy::Request::Queued,
+          "cooperative PLAY queues normally");
+    canceled.job.request_cancel();canceled.job.start();
+    check(finish(canceled)==Policy::Completion::Failed && canceled_provider.commits==0 &&
+          std::string(canceled.error())=="Preparation canceled.","canceled preparation cannot launch");
     return 0;
 }

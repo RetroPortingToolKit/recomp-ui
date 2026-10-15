@@ -328,6 +328,16 @@ in-session commits keep their existing paths; commit-only hosts never
 auto-prepare. A host can prime a validated warm ticket before opening the UI
 so an ordinary warm launcher does not need a preparation screen at all.
 
+When `RECOMP_LAUNCHER_HAS_MOD_PREPARATION_PROGRESS` is defined, a worker-safe
+provider may also supply `commit_with_progress`. It receives a report callback
+and context; pass a fraction in 0..1 (or a negative value for an indefinite bar)
+and a short preparation message. The launcher copies progress without accessing
+the provider on the UI thread. A zero report result requests cancellation.
+Check it between bounded work units and before publishing output bindings, and
+retain the previous verified cache on failure or cancellation. Cancel and close
+join the owned worker; cancellation always suppresses launch. Legacy providers
+keep their existing callback and completion behavior.
+
 Hosted-lobby, LAN, and direct netplay launches never call the normal `commit()`.
 If supplied, `commit_netplay()` should clear any in-session mod plan without
 changing the user's persisted offline selection. If it is `NULL`, recomp-ui
