@@ -13958,10 +13958,16 @@ static void draw_launch_commit_progress(const LauncherTheme& th) {
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted(ui_text("Preparing your game..."));
-    ImGui::ProgressBar(-float(ImGui::GetTime()), ImVec2(-1.0f, px(12.0f)), "");
+    const auto progress=s_launch_commit->job.status();
+    ImGui::ProgressBar(progress.fraction>=0 ? progress.fraction : -float(ImGui::GetTime()),
+                       ImVec2(-1.0f, px(12.0f)), "");
+    if(progress.text[0])ImGui::TextWrapped("%s",progress.text.data());
     ImGui::TextWrapped("%s", ui_text(s_launch_commit->close_requested
         ? "Closing when preparation finishes."
         : "Checking and preparing your selected content. Please wait."));
+    if(s_launch_commit->job.can_cancel() && !s_launch_commit->job.cancelled() &&
+       ImGui::Button(ui_text("Cancel")))s_launch_commit->job.request_cancel();
+    if(s_launch_commit->job.cancelled())ImGui::TextUnformatted(ui_text("Canceling preparation..."));
     ImGui::End();
     ImGui::PopStyleColor();
 }
@@ -14749,7 +14755,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 if (completion == LauncherModPreparation::Completion::Launch) m->action = LNG_ACTION_LAUNCH;
             } else {
                 std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
-                              launch_commit.job.error());
+                              launch_commit.error());
                 launcher_model_set_view(m, LNG_VIEW_MODS);
             }
             if (p->should_quit || m->action != LNG_ACTION_NONE) break;
@@ -14906,6 +14912,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
         ImGui::NewFrame();
+        if (launch_commit.job.pending() && (launch_commit.close_requested || p->should_quit))
+            launch_commit.job.request_cancel();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();

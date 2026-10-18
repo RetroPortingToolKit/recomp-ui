@@ -1205,9 +1205,18 @@ typedef struct RecompLauncherCModProvider {
      * Appended for statically paired source compatibility, not binary sizing. */
     int (*try_commit)(void* ctx, const char* image_path);
     unsigned long long (*preparation_revision)(void* ctx);
+    /* Optional cooperative preboot preparation. report returns zero after
+     * cancellation; the provider must check it between bounded work units and
+     * before publishing its selection. Text is copied by the launcher and is
+     * borrowed only for the callback. fraction < 0 requests an indefinite bar.
+     * Appended for statically paired source compatibility. No binary ABI claim. */
+    int (*commit_with_progress)(void* ctx, const char* image_path,
+        int (*report)(void* report_ctx, float fraction, const char* text),
+        void* report_ctx);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
 #define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
+#define RECOMP_LAUNCHER_HAS_MOD_PREPARATION_PROGRESS 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
