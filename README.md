@@ -12,6 +12,13 @@ generalized behind a small C ABI. Consume it as a git submodule, hand it your
 game's facts through a plain-C struct, and it renders the right UI for that
 console.
 
+Original Xbox hosts can call `launcher_profile_apply("xbox", &gi)` for the
+black/charcoal and green theme, Xbox button vocabulary and `.xbe` picker. Use
+`CONSOLE xbox` in the CMake integration. Controller art is optional
+(`assets/consoles/xbox/img/pad_xbox.tga`); a host supplies its Xbox binding and
+save adapters and opts into the capabilities it actually implements. Preview
+the shared identity with `LNG_VARIANT=xbox` in the standalone launcher.
+
 Proven in production driving two very different consoles from the **same
 binary core**:
 

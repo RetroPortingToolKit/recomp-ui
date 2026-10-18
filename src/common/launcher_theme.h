@@ -278,12 +278,41 @@ static inline LauncherTheme launcher_theme_gbc(void) {
     return t;
 }
 
+// Original Xbox: black shell, charcoal surfaces and the bright green identity.
+// Dark CTA text stays legible on green; keyboard/gamepad focus uses the same
+// green family. Shared tokens apply to both launcher backends.
+static inline LauncherTheme launcher_theme_xbox(void) {
+    LauncherTheme t = launcher_theme_default();
+    t.background      = lng_rgba(0.027f, 0.035f, 0.027f, 1.0f); // #070907
+    t.background2     = lng_rgba(0.051f, 0.067f, 0.047f, 1.0f); // #0D110C
+    t.panel           = lng_rgba(0.067f, 0.082f, 0.063f, 1.0f); // #111510
+    t.panel_hovered   = lng_rgba(0.110f, 0.145f, 0.094f, 1.0f); // #1C2518
+    t.control         = lng_rgba(0.094f, 0.114f, 0.086f, 1.0f); // #181D16
+    t.control_hovered = lng_rgba(0.145f, 0.188f, 0.114f, 1.0f); // #25301D
+    t.border          = lng_rgba(0.227f, 0.282f, 0.196f, 1.0f); // #3A4832
+    t.accent          = lng_rgba(0.608f, 0.941f, 0.043f, 1.0f); // #9BF00B
+    t.accent_dim      = lng_rgba(0.365f, 0.647f, 0.027f, 1.0f); // #5DA507
+    t.accent_text     = lng_rgba(0.027f, 0.035f, 0.027f, 1.0f);
+    t.accent2         = t.accent;
+    t.text            = lng_rgba(0.933f, 0.949f, 0.918f, 1.0f); // #EEF2EA
+    t.text_muted      = lng_rgba(0.620f, 0.667f, 0.588f, 1.0f); // #9EAA96
+    t.focus_ring      = lng_rgba(0.737f, 1.000f, 0.329f, 1.0f); // #BCFF54
+    t.scanlines       = 0;
+    return t;
+}
+
 // Pick a built-in theme by name ("psx" -> PlayStation, "gba" -> Game Boy
 // Advance, "gbc" -> Game Boy Color, "gb" -> Game Boy (DMG), "n64" -> Nintendo
-// 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis;
+// 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis,
+// "xbox" -> Original Xbox;
 // anything else -> default CRT). Note the "gb*" order: match "gba" and "gbc"
 // (3rd char) BEFORE the bare "gb" fallback.
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if (name && (name[0] == 'x' || name[0] == 'X') &&
+        (name[1] == 'b' || name[1] == 'B') &&
+        (name[2] == 'o' || name[2] == 'O') &&
+        (name[3] == 'x' || name[3] == 'X') && name[4] == '\0')
+        return launcher_theme_xbox();
     if (name && (name[0] == 'p' || name[0] == 'P') &&
         (name[1] == 's' || name[1] == 'S'))
         return launcher_theme_psx();

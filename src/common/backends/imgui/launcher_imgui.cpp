@@ -1558,6 +1558,8 @@ void apply_scale(const LauncherTheme& th, float scale, const char* font_path,
     style.Colors[ImGuiCol_HeaderHovered]   = col(th.control_hovered);
     style.Colors[ImGuiCol_HeaderActive]    = col(th.accent);
     style.Colors[ImGuiCol_CheckMark]       = col(th.accent);
+    style.Colors[ImGuiCol_SliderGrab]      = col(th.accent_dim);
+    style.Colors[ImGuiCol_SliderGrabActive]= col(th.accent);
     style.Colors[ImGuiCol_Text]            = col(th.text);
     style.Colors[ImGuiCol_TextDisabled]    = col(th.text_muted);
 #if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19100

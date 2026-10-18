@@ -69,7 +69,13 @@ set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/pad_nds.tga"
     "${RUI_ASSETS}/consoles/nds/img/brand_nds.tga")
 
-set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds)
+# Xbox identity/theme works without controller art. A consumer can provide the
+# optional art; never stage the SNES controller as an Xbox substitute.
+set(_RUI_CONSOLE_ASSETS_xbox)
+set(_RUI_CONSOLE_OPTIONAL_ASSETS_xbox
+    "${RUI_ASSETS}/consoles/xbox/img/pad_xbox.tga")
+
+set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds xbox)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
 function(_recomp_ui_resolve_console_assets OUT_VAR CONSOLE)
