@@ -65,11 +65,15 @@ set(_RUI_CONSOLE_ASSETS_gb
 # GBC uses the same runtime asset family as GB.
 set(_RUI_CONSOLE_ASSETS_gbc ${_RUI_CONSOLE_ASSETS_gb})
 
+# The Virtual Boy launcher profile uses common assets and host-supplied art.
+# Keep its explicit family valid without staging another console's images.
+set(_RUI_CONSOLE_ASSETS_vb)
+
 set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/pad_nds.tga"
     "${RUI_ASSETS}/consoles/nds/img/brand_nds.tga")
 
-set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds)
+set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds vb)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
 function(_recomp_ui_resolve_console_assets OUT_VAR CONSOLE)
