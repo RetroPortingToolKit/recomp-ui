@@ -356,6 +356,9 @@ emulated input and decide whether to pause simulation/audio. See
 [`docs/RUNTIME_UI.md`](docs/RUNTIME_UI.md) for the integration boundary and
 rollout matrix.
 
+The opt-in PSX shared launcher pilot is documented in
+[`docs/LAUNCHER_MODULE.md`](docs/LAUNCHER_MODULE.md).
+
 ```c
 static const RecompRuntimeUiItem rows[] = {
     { "fullscreen", "Display", "Fullscreen", "Choose the window mode.",

@@ -67,8 +67,22 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/recomp_ui.cmake)
 recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
+option(RECOMP_UI_BUILD_LAUNCHER_MODULE "Build the opt-in PS1B-482 v1 module pilot" OFF)
+set(RECOMP_LAUNCHER_V1_BUILD_IDENTITY "" CACHE STRING "SHA-256 source/build receipt for the launcher module")
+if(RECOMP_UI_BUILD_LAUNCHER_MODULE)
+    recomp_add_launcher_module(recomp-launcher-module
+        SDL_TARGET SDL3::SDL3-shared CONSOLE psx
+        BUILD_IDENTITY "${RECOMP_LAUNCHER_V1_BUILD_IDENTITY}")
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(recomp-ui-launcher-module-contract-test
+        tests/launcher_module_contract_test.c
+        tests/launcher_module_contract_cpp.cpp
+        src/common/launcher_module_contract.c)
+    target_include_directories(recomp-ui-launcher-module-contract-test PRIVATE src src/common)
+    add_test(NAME recomp-ui-launcher-module-contract COMMAND $<TARGET_FILE:recomp-ui-launcher-module-contract-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c

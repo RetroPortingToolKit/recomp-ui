@@ -5,6 +5,9 @@
 
 #include "launcher_model.h"
 #include "launcher_system.h"
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#include "launcher_module_runtime.h"
+#endif
 
 #include "crc32.h"
 #include "consoles/psx/memcard_format.h"   // PSX-specific; used only under SAVE_MEMCARD
@@ -3185,6 +3188,35 @@ typedef struct {
 
 static PrepJob g_prep_job;
 
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#if defined(_WIN32)
+static HANDLE g_prep_thread;
+#else
+static pthread_t g_prep_thread;
+static int g_prep_thread_joinable;
+#endif
+/* A done flag is not thread termination. Keep the real thread joinable until
+ * its callbacks have returned; unloading a module with detached code is unsafe. */
+void launcher_model_wait_worker(void) {
+#if defined(_WIN32)
+    if (g_prep_thread) {
+        const DWORD wait_status = WaitForSingleObject(g_prep_thread, INFINITE);
+        if (wait_status != WAIT_OBJECT_0)
+            launcher_v1_worker_join_failed("prepare", (uint32_t)wait_status);
+        CloseHandle(g_prep_thread);
+        g_prep_thread = NULL;
+    }
+#else
+    if (g_prep_thread_joinable) {
+        const int wait_status = pthread_join(g_prep_thread, NULL);
+        if (wait_status)
+            launcher_v1_worker_join_failed("prepare", (uint32_t)wait_status);
+        g_prep_thread_joinable = 0;
+    }
+#endif
+}
+#endif
+
 #if defined(_WIN32)
 static CRITICAL_SECTION g_prep_lock;
 static int g_prep_lock_ready = 0;
@@ -3197,6 +3229,19 @@ static void prep_unlock(void) { LeaveCriticalSection(&g_prep_lock); }
 static pthread_mutex_t g_prep_lock = PTHREAD_MUTEX_INITIALIZER;
 static void prep_lock(void) { pthread_mutex_lock(&g_prep_lock); }
 static void prep_unlock(void) { pthread_mutex_unlock(&g_prep_lock); }
+#endif
+
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+void launcher_model_finish_worker(void) {
+    launcher_model_wait_worker();
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+#if defined(_WIN32)
+    if (g_prep_lock_ready) {
+        DeleteCriticalSection(&g_prep_lock);
+        g_prep_lock_ready = 0;
+    }
+#endif
+}
 #endif
 
 static void prep_progress_cb(void* ctx, float pct, const char* message) {
@@ -3217,6 +3262,9 @@ static void* prep_thread_main(void* arg);
 #endif
 
 static int prep_spawn_thread(LauncherModel* m) {
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    launcher_model_wait_worker();
+#endif
 #if defined(_WIN32)
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
     if (!th) {
@@ -3225,7 +3273,11 @@ static int prep_spawn_thread(LauncherModel* m) {
         m->setup_status[0] = '\0';
         return 0;
     }
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    g_prep_thread = th;
+#else
     CloseHandle(th);
+#endif
 #else
     pthread_t th;
     if (pthread_create(&th, NULL, prep_thread_main, &g_prep_job) != 0) {
@@ -3234,7 +3286,12 @@ static int prep_spawn_thread(LauncherModel* m) {
         m->setup_status[0] = '\0';
         return 0;
     }
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    g_prep_thread = th;
+    g_prep_thread_joinable = 1;
+#else
     pthread_detach(th);
+#endif
 #endif
     return 1;
 }

@@ -33,6 +33,9 @@
 #include "launcher_player_tabs.h" // one tab per player over the controller card
 #include "launcher_cover.h"       // the cover button: fetch, check, save
 #include "launcher_icon.h"        // a desktop icon file from the cover or a save
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#include "launcher_module_runtime.h"
+#endif
 #if defined(LNG_SDL3)
   #include "imgui_impl_sdl3.h"
   #define LNG_ImplSDL_InitForOpenGL  ImGui_ImplSDL3_InitForOpenGL
@@ -4202,13 +4205,27 @@ struct StartThumb {
 static std::vector<StartThumb> g_start_thumbs;
 
 static const LauncherTexture* start_thumb(const LauncherStartEntry& e) {
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    if (e.thumb_w <= 0 || e.thumb_h <= 0) return nullptr;
+    const std::string key = "provider:" + std::to_string(e.thumb_offset);
+#else
     if (!e.thumb_path[0] || e.thumb_w <= 0 || e.thumb_h <= 0) return nullptr;
     const std::string key = std::string(e.thumb_path) + "@" + std::to_string(e.thumb_offset);
+#endif
     for (const StartThumb& t : g_start_thumbs)
         if (t.key == key) return t.tex.id ? &t.tex : nullptr;
     StartThumb made = { key, { 0, 0, 0 } };
     const size_t bytes = (size_t)e.thumb_w * (size_t)e.thumb_h * 4;
     std::vector<unsigned char> px_buf(bytes);
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    if (launcher_v1_thumbnail(e.thumb_offset, px_buf.data(), (uint32_t)bytes) == bytes) {
+        for (size_t i = 0; i < bytes; i += 4) {
+            std::swap(px_buf[i], px_buf[i + 2]);
+            px_buf[i + 3] = 255;
+        }
+        made.tex = launcher_texture_from_rgba(px_buf.data(), e.thumb_w, e.thumb_h);
+    }
+#else
     if (FILE* f = fopen(e.thumb_path, "rb")) {
         if (fseek(f, (long)e.thumb_offset, SEEK_SET) == 0 &&
             fread(px_buf.data(), 1, bytes, f) == bytes) {
@@ -4221,6 +4238,7 @@ static const LauncherTexture* start_thumb(const LauncherStartEntry& e) {
         }
         fclose(f);
     }
+#endif
     g_start_thumbs.push_back(made);
     return g_start_thumbs.back().tex.id ? &g_start_thumbs.back().tex : nullptr;
 }
@@ -14957,10 +14975,18 @@ std::string asset(const char* rel) {
     std::string path = normalized_path(rel);
     if (is_absolute_path(path)) return path;
 
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    const RecompLauncherV1Run* run = launcher_v1_current_run();
+    if (!run) return {};
+    const bool module_asset = path.rfind("assets/", 0) == 0;
+    const char* base = module_asset ? run->assets_root : run->product_root;
+    if (module_asset) path.erase(0, 7);
+#else
 #if defined(__ANDROID__)
     const char* base = SDL_AndroidGetInternalStoragePath();
 #else
     const char* base = SDL_GetBasePath();
+#endif
 #endif
     std::string out = normalized_path(base ? base : "");
     if (!out.empty() && !path.empty() && out.back() != '/')

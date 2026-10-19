@@ -103,6 +103,11 @@ int launcher_cover_job_poll(char* used);
 /* 1 once after a job has ended, so the caller reloads the picture one time. */
 int launcher_cover_job_take_finished(void);
 
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+/* Blocking module teardown: all worker code/context is gone before return. */
+void launcher_cover_job_wait(void);
+#endif
+
 /* One short line for the player per state, in plain English. "" for
  * LNG_COVER_IDLE and for a value that is not a state. */
 const char* launcher_cover_state_text(int state);

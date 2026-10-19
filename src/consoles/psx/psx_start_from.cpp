@@ -202,6 +202,7 @@ bool newer(const LauncherStartEntry& a, const LauncherStartEntry& b) {
     return std::strcmp(a.path, b.path) < 0;   // a fixed order for equal times
 }
 
+#if !defined(RECOMP_LAUNCHER_V1_HOST_SCANNER)
 bool g_set_by_us[2];   // psx_start_from_apply set the variable in this process
 
 void put_env(const char* name, const char* value) {
@@ -212,6 +213,7 @@ void put_env(const char* name, const char* value) {
     else       unsetenv(name);
 #endif
 }
+#endif
 
 } // namespace
 
@@ -348,6 +350,7 @@ extern "C" int psx_start_scan(const char* save_root, const char* product_dir,
     return count;
 }
 
+#if !defined(RECOMP_LAUNCHER_V1_HOST_SCANNER)
 extern "C" void psx_start_from_load(LauncherModel* m, const char* product_dir, const char* save_root) {
     if (!launcher_model_start_from_available(m)) return;
     const std::string product = product_dir ? product_dir : "";
@@ -393,3 +396,4 @@ extern "C" void psx_start_from_apply(const LauncherModel* m, int netplay_launch)
         }
     }
 }
+#endif

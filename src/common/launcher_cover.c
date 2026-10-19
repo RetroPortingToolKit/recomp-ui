@@ -5,6 +5,9 @@
 #endif
 
 #include "launcher_cover.h"
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#include "launcher_module_runtime.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -642,15 +645,64 @@ static void* cover_thread_main(void* arg) {
 #endif
 }
 
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#ifdef _WIN32
+static HANDLE g_cover_thread;
+#else
+static pthread_t g_cover_thread;
+static int g_cover_thread_joinable;
+#endif
+void launcher_cover_job_wait(void) {
+#ifdef _WIN32
+    if (g_cover_thread) {
+        const DWORD wait_status = WaitForSingleObject(g_cover_thread, INFINITE);
+        if (wait_status != WAIT_OBJECT_0)
+            launcher_v1_worker_join_failed("cover", (uint32_t)wait_status);
+        CloseHandle(g_cover_thread);
+        g_cover_thread = NULL;
+    }
+#else
+    if (g_cover_thread_joinable) {
+        const int wait_status = pthread_join(g_cover_thread, NULL);
+        if (wait_status)
+            launcher_v1_worker_join_failed("cover", (uint32_t)wait_status);
+        g_cover_thread_joinable = 0;
+    }
+#endif
+}
+void launcher_cover_job_finish(void) {
+    launcher_cover_job_wait();
+    memset(&g_cover_job, 0, sizeof(g_cover_job));
+#ifdef _WIN32
+    if (g_cover_lock_ready) {
+        DeleteCriticalSection(&g_cover_lock);
+        g_cover_lock_ready = 0;
+    }
+#endif
+}
+#endif
+
 static int cover_spawn_thread(void) {
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    launcher_cover_job_wait();
+#endif
 #ifdef _WIN32
     HANDLE th = CreateThread(NULL, 0, cover_thread_main, &g_cover_job, 0, NULL);
     if (!th) return 0;
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    g_cover_thread = th;
+#else
     CloseHandle(th);
+#endif
 #else
     pthread_t th;
     if (pthread_create(&th, NULL, cover_thread_main, &g_cover_job) != 0) return 0;
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    g_cover_thread = th;
+    g_cover_thread_joinable = 1;
+#else
     pthread_detach(th);
+#endif
 #endif
     return 1;
 }

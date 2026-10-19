@@ -19,6 +19,9 @@
 #include "launcher_theme.h"
 #include "launcher_window_size.h"
 #include "consoles/psx/psx_start_from.h"   // "Start from": the lists and the hand-over
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+#include "launcher_module_runtime.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -44,7 +47,7 @@ int recomp_launcher_run_window(const char* window_title,
                              const char* assets_dir,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len) {
-    (void)assets_dir;   // launcher_ng resolves assets next to the exe (SDL base path)
+    (void)assets_dir;   // v1 backend uses the validated explicit asset/product roots
     g_last_relaunch_exe[0] = '\0';
 
     /* Packaging self-test (RECOMP_UI_PICKER_SELFTEST): exercise the native
@@ -90,12 +93,16 @@ int recomp_launcher_run_window(const char* window_title,
     /* The dashboard's "Start from" block: the title's save states and
      * replays, read from the product's own folder. */
     if (launcher_model_start_from_available(&model)) {
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+        launcher_v1_model_starts(&model);
+#else
 #if defined(LNG_SDL3)
         psx_start_from_load(&model, SDL_GetBasePath(), NULL);
 #else
         char* base = SDL_GetBasePath();
         psx_start_from_load(&model, base, NULL);
         SDL_free(base);
+#endif
 #endif
     }
     launcher_boot_timing_mark("rui:model+binds_ready");
@@ -104,6 +111,12 @@ int recomp_launcher_run_window(const char* window_title,
 
     LngAction act = launcher_backend_run(&plat, &model, &theme);
 
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+    /* Prepare workers borrow this stack model. Join while it still exists,
+     * before platform teardown, settings persistence and typed readback. */
+    launcher_model_wait_worker();
+    launcher_cover_job_wait();
+#endif
     launcher_window_size_save(window_size_path, plat.logical_w, plat.logical_h);
     launcher_platform_close(&plat);
     launcher_boot_timing_mark("rui:platform_closed");
@@ -133,8 +146,13 @@ int recomp_launcher_run_window(const char* window_title,
      * through the start-up variables it reads next. Any other way out, and a
      * netplay launch, leave no such variable of ours behind. */
     if (launcher_model_start_from_available(&model))
+#if defined(RECOMP_LAUNCHER_V1_BUILD_MODULE)
+        launcher_v1_model_result(&model, act == LNG_ACTION_LAUNCH ?
+            RECOMP_LAUNCHER_RESULT_LAUNCH : RECOMP_LAUNCHER_RESULT_QUIT);
+#else
         psx_start_from_apply(&model, act != LNG_ACTION_LAUNCH ||
                                          (io && io->netplay_launch.enabled));
+#endif
 
     if (act == LNG_ACTION_LAUNCH || act == LNG_ACTION_RELAUNCH) {
         const char* rom = launcher_model_effective_rom_path(&model);
