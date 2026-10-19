@@ -56,7 +56,9 @@ static const SystemProfile kSystemProfileSnes = {
     /* controller */ {
         kSnesPadButtons, LNG_SNES_PAD_BUTTON_COUNT,
         "pad.tga", NULL, NULL,
-        /* max_players */ 2, /* has_pad_mode */ 0,
+        /* max_players */ 8, /* Super Multitap ceiling (one tap: 5, two: 8);
+                              * a title's num_players decides how many seats show */
+        /* has_pad_mode */ 0,
         /* binds_per_input */ 1, /* modes */ NULL, /* mode_count */ 0,
         /* has_pad_binds */ 1,
         /* pad_bind_order */ kSnesGamepadBindOrder,
