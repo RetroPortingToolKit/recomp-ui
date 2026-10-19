@@ -394,8 +394,13 @@ function(recomp_add_launcher_module TGT)
         ${RUI_SRC}/common/launcher_module_sdl.c)
     recomp_target_launcher_ui(${TGT} MODULE_ONLY CONSOLE "${RLM_CONSOLE}")
     target_compile_definitions(${TGT} PRIVATE
-        RECOMP_LAUNCHER_V1_BUILD_MODULE=1
-        RECOMP_LAUNCHER_V1_BUILD_IDENTITY="${RLM_BUILD_IDENTITY}")
+        RECOMP_LAUNCHER_V1_BUILD_MODULE=1)
+    # The receipt identity is consumed only by launcher_module.c. Keep it off
+    # the target-wide command line so replacing a launcher receipt rebuilds
+    # that one translation unit and never fans out into the shared UI core.
+    set_property(SOURCE ${RUI_SRC}/common/launcher_module.c APPEND PROPERTY
+        COMPILE_DEFINITIONS
+        "RECOMP_LAUNCHER_V1_BUILD_IDENTITY=\"${RLM_BUILD_IDENTITY}\"")
     target_link_libraries(${TGT} PRIVATE ${RLM_SDL_TARGET} ${CMAKE_DL_LIBS})
     set_target_properties(${TGT} PROPERTIES
         C_STANDARD 11 C_STANDARD_REQUIRED ON
