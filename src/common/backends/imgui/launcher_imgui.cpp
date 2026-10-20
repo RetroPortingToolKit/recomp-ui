@@ -28,6 +28,7 @@
 #include "launcher_sdlcompat.h"   // pulls the right SDL header + event shim
 
 #include "imgui.h"
+#include "imgui_internal.h"         // private PS1B-482 activation-gate trace
 #include "launcher_nav.h"
 #include "launcher_pad_nav.h"     // pad buttons held when pad nav starts
 #include "launcher_player_tabs.h" // one tab per player over the controller card
@@ -13158,12 +13159,32 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (ps1b482_settings_actions_trace_enabled() &&
         (ps1b482_rehome || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
          ImGui::IsKeyPressed(ImGuiKey_Space, false))) {
+        ImGuiContext& ps1b482_ctx = *GImGui;
+        const ImGuiID ps1b482_enter_owner =
+            ImGui::GetKeyOwner(ImGuiKey_Enter);
+        const bool ps1b482_enter_noowner_down =
+            ImGui::IsKeyDown(ImGuiKey_Enter, ImGuiKeyOwner_NoOwner);
+        const bool ps1b482_enter_noowner_pressed = ImGui::IsKeyPressed(
+            ImGuiKey_Enter, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner);
+        int ps1b482_nav_always = -1;
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19140
+        ps1b482_nav_always =
+            ps1b482_ctx.IO.ConfigNavCursorVisibleAlways ? 1 : 0;
+#endif
+        const bool ps1b482_no_nav_inputs =
+            ps1b482_ctx.NavWindow &&
+            (ps1b482_ctx.NavWindow->Flags & ImGuiWindowFlags_NoNavInputs);
         std::fprintf(stderr,
                      "[ps1b482-trace] play backspace=%d enter=%d space=%d "
                      "rehome=%d item=%u focused=%d clicked=%d enabled=%d "
                      "can_launch=%d bios_block=%d rom_present=%d rom_size=%s "
                      "verify=%d has_bios=%d bios_ok=%d bios_regen=%d "
-                     "preparing=%d launch_pending=%d setup_open=%d\n",
+                     "preparing=%d launch_pending=%d setup_open=%d "
+                     "nav_cursor=%d nav_always=%d nav_window=%d "
+                     "nav_window_flags=%llu no_nav_inputs=%d windowing=%d "
+                     "active=%u nav=%u activate=%u activate_down=%u "
+                     "activate_pressed=%u activate_flags=%u enter_owner=%u "
+                     "enter_noowner_down=%d enter_noowner_pressed=%d\n",
                      ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ? 1 : 0,
                      ImGui::IsKeyPressed(ImGuiKey_Enter, false) ? 1 : 0,
                      ImGui::IsKeyPressed(ImGuiKey_Space, false) ? 1 : 0,
@@ -13176,7 +13197,24 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                      m->setup_bios_ok ? 1 : 0,
                      m->setup_bios_needs_regen ? 1 : 0,
                      m->setup_preparing ? 1 : 0, m->launch_pending,
-                     m->setup_wizard_open ? 1 : 0);
+                     m->setup_wizard_open ? 1 : 0,
+                     ps1b482_ctx.NavCursorVisible ? 1 : 0,
+                     ps1b482_nav_always,
+                     ps1b482_ctx.NavWindow ? 1 : 0,
+                     ps1b482_ctx.NavWindow
+                         ? (unsigned long long)ps1b482_ctx.NavWindow->Flags
+                         : 0ull,
+                     ps1b482_no_nav_inputs ? 1 : 0,
+                     ps1b482_ctx.NavWindowingTarget ? 1 : 0,
+                     (unsigned int)ps1b482_ctx.ActiveId,
+                     (unsigned int)ps1b482_ctx.NavId,
+                     (unsigned int)ps1b482_ctx.NavActivateId,
+                     (unsigned int)ps1b482_ctx.NavActivateDownId,
+                     (unsigned int)ps1b482_ctx.NavActivatePressedId,
+                     (unsigned int)ps1b482_ctx.NavActivateFlags,
+                     (unsigned int)ps1b482_enter_owner,
+                     ps1b482_enter_noowner_down ? 1 : 0,
+                     ps1b482_enter_noowner_pressed ? 1 : 0);
     }
     if (play_clicked) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
