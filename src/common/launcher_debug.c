@@ -25,6 +25,7 @@ static int   g_cmd_count = 0;
 static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
+static SDL_Keycode g_key_release = SDLK_UNKNOWN;
 
 bool launcher_debug_active(void) { return g_active; }
 
@@ -34,6 +35,7 @@ void launcher_debug_init(void) {
 
     snprintf(g_script, sizeof(g_script), "%s", s);
     g_cmd_count = 0;
+    g_key_release = SDLK_UNKNOWN;
     char* tok = strtok(g_script, ";");
     while (tok && g_cmd_count < LNG_MAX_CMDS) {
         while (*tok == ' ') ++tok;          // trim leading spaces
@@ -129,7 +131,7 @@ static void synth_click(LauncherPlatform* p, float x, float y) {
     SDL_PushEvent(&e);
 }
 
-static void synth_key(SDL_Keycode key) {
+static void push_key(LauncherPlatform* p, SDL_Keycode key, bool down) {
     SDL_Scancode sc = SDL_GetScancodeFromKey(key
 #if defined(LNG_SDL3)
         , NULL
@@ -137,28 +139,36 @@ static void synth_key(SDL_Keycode key) {
         );
     SDL_Event e;
     SDL_zero(e);
-    e.type = SDL_EVENT_KEY_DOWN;
+    e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    e.key.windowID = SDL_GetWindowID(p->window);
 #if defined(LNG_SDL3)
     e.key.key = key;
     e.key.scancode = sc;
-    e.key.down = true;
+    e.key.down = down;
 #else
     e.key.keysym.sym = key;
     e.key.keysym.scancode = sc;
-    e.key.state = SDL_PRESSED;
-#endif
-    SDL_PushEvent(&e);
-    e.type = SDL_EVENT_KEY_UP;
-#if defined(LNG_SDL3)
-    e.key.down = false;
-#else
-    e.key.state = SDL_RELEASED;
+    e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
 #endif
     SDL_PushEvent(&e);
 }
 
+static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
+    push_key(p, key, true);
+    g_key_release = key;
+}
+
 void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
     if (!g_active) return;
+
+    // Give ImGui one complete frame with the key down before its matching key
+    // up. SDL3 also filters keyboard events by the owning window ID, so both
+    // halves use this launcher's actual window rather than the zeroed default.
+    if (g_key_release != SDLK_UNKNOWN) {
+        push_key(p, g_key_release, false);
+        g_key_release = SDLK_UNKNOWN;
+        return;
+    }
 
     // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
     // otherwise a script that clicks PLAY and then ends would overwrite LAUNCH
@@ -225,10 +235,10 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
         float x = 0, y = 0;
         if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);
     } else if (strncmp(c, "key:", 4) == 0) {
-        if (strcmp(c + 4, "escape") == 0) synth_key(SDLK_ESCAPE);
+        if (strcmp(c + 4, "escape") == 0) synth_key(p, SDLK_ESCAPE);
         else {
             SDL_Keycode k = SDL_GetKeyFromName(c + 4);
-            if (k != SDLK_UNKNOWN) synth_key(k);
+            if (k != SDLK_UNKNOWN) synth_key(p, k);
             else fprintf(stderr, "[dbg] unknown key: %s\n", c + 4);
         }
     } else if (strncmp(c, "text:", 5) == 0) {
