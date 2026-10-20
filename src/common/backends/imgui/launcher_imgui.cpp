@@ -13112,9 +13112,22 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     // submitted item — PLAY's button.
     // Not while the player is typing, and not over an open modal --
     // rui_nav_rehome_to_play() carries the why.
+    const ImGuiID ps1b482_play_id = ImGui::GetID("##play");
+    const bool ps1b482_play_focused_before_rehome =
+        GImGui && GImGui->NavId == ps1b482_play_id;
+    const bool ps1b482_nav_cursor_before_rehome =
+        GImGui && GImGui->NavCursorVisible;
     const bool ps1b482_rehome = rui_nav_rehome_to_play();
-    if (ps1b482_rehome)
+    if (ps1b482_rehome) {
         ImGui::SetKeyboardFocusHere();
+#if defined(IMGUI_VERSION_NUM) && IMGUI_VERSION_NUM >= 19140
+        // SetKeyboardFocusHere intentionally preserves cursor visibility. This
+        // is a real keyboard/gamepad re-home, so restore the focus ring through
+        // ImGui's public 1.91.4+ API. Older host-owned ImGui copies keep their
+        // existing compatible focus request and do not use private state.
+        ImGui::SetNavCursorVisible(true);
+#endif
+    }
     float play_x = origin.x + fullw - play_w;
     if (m->in_session) {
         /* Opened from a running game: closing the window resumes it, so
@@ -13176,7 +13189,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
             (ps1b482_ctx.NavWindow->Flags & ImGuiWindowFlags_NoNavInputs);
         std::fprintf(stderr,
                      "[ps1b482-trace] play backspace=%d enter=%d space=%d "
-                     "rehome=%d item=%u focused=%d clicked=%d enabled=%d "
+                     "rehome=%d focused_before=%d nav_cursor_before=%d "
+                     "item=%u focused=%d clicked=%d enabled=%d "
                      "can_launch=%d bios_block=%d rom_present=%d rom_size=%s "
                      "verify=%d has_bios=%d bios_ok=%d bios_regen=%d "
                      "preparing=%d launch_pending=%d setup_open=%d "
@@ -13188,7 +13202,10 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                      ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ? 1 : 0,
                      ImGui::IsKeyPressed(ImGuiKey_Enter, false) ? 1 : 0,
                      ImGui::IsKeyPressed(ImGuiKey_Space, false) ? 1 : 0,
-                     ps1b482_rehome ? 1 : 0, (unsigned int)ImGui::GetItemID(),
+                     ps1b482_rehome ? 1 : 0,
+                     ps1b482_play_focused_before_rehome ? 1 : 0,
+                     ps1b482_nav_cursor_before_rehome ? 1 : 0,
+                     (unsigned int)ImGui::GetItemID(),
                      ps1b482_play_focused ? 1 : 0, play_clicked ? 1 : 0,
                      play_enabled ? 1 : 0, can_play ? 1 : 0,
                      bios_block ? 1 : 0, m->rom_present ? 1 : 0,
