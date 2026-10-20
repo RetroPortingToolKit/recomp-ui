@@ -1,7 +1,7 @@
 // consoles/genesis/genesis_binds.h — the Genesis-native bind persistence bridge.
 //
 // segagenesisrecomp's runtime owns its OWN bind format: settings.ini sections
-// [input.p1] through [input.p4] (runner/app_config.c), with per-logical-button lines
+// [input.p1] through [input.p6] (runner/app_config.c), with per-logical-button lines
 //
 //     key.<Name> = <SDL_Scancode as a decimal int>      e.g.  key.A = 29
 //     pad.<Name> = button:N | axis:N:+ | axis:N:- | none e.g.  pad.A = button:1
@@ -40,7 +40,7 @@ extern "C" {
 #define RUI_GEN_BIND_NONE   0
 #define RUI_GEN_BIND_BUTTON 1
 #define RUI_GEN_BIND_AXIS   2
-#define RUI_GEN_MAX_PLAYERS 4
+#define RUI_GEN_MAX_PLAYERS 6
 
 // Seed the in-memory store with the engine's input_map_init_defaults()
 // mapping, then overlay whatever [input.pN] key.*/pad.* lines exist in
@@ -49,7 +49,7 @@ extern "C" {
 void rui_genesis_binds_init(const char* path);
 
 // Current keyboard binding (SDL_Scancode as int; 0 = unbound) for player
-// (0..3), rebind-spec button b. Auto-initializes from `path` on first use.
+// (0..5), rebind-spec button b. Auto-initializes from `path` on first use.
 int  rui_genesis_binds_get_key(const char* path, int player, int b);
 
 // Current gamepad binding for player/button. Any out pointer may be NULL.
