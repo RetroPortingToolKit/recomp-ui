@@ -28,8 +28,8 @@
 #include "launcher_sdlcompat.h"   // pulls the right SDL header + event shim
 
 #include "imgui.h"
-#include "imgui_internal.h"         // private PS1B-482 activation-gate trace
 #include "launcher_nav.h"
+#include "imgui_internal.h"         // private PS1B-482 activation-gate trace
 #include "launcher_pad_nav.h"     // pad buttons held when pad nav starts
 #include "launcher_player_tabs.h" // one tab per player over the controller card
 #include "launcher_cover.h"       // the cover button: fetch, check, save
