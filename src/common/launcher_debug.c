@@ -31,6 +31,15 @@ static bool  g_ps1b482_input_trace = false;
 bool launcher_debug_active(void) { return g_active; }
 
 void launcher_debug_init(void) {
+    // A launcher module can be entered again after a title soft-returns.  Each
+    // LNG_SCRIPT value is a new program; retaining the prior cursor makes an
+    // equally sized rematch script look exhausted and requests QUIT at once.
+    g_cmd_count = 0;
+    g_cmd_index = 0;
+    g_wait_frames = 0;
+    g_key_release = SDLK_UNKNOWN;
+    g_active = false;
+
     const char* s = SDL_getenv("LNG_SCRIPT");
     if (!s || !s[0]) return;
 
@@ -38,8 +47,6 @@ void launcher_debug_init(void) {
     g_ps1b482_input_trace = trace && trace[0] && strcmp(trace, "0") != 0;
 
     snprintf(g_script, sizeof(g_script), "%s", s);
-    g_cmd_count = 0;
-    g_key_release = SDLK_UNKNOWN;
     char* tok = strtok(g_script, ";");
     while (tok && g_cmd_count < LNG_MAX_CMDS) {
         while (*tok == ' ') ++tok;          // trim leading spaces
