@@ -26,12 +26,16 @@ static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
 static SDL_Keycode g_key_release = SDLK_UNKNOWN;
+static bool  g_ps1b482_input_trace = false;
 
 bool launcher_debug_active(void) { return g_active; }
 
 void launcher_debug_init(void) {
     const char* s = SDL_getenv("LNG_SCRIPT");
     if (!s || !s[0]) return;
+
+    const char* trace = SDL_getenv("PS1B482_SETTINGS_ACTIONS_TRACE");
+    g_ps1b482_input_trace = trace && trace[0] && strcmp(trace, "0") != 0;
 
     snprintf(g_script, sizeof(g_script), "%s", s);
     g_cmd_count = 0;
@@ -150,7 +154,13 @@ static void push_key(LauncherPlatform* p, SDL_Keycode key, bool down) {
     e.key.keysym.scancode = sc;
     e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
 #endif
-    SDL_PushEvent(&e);
+    const int pushed = SDL_PushEvent(&e);
+    if (g_ps1b482_input_trace) {
+        fprintf(stderr,
+                "[ps1b482-trace] push key=%d scancode=%d down=%d window=%u result=%d\n",
+                (int)key, (int)sc, down ? 1 : 0,
+                (unsigned int)e.key.windowID, pushed);
+    }
 }
 
 static void synth_key(LauncherPlatform* p, SDL_Keycode key) {

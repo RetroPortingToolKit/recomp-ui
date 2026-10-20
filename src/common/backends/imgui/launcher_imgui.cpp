@@ -94,6 +94,38 @@
 #include <sys/stat.h>
 #endif
 
+/* Private PS1B-482 discriminator. It is inert unless the owned title probe
+ * opts in, and observes the real SDL -> ImGui -> PLAY path without changing
+ * model state, readiness, focus or the requested action. */
+static bool ps1b482_settings_actions_trace_enabled() {
+    const char* value = SDL_getenv("PS1B482_SETTINGS_ACTIONS_TRACE");
+    return value && value[0] && std::strcmp(value, "0") != 0;
+}
+
+static void ps1b482_trace_key_event(const SDL_Event& ev,
+                                    const LauncherPlatform* p,
+                                    bool backend_called) {
+    if (!ps1b482_settings_actions_trace_enabled()) return;
+    if (ev.type != SDL_EVENT_KEY_DOWN && ev.type != SDL_EVENT_KEY_UP) return;
+#if defined(LNG_SDL3)
+    const int key = (int)ev.key.key;
+    const int scancode = (int)ev.key.scancode;
+    const unsigned int window_id = (unsigned int)ev.key.windowID;
+#else
+    const int key = (int)ev.key.keysym.sym;
+    const int scancode = (int)ev.key.keysym.scancode;
+    const unsigned int window_id = (unsigned int)ev.key.windowID;
+#endif
+    const unsigned int owned_window_id =
+        p && p->window ? (unsigned int)SDL_GetWindowID(p->window) : 0u;
+    std::fprintf(stderr,
+                 "[ps1b482-trace] receive type=%u key=%d scancode=%d window=%u "
+                 "owned_window=%u window_match=%d backend_called=%d\n",
+                 (unsigned int)ev.type, key, scancode, window_id,
+                 owned_window_id, window_id == owned_window_id ? 1 : 0,
+                 backend_called ? 1 : 0);
+}
+
 extern "C" const char* launcher_backend_name(void) { return "Dear ImGui"; }
 
 static const char* ui_text(const char* en) {
@@ -13079,7 +13111,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     // submitted item — PLAY's button.
     // Not while the player is typing, and not over an open modal --
     // rui_nav_rehome_to_play() carries the why.
-    if (rui_nav_rehome_to_play())
+    const bool ps1b482_rehome = rui_nav_rehome_to_play();
+    if (ps1b482_rehome)
         ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
     if (m->in_session) {
@@ -13119,8 +13152,33 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const bool play_enabled = (can_play || bios_block) && !launching;
     const char* play_label = launching ? "Launching..."
                            : m->in_session ? "RESUME" : "PLAY";
-    if (neon_cta("##play", ui_text(play_label),
-                 ImVec2(play_w, play_h), play_enabled)) {
+    const bool play_clicked = neon_cta("##play", ui_text(play_label),
+                                       ImVec2(play_w, play_h), play_enabled);
+    const bool ps1b482_play_focused = ImGui::IsItemFocused();
+    if (ps1b482_settings_actions_trace_enabled() &&
+        (ps1b482_rehome || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Space, false))) {
+        std::fprintf(stderr,
+                     "[ps1b482-trace] play backspace=%d enter=%d space=%d "
+                     "rehome=%d item=%u focused=%d clicked=%d enabled=%d "
+                     "can_launch=%d bios_block=%d rom_present=%d rom_size=%s "
+                     "verify=%d has_bios=%d bios_ok=%d bios_regen=%d "
+                     "preparing=%d launch_pending=%d setup_open=%d\n",
+                     ImGui::IsKeyPressed(ImGuiKey_Backspace, false) ? 1 : 0,
+                     ImGui::IsKeyPressed(ImGuiKey_Enter, false) ? 1 : 0,
+                     ImGui::IsKeyPressed(ImGuiKey_Space, false) ? 1 : 0,
+                     ps1b482_rehome ? 1 : 0, (unsigned int)ImGui::GetItemID(),
+                     ps1b482_play_focused ? 1 : 0, play_clicked ? 1 : 0,
+                     play_enabled ? 1 : 0, can_play ? 1 : 0,
+                     bios_block ? 1 : 0, m->rom_present ? 1 : 0,
+                     m->rom_size[0] ? m->rom_size : "<empty>",
+                     m->verify.verdict, m->has_bios ? 1 : 0,
+                     m->setup_bios_ok ? 1 : 0,
+                     m->setup_bios_needs_regen ? 1 : 0,
+                     m->setup_preparing ? 1 : 0, m->launch_pending,
+                     m->setup_wizard_open ? 1 : 0);
+    }
+    if (play_clicked) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
             launcher_model_bios_play_prompt(m);
@@ -15224,6 +15282,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 break;
             }
             LNG_ImplSDL_ProcessEvent(&ev);
+            ps1b482_trace_key_event(ev, p, true);
         } while (SDL_PollEvent(&ev));
 
         launcher_platform_refresh_metrics(p);
