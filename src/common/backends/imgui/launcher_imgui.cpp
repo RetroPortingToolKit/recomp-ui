@@ -14719,9 +14719,11 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         // NULL brand => the shared dots; a non-NULL EMPTY string => the profile
         // opts out of a corner emblem entirely (N64 leads with its wordmark).
         // Only load when there's an actual filename.
+        // A game's own mark (recomp_target_launcher_ui BRAND) wins over all of it.
+        g_brand = launcher_texture_load(asset("assets/img/brand_game.tga").c_str());
         const char* brand_file = bprof && bprof->brand
                                    ? bprof->brand : "brand_mark.tga";
-        if (brand_file && brand_file[0])
+        if (!g_brand.id && brand_file && brand_file[0])
             g_brand = launcher_texture_load(
                 asset((std::string("assets/img/") + brand_file).c_str()).c_str());
         // Optional platform wordmark: loads only if the profile names one AND
