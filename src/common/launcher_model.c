@@ -395,6 +395,7 @@ void launcher_model_init(LauncherModel* m,
         m->zapper               = game->zapper != 0;
         /* 0 = unset (caller predates the field) -> assume 2 players. */
         m->player_count         = game->num_players ? clampi(game->num_players, 1, LNG_MAX_PLAYERS) : 2;
+        m->memcard_slots        = game->memcard_slots;
         m->rom_cache_path       = game->rom_cache_path;
         m->expected_crc         = game->expected_crc;
         m->has_expected_crc     = game->has_expected_crc;
@@ -3900,6 +3901,11 @@ void launcher_model_set_memcard_path(LauncherModel* m, int slot, const char* pat
     // launcher_model_new_memcard() re-arms this flag.
     m->memcard_freshly_formatted[slot] = false;
     lm_inspect_memcard(m, slot);   // refresh real block usage/validity for the new path
+}
+
+int launcher_model_memcard_slot_count(const LauncherModel* m, int profile_slots) {
+    if (m->memcard_slots > 0 && m->memcard_slots < profile_slots) return m->memcard_slots;
+    return profile_slots;
 }
 
 void launcher_model_toggle_memcard(LauncherModel* m, int slot) {

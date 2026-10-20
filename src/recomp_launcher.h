@@ -2414,10 +2414,16 @@ typedef struct RecompLauncherCGameInfo {
     int (*rom_describe)(void* ctx, const uint8_t* image, size_t len,
                         char* out, size_t out_size);
     void*              rom_describe_ctx;
+    /* Memory-card slots the game uses (SAVE_MEMCARD), capped by the console
+     * profile: 1 hides slot 2 for a title that only talks to port 1. 0 = unset
+     * (callers that predate the field) keeps the profile's count. Appended for
+     * ABI stability. */
+    int                memcard_slots;
 } RecompLauncherCGameInfo;
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
+#define RECOMP_LAUNCHER_HAS_MEMCARD_SLOTS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that
