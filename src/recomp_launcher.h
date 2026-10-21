@@ -53,6 +53,7 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_VIRTUAL_STYLUS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
 #define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
+#define RECOMP_LAUNCHER_HAS_MOD_RESOURCE_IMPORT 1
 
 /* Portable encoding used by host-owned controller bindings. Button and axis
  * numbers are SDL's standard game-controller indices; zero remains unbound. */
@@ -927,6 +928,9 @@ typedef struct RecompLauncherCModResource {
     int verified;
     /* "file" (default) or "directory". Appended for source compatibility. */
     char format[64];
+    /* Import this file through feature_resource_import on a background job.
+     * Ordinary path selections leave this zero. */
+    int import_on_select;
 } RecompLauncherCModResource;
 
 typedef struct RecompLauncherCModProvider {
@@ -1010,6 +1014,16 @@ typedef struct RecompLauncherCModProvider {
     int (*catalog_diagnostic_count)(void* ctx);
     int (*catalog_diagnostic_get)(void* ctx, int index,
                                   RecompLauncherCModDiagnostic* out);
+    /* Optional expensive owner-input conversion, run away from the UI thread.
+     * The UI blocks other provider operations until completion. Implementations
+     * must retain the previous selection on failure. No shell is involved.
+     * image_path is a snapshot of the selected game image, never replaced by
+     * the import result. Only resources with import_on_select use this hook. */
+    int (*feature_resource_import)(void* ctx, const char* package_id,
+                                   const char* feature_id, const char* resource_id,
+                                   const char* path, const char* image_path,
+                                   void (*progress)(void*, float, const char*),
+                                   void* progress_user, char* error, size_t error_size);
 } RecompLauncherCModProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).

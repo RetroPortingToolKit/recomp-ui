@@ -165,6 +165,7 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
     if (g_wait_frames > 0) { --g_wait_frames; return; }
 
     if (g_cmd_index >= g_cmd_count) {   // script exhausted -> exit
+        if (m->setup_preparing) return;
         m->action = LNG_ACTION_QUIT;
         return;
     }
@@ -178,6 +179,7 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
         else if (strcmp(v, "controller") == 0) launcher_model_set_view(m, LNG_VIEW_CONTROLLER);
         else if (strcmp(v, "assist_tools") == 0) launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
         else if (strcmp(v, "credits") == 0) launcher_model_set_view(m, LNG_VIEW_CREDITS);
+        else if (strcmp(v, "mods") == 0) launcher_model_set_view(m, LNG_VIEW_MODS);
         /* The LAN-vs-online fork. Reachable only by clicking NETPLAY on the
          * dashboard, which made it the one netplay page a screenshot script
          * could not open. */
@@ -188,6 +190,20 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "mod-select:", 11) == 0) {
+        m->mod_selected = atoi(c + 11);
+    } else if (strncmp(c, "resource-import:", 16) == 0) {
+        char resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+        const char* path = strchr(c + 16, ':');
+        RecompLauncherCModFeature feature;
+        if (path && (size_t)(path - (c + 16)) < sizeof resource && m->mods &&
+            m->mods->feature_get && m->mods->feature_get(m->mods->ctx, m->mod_selected, &feature)) {
+            memcpy(resource, c + 16, (size_t)(path - (c + 16)));
+            resource[path - (c + 16)] = 0;
+            launcher_model_import_mod_resource(m, feature.package_id, feature.id, resource, path + 1);
+        }
+    } else if (strcmp(c, "wait-ready") == 0) {
+        if (m->setup_preparing) --g_cmd_index;
     } else if (strncmp(c, "player:", 7) == 0) {
         // Select which player the Controller view configures. Clamp to the
         // launcher's real player range (N64 profiles run up to 4) instead of

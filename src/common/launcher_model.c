@@ -2796,7 +2796,8 @@ enum {
     PREP_JOB_REBUILD = 1,
     PREP_JOB_TOOLCHAIN = 2,
     PREP_JOB_PGO = 3,
-    PREP_JOB_FMV_TIMING = 4
+    PREP_JOB_FMV_TIMING = 4,
+    PREP_JOB_MOD_RESOURCE = 5
 };
 
 typedef struct {
@@ -2806,6 +2807,10 @@ typedef struct {
     char err[256];
     char progress_msg[256];
     char zip_path[512];
+    char mod_package[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_feature[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_source[RECOMP_LAUNCHER_MOD_PATH_MAX];
     float progress_pct; /* <0 indeterminate; else 0..1 */
     int  kind;          /* PREP_JOB_* */
     int  download;      /* toolchain: non-zero => allow network fetch */
@@ -2849,6 +2854,7 @@ static void* prep_thread_main(void* arg);
 
 static int prep_spawn_thread(LauncherModel* m) {
 #if defined(_WIN32)
+    prep_lock_init(); /* initialize once on the UI thread before worker/poll race */
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
     if (!th) {
         m->setup_preparing = false;
@@ -2879,7 +2885,12 @@ static void* prep_thread_main(void* arg) {
     j->out_path[0] = '\0';
     j->err[0] = '\0';
     j->result = 0;
-    if (j->kind == PREP_JOB_TOOLCHAIN) {
+    if (j->kind == PREP_JOB_MOD_RESOURCE) {
+        const RecompLauncherCModProvider* mods = j->m->mods;
+        j->result = mods->feature_resource_import(
+            mods->ctx, j->mod_package, j->mod_feature, j->mod_resource,
+            j->mod_source, j->source, prep_progress_cb, j, j->err, sizeof(j->err));
+    } else if (j->kind == PREP_JOB_TOOLCHAIN) {
         if (j->m && j->m->ensure_toolchain_with_progress_cb) {
             j->result = j->m->ensure_toolchain_with_progress_cb(
                             j->download,
@@ -2931,7 +2942,9 @@ static void* prep_thread_main(void* arg) {
     } else {
         safe_copy(j->err, sizeof(j->err), "No prepare callback.");
     }
+    prep_lock();
     j->done = 1;
+    prep_unlock();
 #if defined(_WIN32)
     return 0;
 #else
@@ -3152,6 +3165,44 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     prep_spawn_thread(m);
 }
 
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path) {
+    if (!m || m->setup_preparing || !m->mods || !m->mods->feature_resource_import)
+        return;
+    const char* image = launcher_model_effective_rom_path(m);
+    if (!image || !image[0]) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "Select your game image before importing content.");
+        return;
+    }
+    if (!package_id || !feature_id || !resource_id || !source_path || !source_path[0] ||
+        strlen(package_id) >= sizeof(g_prep_job.mod_package) ||
+        strlen(feature_id) >= sizeof(g_prep_job.mod_feature) ||
+        strlen(resource_id) >= sizeof(g_prep_job.mod_resource) ||
+        strlen(source_path) >= sizeof(g_prep_job.mod_source) ||
+        strlen(image) >= sizeof(g_prep_job.source)) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "The selected resource path is too long or invalid.");
+        return;
+    }
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+    g_prep_job.m = m;
+    g_prep_job.kind = PREP_JOB_MOD_RESOURCE;
+    g_prep_job.progress_pct = -1.0f;
+    safe_copy(g_prep_job.source, sizeof(g_prep_job.source), image);
+    safe_copy(g_prep_job.mod_source, sizeof(g_prep_job.mod_source), source_path);
+    safe_copy(g_prep_job.mod_package, sizeof(g_prep_job.mod_package), package_id);
+    safe_copy(g_prep_job.mod_feature, sizeof(g_prep_job.mod_feature), feature_id);
+    safe_copy(g_prep_job.mod_resource, sizeof(g_prep_job.mod_resource), resource_id);
+    m->setup_preparing = true;
+    m->setup_prepare_fraction = -1.0f;
+    m->setup_prepare_pulse = 0;
+    m->setup_error[0] = 0;
+    safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title), "Importing game content");
+    safe_copy(m->setup_status, sizeof(m->setup_status), "Checking your files and preparing content...");
+    if (!prep_spawn_thread(m))
+        safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3181,6 +3232,15 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!done) return;
     m->setup_preparing = false;
     m->setup_prepare_fraction = -1.0f;
+
+    if (kind == PREP_JOB_MOD_RESOURCE) {
+        m->setup_progress_title[0] = 0;
+        m->setup_status[0] = 0;
+        safe_copy(m->mod_status, sizeof(m->mod_status),
+                  result ? "Content imported. Changes apply on PLAY."
+                         : (err[0] ? err : "Content import failed; previous selection retained."));
+        return;
+    }
 
     if (kind == PREP_JOB_TOOLCHAIN) {
         m->setup_progress_title[0] = '\0';

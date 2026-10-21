@@ -69,6 +69,14 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(recomp-ui-mod-import-test
+        tests/launcher_mod_import_test.c
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c
+        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-mod-import-test PRIVATE src src/common src/consoles/psx)
+    find_package(Threads REQUIRED)
+    target_link_libraries(recomp-ui-mod-import-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-mod-import COMMAND $<TARGET_FILE:recomp-ui-mod-import-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c

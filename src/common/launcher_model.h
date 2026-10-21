@@ -1066,6 +1066,9 @@ void launcher_model_refresh_bios_status(LauncherModel* m);
 // or a job is already running. On success adopts the resulting disc path.
 // When rebuild_after_prepare is set, automatically chains into rebuild.
 void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path);
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path);
 // Kick rebuild_with_progress alone (same busy UI as prepare).
 void launcher_model_start_rebuild(LauncherModel* m);
 // Confirm + kick pgo_optimize_with_progress (instrument → train → use rebuild).

@@ -10413,6 +10413,7 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
 }
 
 static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->package_count || !mods->package_get) return;
     const bool feature_provider =
@@ -10886,6 +10887,7 @@ static void draw_mod_catalog_diagnostics(LauncherModel* m,
 }
 
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
         !mods->feature_option_get || !mods->feature_enable ||
@@ -11178,10 +11180,17 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             const std::string feat_id = feature.id;
                             const std::string res_id = resource.id;
                             const std::string res_label = resource.label;
+                            const bool import_resource = resource.import_on_select &&
+                                                         mods->feature_resource_import;
                             auto apply_resource = [m, mods, pkg_id, feat_id,
                                                    res_id,
-                                                   res_label](const char* path) {
+                                                   res_label, import_resource](const char* path) {
                                 if (!path) return;
+                                if (import_resource) {
+                                    launcher_model_import_mod_resource(m, pkg_id.c_str(),
+                                        feat_id.c_str(), res_id.c_str(), path);
+                                    return;
+                                }
                                 if (!mods->feature_resource_set_path(
                                         mods->ctx, pkg_id.c_str(),
                                         feat_id.c_str(), res_id.c_str(),
@@ -11698,7 +11707,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                    (m->verify.verdict == 0 || m->verify.verdict == 3)) {
             ImGui::SetTooltip("Select a verified %s first", noun);
         } else if (m->setup_preparing) {
-            ImGui::SetTooltip("Wait for the current setup job to finish");
+            ImGui::SetTooltip("Please wait for preparation to finish");
         } else {
             ImGui::SetTooltip("Select a valid %s first", noun);
         }
@@ -12003,9 +12012,11 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
 }
 
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
-    if (!m->setup_wizard_supported) return;
+    /* Cartridge titles can import mods without a first-run disc wizard. */
+    if (!m->setup_wizard_supported && !m->setup_preparing) return;
     if (!m->setup_wizard_open && !m->setup_preparing) return;
     launcher_model_poll_prepare_disc(m);
+    if (!m->setup_wizard_open && !m->setup_preparing) return;
 
     /* While a prepare/rebuild/toolchain job runs, show only the progress window.
      * Skipping BeginPopupModal on "First-run setup" lets ImGui dismiss it. */
@@ -13786,9 +13797,13 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         (void)mod_commit_launch(m);
         m->action = LNG_ACTION_LAUNCH;
     }
-    if (p->should_quit && m->action == LNG_ACTION_NONE) m->action = LNG_ACTION_QUIT;
+    /* Background setup/import callbacks retain the model until they finish.
+     * Keep a close request pending rather than freeing their live context. */
+    if (p->should_quit && !m->setup_preparing && m->action == LNG_ACTION_NONE)
+        m->action = LNG_ACTION_QUIT;
     // Persist selected gamepads (defaults if never remapped) so PLAY remembers
     // the pad in input.ini / settings even without an explicit Save click.
+    if (m->setup_preparing) m->action = LNG_ACTION_NONE;
     if (m->action == LNG_ACTION_LAUNCH || m->action == LNG_ACTION_RELAUNCH)
         launcher_binds_prepare_psx_launch(m, g_pads, g_pad_count);
     return m->action;
