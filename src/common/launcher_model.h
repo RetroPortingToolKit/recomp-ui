@@ -1234,6 +1234,9 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
 /* Run the host's bios_prepare_with_progress for the staged BIOS (progress
  * modal only; wizard resumes after). No-op without the callback. */
 void launcher_model_begin_bios_prepare(LauncherModel* m);
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path);
 // Kick rebuild_with_progress alone (same busy UI as prepare).
 void launcher_model_start_rebuild(LauncherModel* m);
 // Confirm + kick pgo_optimize_with_progress (instrument → train → use rebuild).
