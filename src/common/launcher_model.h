@@ -189,6 +189,8 @@ typedef struct {
     char disc_fp[65];   // TOC fingerprint for lobby peer matching
     char netplay_detail[160];
     int sbi_status; // RECOMP_SBI_* for the selected disc; zero for legacy hosts.
+    int serial_status;          // RECOMP_SERIAL_*; zero for a host that does not say
+    char expected_serials[96];  // what the build lists; "" if the host did not say
 } VerifyResult;
 
 typedef struct {
@@ -330,6 +332,11 @@ typedef struct {
     int (*toolchain_update_available_cb)(char* local_ver, size_t local_cap,
                                          char* remote_ver, size_t remote_cap);
     bool        setup_prepare_satisfied; // prepare (+ rebuild if chained) succeeded
+    // The disc check answers "bad" for the selected file because setup
+    // refused it, not because of its header or serial. Set when a failed
+    // prepare turned the verdict to "bad"; cleared by another file and by a
+    // verdict that is no longer "bad". See launcher_model_disc_refused_by_setup().
+    bool        disc_refused_by_setup;
     char        relaunch_exe[512];       // set when rebuild requests relaunch
     // Box-art path relative to the assets dir (GameInfo.boxart_path);
     // NULL => the default "assets/img/boxart.tga".
@@ -557,6 +564,10 @@ typedef struct {
     // See VerifyResult above. Untouched (all-zero) for verify.mode==0 systems
     // (SNES) — panels branch on m->profile->verify.mode, never on this alone.
     VerifyResult verify;
+    // The wrong-disc sentence the dashboard has already brought into view, and
+    // how many frames it still has to do so (launcher_model_disc_note_reveal).
+    char     disc_note_revealed[256];
+    int      disc_note_reveal_frames;
 
     // ---- editable settings (working copy of the C ABI struct) ----
     RecompLauncherCSettings s;
@@ -1311,6 +1322,42 @@ void launcher_model_launch_finish(LauncherModel* m, bool launched);
 // True when the mounted disc is OK for online (TOC/cue policy + content).
 // Non-disc games (verify.mode!=1) always return true when netplay is supported.
 bool launcher_model_netplay_disc_ok(const LauncherModel* m);
+// The mark of the disc panel's Serial row: a tick only for a serial that was
+// read from the disc and that the host did not call unlisted. A host that
+// does not say whether the serial is listed keeps the old rule (any serial
+// read is a tick).
+bool launcher_model_disc_serial_ok(const LauncherModel* m);
+// True when the disc is refused and its serial is the reason: the verdict is
+// "bad" and the host called the serial unlisted. The Serial row's cross is
+// then drawn in the headline's red; a cross on a row that is not the reason
+// (the online-play Tracks row, a file that did not open) keeps the amber.
+bool launcher_model_disc_serial_refused(const LauncherModel* m);
+// The line under the disc panel's checklist, or "" when there is nothing to
+// say. For a disc whose serial the build does not list it names the disc's
+// serial and what the build needs, and *wrong_disc is set: that is why the
+// disc is refused, so the host's online-play note (which is true of such a
+// disc too, and is not the reason) is not shown. Otherwise it is that note,
+// for a title with netplay whose disc is not valid for online play.
+// `buf` holds the line; the return value points into it.
+const char* launcher_model_disc_note(const LauncherModel* m, char* buf, size_t cap,
+                                     bool* wrong_disc);
+// The wrong-disc sentence is drawn under the disc card's checklist, and on a
+// small window the card ends below the window's edge. True for
+// LNG_DISC_NOTE_REVEAL_FRAMES calls after that sentence becomes a new one:
+// the dashboard, which calls this once per frame it draws the card, then
+// scrolls the sentence into view if it is not, and leaves the scroll to the
+// player afterwards. Choosing a disc makes the next sentence a new one, also
+// when its words are the same. False while there is no such sentence; the
+// online-play note alone is not brought into view.
+#define LNG_DISC_NOTE_REVEAL_FRAMES 2
+bool launcher_model_disc_note_reveal(LauncherModel* m);
+// How far a scrolling region has to move so that an item is in view with
+// `margin` around it: 0 when it is in view already, positive to scroll down
+// (the item is below the view), negative to scroll up. An item taller than
+// the view is moved only as far as keeps its top in view. All four edges are
+// in the same coordinates (the screen's).
+float launcher_model_scroll_into_view(float item_top, float item_bottom,
+                                      float view_top, float view_bottom, float margin);
 // Refresh the empty-path offer, then re-run bios_verify_cb against m->s.bios_path.
 // Draw-time queries use the cached offer and do not call the host verifier.
 // Empty path means "bundled BIOS" — OK unless the host verifier refuses "".
@@ -1357,7 +1404,15 @@ bool launcher_model_can_advance_toolchain(const LauncherModel* m);
 // Keep the current pack for this session and leave toolchain page 0.
 void launcher_model_skip_toolchain_update(LauncherModel* m);
 // Poll prepare/rebuild/toolchain job; call once per frame while setup_preparing.
+// When a prepare fails, the disc check runs again for the selected file: a
+// setup host answers "bad" for a file its own check refused, so the disc
+// panel does not say "Disc verified" above setup's refusal.
 void launcher_model_poll_prepare_disc(LauncherModel* m);
+// True while the disc panel's "bad" verdict for the selected file comes from
+// setup's refusal of it (the failed prepare), and not from the game program's
+// own check of the header and the serial. The panel's rows for the serial,
+// the region and the header are then all true and none of them is the reason.
+bool launcher_model_disc_refused_by_setup(const LauncherModel* m);
 // Dismiss the wizard once can_finish_setup is true (keeps dashboard).
 void launcher_model_finish_setup(LauncherModel* m);
 

@@ -135,6 +135,13 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_bios_step_words.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}")
+        # The disc panel's "Disc image" row: only for a file setup refused,
+        # with the accepted words and a red cross.
+        add_test(
+            NAME recomp-ui-disc-image-row
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_disc_image_row.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(WARNING
             "Python3 not found: recomp-ui-no-raw-pickers picker-API guard is "
@@ -260,6 +267,23 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-discs-test>
                 "${CMAKE_CURRENT_BINARY_DIR}")
 
+    # The disc panel's Serial row and the reason line under it: a tick only
+    # for a serial the build lists. Same include-the-TU shape as the discs
+    # test above.
+    add_executable(recomp-ui-launcher-disc-serial-test
+        tests/launcher_disc_serial_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-disc-serial-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-disc-serial-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-disc-serial
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-disc-serial-test>)
+
     # Renderer / VSync as enumerable lists rather than cycle buttons. Same
     # include-the-TU shape as the discs test above.
     add_executable(recomp-ui-launcher-video-pick-test
@@ -344,6 +368,25 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-launcher-bios-step
         COMMAND $<TARGET_FILE:recomp-ui-launcher-bios-step-test>)
+
+    # Setup window: the disc panel follows a file that setup refused. After a
+    # failed prepare the disc check runs again, so "Disc verified" does not
+    # stand above setup's refusal of the same file. Same include-the-TU shape.
+    add_executable(recomp-ui-launcher-setup-refusal-verdict-test
+        tests/launcher_setup_refusal_verdict_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-setup-refusal-verdict
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-refusal-verdict-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
 
     # Per-seat pad_mode resolution: a locked mode (game.toml lock_mode) must
     # survive the keyboard-has-no-sticks presentation default, because the
