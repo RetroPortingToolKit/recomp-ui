@@ -47,8 +47,8 @@ LngAction launcher_backend_run(LauncherPlatform* p, LauncherModel* m,
     }
     observed = m->s;
     if (edit) {
+        launcher_model_set_scale(m, 4); /* windowed-only: set before fullscreen */
         launcher_model_set_fullscreen(m, edit);
-        launcher_model_set_scale(m, 4);
         m->s.linear_filter = 1;
         m->s.volume = 37;
         m->s.vsync = RECOMP_LAUNCHER_VSYNC_ADAPTIVE;
