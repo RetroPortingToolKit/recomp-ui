@@ -16,6 +16,12 @@
 #include "recomp_net/lan_lobby.h"
 #include "recomp_net/lan_direct.h"
 #include "recomp_net/lan_beacon.h"
+#if defined(__has_include)
+#  if __has_include("recomp_net/lan_room.h")
+#    include "recomp_net/lan_room.h"
+#    define RUI_HAVE_LAN_ROOM 1
+#  endif
+#endif
 #include "recomp_net/chat_filter.h"
 #include "recomp_net/address.h"
 #include "recomp_net/host_relay.h"
@@ -46,6 +52,11 @@ static RecompNetplayHostHooks g_h;
 /* g_h.mods, for brevity: NULL is a vanilla-only build. */
 static const RecompNetplayModHooks *g_mods;
 static int g_inited;
+#if defined(RUI_HAVE_LAN_ROOM)
+static int room4_active(void);
+static int room4_leave(void);
+static void room4_rematch(void);
+#endif
 static int g_hosting_lan;
 static int g_joined_lan;
 static int g_joined_direct; /* UDP Direct IP (remote); not file-registry */
@@ -1168,6 +1179,10 @@ int recomp_netplay_host_init(const RecompNetplayHostHooks *hooks)
     return -1;
   memset(&g_h, 0, sizeof(g_h));
   g_h = *hooks;
+  if(g_h.lan_max_players && (g_h.lan_max_players<2 || g_h.lan_max_players>4))return -1;
+#if !defined(RUI_HAVE_LAN_ROOM)
+  if(g_h.lan_max_players)return -1;
+#endif
   g_session_variant = g_h.default_session_variant;
   if (!supports_session_variant(g_session_variant)) return -1;
 #ifndef RNET_HAS_SESSION_VARIANT
@@ -1232,7 +1247,7 @@ int recomp_netplay_host_init(const RecompNetplayHostHooks *hooks)
             g_mods ? "the mod runtime supplied no transfer hooks"
                    : "built without mod support");
   }
-  if (title_max_players() > 2)
+  if (title_max_players() > 2 && !g_h.lan_max_players)
     fprintf(stderr, "netplay: %d-player rooms online; LAN / Direct IP rooms "
                     "are two seats in this build\n", title_max_players());
   g_inited = 1;
@@ -1248,6 +1263,9 @@ void recomp_netplay_host_shutdown(void)
 
 void recomp_netplay_host_prepare_rematch(void)
 {
+#if defined(RUI_HAVE_LAN_ROOM)
+  if(room4_active()){room4_rematch();return;}
+#endif
   g_lan_start_seen = 0;
   if (g_hosting_lan || g_joined_lan) {
     g_lan_room.started = 0;
@@ -1295,6 +1313,9 @@ void recomp_netplay_host_begin_soft_return(RecompLauncherCGameInfo *gi,
 int recomp_netplay_host_leave(void)
 {
   int rc;
+#if defined(RUI_HAVE_LAN_ROOM)
+  if(room4_active())room4_leave();
+#endif
   if (g_hosting_lan) {
     (void)rnet_lan_direct_host_notify_close(g_direct_host);
     close_direct_sockets();
@@ -1333,6 +1354,9 @@ const char *recomp_netplay_host_resume_endpoint(void)
 
 int recomp_netplay_host_in_lan(void)
 {
+#if defined(RUI_HAVE_LAN_ROOM)
+  if(room4_active())return 1;
+#endif
   return g_hosting_lan || g_joined_lan;
 }
 
@@ -3930,8 +3954,14 @@ static RecompLauncherCNetplayCallbacks g_callbacks = {
 #endif
 };
 
+#if defined(RUI_HAVE_LAN_ROOM)
+#include "recomp_netplay_lan_room.inc"
+#endif
 const RecompLauncherCNetplayCallbacks *recomp_netplay_host_callbacks(void)
 {
+#if defined(RUI_HAVE_LAN_ROOM)
+  if(g_inited && g_h.lan_max_players)return room4_callbacks();
+#endif
   return g_inited ? &g_callbacks : NULL;
 }
 

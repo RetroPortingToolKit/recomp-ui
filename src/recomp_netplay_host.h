@@ -198,11 +198,17 @@ typedef struct RecompNetplayHostHooks {
     /* Opt-in: new rooms with this many seats or more default to delay-sync.
      * Zero leaves the historical rollback default for every room size. */
     int netplay_delay_sync_from_players;
+    /* Explicit opt-in to the revisioned shared LAN/Direct-IP room protocol.
+     * 2..4; zero keeps the established two-seat API/wire for this consumer.
+     * Requires recomp-net/lan_room.h. No galleries or occupied-seat trades
+     * are offered by this initial protocol. Online server rooms are unchanged. */
+    int lan_max_players;
 } RecompNetplayHostHooks;
 
 /* Present since RecompNetplayHostHooks.netplay_max_players was appended. */
 #define RECOMP_NETPLAY_HOST_HAS_NETPLAY_MAX_PLAYERS 1
 #define RECOMP_NETPLAY_HOST_HAS_DELAY_SYNC_FROM_PLAYERS 1
+#define RECOMP_NETPLAY_HOST_HAS_LAN_MAX_PLAYERS 1
 
 /* Init once before the launcher first opens. `hooks` is copied (the strings
  * and hook tables it points to must outlive the process's netplay use).
