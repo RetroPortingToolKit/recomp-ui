@@ -5,6 +5,7 @@ static RNetLanBeacon* r4_beacon;
 static RNetLanRoom r4_last;
 static RecompLauncherCNetplayLaunch r4_launch;
 static int r4_active,r4_host,r4_reopen;
+static unsigned long long r4_reopen_deadline,r4_reopen_next;
 static char r4_endpoint[64],r4_bind[64],r4_password[RNET_LAN_LOBBY_PASSWORD_MAX];
 static unsigned r4_published;
 static RecompLauncherCNetplayChatMessage r4_chat[64];
@@ -60,15 +61,16 @@ static int room4_leave(void) {
   r4_chat_head=r4_chat_count=r4_chat_sequence=0;
   memset(r4_password,0,sizeof(r4_password));return 0;
 }
-static int room4_open(void) {
+static int room4_open(int report) {
   const char* name=cb_player_name(NULL);int result;
   if(r4_host)result=rnet_lan_room_host_open(&r4_peer,r4_bind,&r4_last,r4_password);
   else result=rnet_lan_room_guest_open(&r4_peer,r4_bind,r4_endpoint,game_name(),game_version(),r4_password,
       name&&name[0]?name:"Player",g_h.lan_max_players);
-  if(result)room4_error(result);return result;
+  if(result && report)room4_error(result);return result;
 }
 static void room4_rematch(void) {
   rnet_lan_room_close(&r4_peer);memset(&r4_launch,0,sizeof(r4_launch));r4_reopen=1;
+  r4_reopen_deadline=host_now_ms()+g_lan_rejoin_window_ms;r4_reopen_next=0;g_runtime_error[0]=0;
   r4_last.starting=0;r4_last.session_id=0;r4_last.ready_mask=0;r4_published=0;
   r4_chat_head=r4_chat_count=r4_chat_sequence=0;
 }
@@ -88,7 +90,7 @@ static int room4_create(void* ctx,const char* name,char* endpoint,const char* pa
   if(r4_last.input_prediction>16)r4_last.input_prediction=16;
   r4_last.session_variant=caps.session_variant;snprintf(r4_last.mod_set,sizeof(r4_last.mod_set),"%s",caps.mod_set);
   colon=strrchr(endpoint,':');if(!colon)return -1;snprintf(r4_bind,sizeof(r4_bind),"0.0.0.0:%s",colon+1);
-  r4_host=r4_active=1;if(room4_open()){room4_leave();return -4;}
+  r4_host=r4_active=1;if(room4_open(1)){room4_leave();return -4;}
   snprintf(g_resume_endpoint,sizeof(g_resume_endpoint),"%s",r4_endpoint);room4_publish();return 0;
 }
 static int room4_join(void* ctx,const char* id,const char* password,char* bind) {
@@ -99,12 +101,18 @@ static int room4_join(void* ctx,const char* id,const char* password,char* bind) 
   recomp_netplay_host_leave();snprintf(r4_endpoint,sizeof(r4_endpoint),"%s",endpoint);
   snprintf(r4_bind,sizeof(r4_bind),"%s",bind&&bind[0]?bind:"0.0.0.0:0");
   snprintf(r4_password,sizeof(r4_password),"%s",password?password:"");r4_active=1;r4_host=0;
-  if(room4_open()){room4_leave();return -1;}
+  if(room4_open(1)){room4_leave();return -1;}
   snprintf(g_resume_endpoint,sizeof(g_resume_endpoint),"%s",r4_endpoint);return 0;
 }
 static void room4_pump(void* ctx) {
   int status;cb_pump(ctx);if(!r4_active)return;
-  if(r4_reopen && !r4_peer){if(!room4_open())r4_reopen=0;else return;}
+  if(r4_reopen && !r4_peer) {
+    unsigned long long now=host_now_ms();
+    if(now>=r4_reopen_deadline){r4_reopen=0;room4_error(RNET_LAN_ROOM_TIMEOUT);return;}
+    if(now<r4_reopen_next)return;
+    if(!room4_open(0))r4_reopen=0;
+    else {r4_reopen_next=now+250;return;}
+  }
   if(!r4_peer)return;status=rnet_lan_room_pump(r4_peer);
   if(status<0){room4_error(status);return;}
   r4_last=*rnet_lan_room_state(r4_peer);room4_publish();
