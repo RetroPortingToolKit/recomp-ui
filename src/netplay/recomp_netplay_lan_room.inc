@@ -231,6 +231,6 @@ static const RecompLauncherCNetplayCallbacks* room4_callbacks(void) {
   callbacks.lobby_allow_spectators=room4_no_gallery;callbacks.host_can_spectate=room4_no_host_gallery;
   callbacks.chat_count=room4_chat_count;callbacks.chat_send=room4_chat_send;callbacks.chat_get=room4_chat_get;
   /* The wire currently has no consent exchange for occupied-seat trades. */
-  callbacks.seat_swap_request=room4_swap_request;callbacks.seat_swap_incoming=room4_swap_incoming;callbacks.seat_swap_respond=room4_swap_respond;
+  callbacks.seat_swap_request=r4_active?NULL:room4_swap_request;callbacks.seat_swap_incoming=room4_swap_incoming;callbacks.seat_swap_respond=room4_swap_respond;
   callbacks.seat_swap_outgoing=room4_swap_outgoing;callbacks.seat_swap_clear=room4_swap_clear;return &callbacks;
 }

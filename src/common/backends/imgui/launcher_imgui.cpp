@@ -8688,6 +8688,10 @@ static void draw_lobby_seat_row(LauncherModel* m,
                                               sizeof(m->netplay_status),
                                               "Could not ask %s to swap seats.",
                                               row.display_name);
+                        } else {
+                            std::snprintf(m->netplay_status,
+                                          sizeof(m->netplay_status),
+                                          "%s%d is taken.", view.label, pos + 1);
                         }
                     }
                 }
