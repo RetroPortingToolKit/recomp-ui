@@ -13400,6 +13400,9 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     if (!m->capturing && !m->hk_capturing &&
         !m->camera_capturing)
         return false;
+    const SystemProfile* capture_profile = (const SystemProfile*)m->profile;
+    const bool host_player_binds = m->settings_bindings &&
+        !(capture_profile && capture_profile->id && !std::strcmp(capture_profile->id, "psx"));
 
     // ESC cancels any capture — keyboard, pad, or hotkey.
     if (ev.type == SDL_EVENT_KEY_DOWN && LNG_EVKEY(ev) == SDLK_ESCAPE) {
@@ -13428,14 +13431,14 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             return true;
         }
         if (m->capturing && m->capture_pad) {
-            if (m->capture_assist)
+            if (m->capture_assist || host_player_binds)
                 launcher_model_set_captured_pad(m, 0);
             else
                 launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
                                               LNG_PADBIND_NONE, 0, 0);
         } else if (m->capturing) {
             const SystemProfile* prof = (const SystemProfile*)m->profile;
-            if (m->capture_assist)
+            if (m->capture_assist || host_player_binds)
                 launcher_model_set_captured_key(m, 0);
             else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
                      !strcmp(prof->id, "psx"))
@@ -13556,8 +13559,13 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                 m->map_all_wait_release = false;
         };
         auto commit_pad = [&](int kind, int code, int axis_dir) {
-            launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
-                                          kind, code, axis_dir);
+            if (host_player_binds)
+                launcher_model_set_captured_pad(m, kind == LNG_PADBIND_BUTTON
+                    ? RECOMP_LAUNCHER_PAD_BUTTON(code)
+                    : RECOMP_LAUNCHER_PAD_AXIS(code, axis_dir > 0));
+            else
+                launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
+                                              kind, code, axis_dir);
             if (m->map_all_active)
                 launcher_model_map_all_advance(m);
             else
@@ -13682,7 +13690,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // the legacy setter — capture_slot is always 0 for them.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const bool alt_slots = prof && prof->controller.binds_per_input >= 2;
-        if (m->settings_bindings && m->capture_assist)
+        if ((m->settings_bindings && m->capture_assist) || host_player_binds)
             launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
         else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
             launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn, m->capture_slot,
