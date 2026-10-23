@@ -627,6 +627,89 @@ static void case_ice_relay(void)
 }
 #endif
 
+static int gate_mod_match = 1;
+static int gate_check_set(void* ctx, const char* want, char* reason, uint32_t cap)
+{
+    (void)ctx; (void)reason; (void)cap;
+    return gate_mod_match && !strcmp(want, "test@1/feature\n") ? 0 : -1;
+}
+
+static void gate_pump(const RecompLauncherCNetplayCallbacks* cb, RNetLanRoomPeer* guest)
+{
+    rnet_lan_room_pump(guest);
+    cb->pump(NULL);
+    usleep(1000);
+}
+
+static void case_four_seat_launcher_gate(void)
+{
+    RecompNetplayHostHooks hooks;
+    RecompNetplayModHooks mods;
+    RecompLauncherCSettings settings;
+    const RecompLauncherCNetplayCallbacks* cb;
+    RNetLanRoomPeer* guest = NULL;
+    char endpoint[] = "127.0.0.1:19481";
+    int i;
+    printf("  four-seat real launcher ROM/plan readiness and asynchronous Play\n");
+    memset(&hooks, 0, sizeof(hooks));
+    memset(&settings, 0, sizeof(settings));
+    memset(&mods, 0, sizeof(mods));
+    hooks.game_name = "Ready Test"; hooks.game_version = "1";
+    hooks.max_players = hooks.lan_max_players = 4;
+    ck(recomp_netplay_host_init(&hooks) == 0, "four-seat init");
+    cb = recomp_netplay_host_callbacks();
+    ck(cb->create(NULL, "Ready Room", endpoint, "", &settings, 1, 4) == 0, "create through callback");
+    ck(rnet_lan_room_guest_open(&guest, "127.0.0.1:0", endpoint, "Ready Test", "1", "", "Guest", 4) == 0,
+       "external guest opens");
+    for (i=0; i<1000 && (cb->member_count(NULL)!=2 || rnet_lan_room_local_slot(guest)<0); ++i)
+        gate_pump(cb, guest);
+    ck(cb->member_count(NULL)==2 && rnet_lan_room_local_slot(guest)>=0, "guest join acknowledged");
+    ck(rnet_lan_room_set_ready(guest, 1)==0, "external guest ready");
+    for (i=0; i<100; ++i) { gate_pump(cb, guest); cb->local_launch_gate_set(NULL, 0); }
+    ck(!cb->local_ready(NULL) && !cb->all_ready(NULL), "missing or invalid ROM cannot ready room");
+    cb->local_launch_gate_set(NULL, 1);
+    for (i=0; i<100 && !cb->all_ready(NULL); ++i) gate_pump(cb, guest);
+    ck(cb->all_ready(NULL), "verified ROM readies room without explicit set_ready");
+    cb->local_launch_gate_set(NULL, 0);
+    ck(!cb->all_ready(NULL), "losing valid ROM revokes readiness in same configuration");
+    ck(rnet_lan_room_set_caps(r4_peer, 2, 1, 6, 0, "test@1/feature;")==0, "required plan changes");
+    cb->local_launch_gate_set(NULL, 1);
+    ck(!cb->local_ready(NULL), "required mods block unsupported runtime");
+    mods.check_set = gate_check_set; g_mods = &mods;
+    gate_mod_match = 0; cb->local_launch_gate_set(NULL, 1);
+    ck(!cb->local_ready(NULL), "mismatched plan cannot announce ready");
+    gate_mod_match = 1; cb->local_launch_gate_set(NULL, 1);
+    ck(cb->local_ready(NULL), "matching canonical plan readies room");
+    gate_mod_match = 0; cb->local_launch_gate_set(NULL, 1);
+    ck(!cb->local_ready(NULL), "plan becoming invalid revokes readiness");
+    gate_mod_match = 1; cb->local_launch_gate_set(NULL, 1);
+    for(i=0;i<100;++i)gate_pump(cb,guest);
+    ck(rnet_lan_room_set_ready(guest,1)==0,"guest accepts current plan");
+    for(i=0;i<100 && !cb->all_ready(NULL);++i)gate_pump(cb,guest);
+    ck(cb->all_ready(NULL),"both peers accept plan");
+    cb->input_prediction_set(NULL, 8);
+    cb->set_ready(NULL,1); /* The host's normal Play callback does this. */
+    ck(cb->request_start(NULL,&settings)==0 && r4_start_configuration!=0,
+       "Play waits for just-updated automatic settings");
+    for(i=0;i<20;++i){gate_pump(cb,guest);cb->local_launch_gate_set(NULL,1);}
+    ck(!room4_state()->starting,"cannot launch before guest accepts new settings");
+    /* A subsequent room/roster change cancels that click, even if ready later. */
+    cb->input_prediction_set(NULL,9);gate_pump(cb,guest);
+    ck(r4_start_configuration==0 && !room4_state()->starting,"changed plan cancels pending Play");
+    cb->local_launch_gate_set(NULL,1);
+    for(i=0;i<100;++i)gate_pump(cb,guest);
+    rnet_lan_room_set_ready(guest,1);
+    for(i=0;i<100 && !cb->all_ready(NULL);++i)gate_pump(cb,guest);
+    cb->input_prediction_set(NULL,10);cb->set_ready(NULL,1);
+    ck(cb->request_start(NULL,&settings)==0,"queue second Play");
+    for(i=0;i<100;++i){gate_pump(cb,guest);cb->local_launch_gate_set(NULL,1);}
+    rnet_lan_room_set_ready(guest,1);
+    for(i=0;i<1000 && !rnet_lan_room_launch_ready(r4_peer);++i)gate_pump(cb,guest);
+    ck(rnet_lan_room_launch_ready(r4_peer),"single Play finishes after all acknowledgements");
+    rnet_lan_room_close(&guest);cb->leave(NULL);g_mods=NULL;
+    ck(r4_gate_ready==-1 && !r4_start_configuration,"leave resets gate and pending intent");
+}
+
 int main(void)
 {
     case_host_first_standard_and_swapped();
@@ -637,6 +720,7 @@ int main(void)
     case_default_caps();
     case_seat_ceiling();
     case_table_and_names();
+    case_four_seat_launcher_gate();
     case_lan_rematch_as_host();
     case_lan_rematch_as_guest();
 #ifdef RNET_HAS_SESSION_VARIANT

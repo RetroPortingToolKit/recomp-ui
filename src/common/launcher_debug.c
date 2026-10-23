@@ -142,6 +142,7 @@ static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
     e.key.scancode = sc;
     e.key.down = true;
 #else
+    e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
     e.key.keysym.sym = key;
     e.key.keysym.scancode = sc;
     e.key.state = SDL_PRESSED;
@@ -262,6 +263,7 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         e.text.text = s_text;
         e.text.windowID = SDL_GetWindowID(p->window);
 #else
+        e.text.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
         snprintf(e.text.text, sizeof(e.text.text), "%s", s_text);
 #endif
         SDL_PushEvent(&e);

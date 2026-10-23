@@ -8,6 +8,10 @@ static int r4_active,r4_host,r4_reopen;
 static unsigned long long r4_reopen_deadline,r4_reopen_next;
 static char r4_endpoint[64],r4_bind[64],r4_password[RNET_LAN_LOBBY_PASSWORD_MAX];
 static unsigned r4_published;
+static unsigned r4_gate_configuration;
+static int r4_gate_ready = -1;
+static unsigned r4_start_configuration;
+static unsigned long long r4_start_deadline;
 static RecompLauncherCNetplayChatMessage r4_chat[64];
 static unsigned r4_chat_head,r4_chat_count,r4_chat_sequence;
 static int room4_active(void){return r4_active;}
@@ -58,6 +62,8 @@ static void room4_unpublish(void) {
 static int room4_leave(void) {
   room4_unpublish();rnet_lan_room_close(&r4_peer);memset(&r4_last,0,sizeof(r4_last));
   memset(&r4_launch,0,sizeof(r4_launch));r4_active=r4_host=r4_reopen=0;r4_endpoint[0]=r4_bind[0]=0;
+  r4_gate_configuration=0;r4_gate_ready=-1;
+  r4_start_configuration=0;r4_start_deadline=0;
   r4_chat_head=r4_chat_count=r4_chat_sequence=0;
   memset(r4_password,0,sizeof(r4_password));return 0;
 }
@@ -72,6 +78,8 @@ static void room4_rematch(void) {
   rnet_lan_room_close(&r4_peer);memset(&r4_launch,0,sizeof(r4_launch));r4_reopen=1;
   r4_reopen_deadline=host_now_ms()+g_lan_rejoin_window_ms;r4_reopen_next=0;g_runtime_error[0]=0;
   r4_last.starting=0;r4_last.session_id=0;r4_last.ready_mask=0;r4_published=0;
+  r4_gate_configuration=0;r4_gate_ready=-1;
+  r4_start_configuration=0;r4_start_deadline=0;
   r4_chat_head=r4_chat_count=r4_chat_sequence=0;
 }
 static int room4_create(void* ctx,const char* name,char* endpoint,const char* password,
@@ -116,6 +124,15 @@ static void room4_pump(void* ctx) {
   if(!r4_peer)return;status=rnet_lan_room_pump(r4_peer);
   if(status<0){room4_error(status);return;}
   r4_last=*rnet_lan_room_state(r4_peer);room4_publish();
+  if(r4_start_configuration) {
+    if(r4_last.configuration!=r4_start_configuration || host_now_ms()>=r4_start_deadline) {
+      r4_start_configuration=0;
+      snprintf(g_runtime_error,sizeof(g_runtime_error),"peer_not_ready");
+    } else if(rnet_lan_room_all_ready(r4_peer)) {
+      status=rnet_lan_room_start(r4_peer);r4_start_configuration=0;
+      if(status<0)room4_error(status);
+    }
+  }
   {
     RNetLanChatLine line;int local=rnet_lan_room_local_slot(r4_peer);char local_id[64];
     snprintf(local_id,sizeof(local_id),"lan:%08x",local>=0?(unsigned)r4_last.member[local].id:0);
@@ -164,8 +181,40 @@ static int room4_local_ready(void* ctx) {
 }
 static int room4_all_ready(void* ctx){return r4_active?rnet_lan_room_all_ready(r4_peer):cb_all_ready(ctx);}
 static int room4_ready(void* ctx,int ready){return r4_active?rnet_lan_room_set_ready(r4_peer,ready):cb_set_ready(ctx,ready);}
+static void room4_launch_gate(void* ctx,int can_launch) {
+  const RNetLanRoom* room;char want[sizeof(r4_last.mod_set)+2],reason[160];size_t i;int ready;
+  if(!r4_active){cb_local_launch_gate_set(ctx,can_launch);return;}
+  if(!r4_peer || rnet_lan_room_local_slot(r4_peer)<0)return;
+  room=room4_state();if(room->starting)return;
+  ready=can_launch!=0;
+  /* The real launcher supplies its verified-ROM gate. LAN rooms must also
+   * match the host's plan; online's launch-blocked flag cannot ready LAN. */
+  for(i=0;room->mod_set[i];++i)want[i]=room->mod_set[i]==';'?'\n':room->mod_set[i];
+  if(i==0){memcpy(want,"(none)\n",7);i=7;}
+  else if(want[i-1]!='\n')want[i++]='\n';want[i]=0;
+  if(g_mods && g_mods->check_set)ready=ready && g_mods->check_set(g_mods->ctx,want,reason,sizeof(reason))==0;
+  else if(room->mod_set[0])ready=0;
+  /* One reliable request per policy/configuration change: repeated frames
+   * must not replace a pending seat-move request or flood the room. */
+  if(ready!=r4_gate_ready || room->configuration!=r4_gate_configuration) {
+    if(rnet_lan_room_set_ready(r4_peer,ready)==0) {
+      r4_gate_ready=ready;r4_gate_configuration=room->configuration;
+    }
+  }
+}
 static int room4_start(void* ctx,const RecompLauncherCSettings* settings) {
-  (void)settings;return r4_active?rnet_lan_room_start(r4_peer):cb_request_start(ctx,settings);
+  int status;
+  if(!r4_active)return cb_request_start(ctx,settings);
+  status=rnet_lan_room_start(r4_peer);
+  /* PLAY may just have settled Auto D/P, invalidating the old ready mask.
+   * Finish this click after every peer verifies that exact new configuration.
+   * A roster/settings change cancels it; never start a different room plan. */
+  if(status==RNET_LAN_ROOM_NOT_READY && r4_host && r4_gate_ready==1 &&
+      room4_state()->configuration!=r4_gate_configuration && room4_count(room4_state())>=2) {
+    r4_start_configuration=room4_state()->configuration;r4_start_deadline=host_now_ms()+10000;
+    return 0;
+  }
+  return status;
 }
 static int room4_launch_pending(void* ctx) {
   if(!r4_active)return cb_launch_pending(ctx);room4_pump(ctx);
@@ -222,6 +271,7 @@ static const RecompLauncherCNetplayCallbacks* room4_callbacks(void) {
   callbacks.list_count=room4_list_count;callbacks.list_get=room4_list_get;callbacks.in_lobby=room4_in_lobby;callbacks.is_host=room4_is_host;
   callbacks.member_count=room4_member_count;callbacks.member_get=room4_member_get;callbacks.move_member=room4_move;callbacks.seat_move_self=room4_move_self;
   callbacks.kick_member=room4_kick;callbacks.local_ready=room4_local_ready;callbacks.all_ready=room4_all_ready;callbacks.set_ready=room4_ready;
+  callbacks.local_launch_gate_set=room4_launch_gate;
   callbacks.request_start=room4_start;callbacks.launch_pending=room4_launch_pending;callbacks.clear_launch_pending=room4_clear_launch;
   callbacks.fill_launch=room4_fill_launch;callbacks.lobby_max_slots=room4_max_slots;callbacks.create_max_slots=room4_create_max;
   callbacks.input_delay_get=room4_delay_get;callbacks.input_delay_set=room4_delay_set;
