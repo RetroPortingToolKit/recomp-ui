@@ -384,6 +384,12 @@ static int lm_load_cached_rom_path(const RecompLauncherCGameInfo* game,
     return 0;
 }
 
+static int title_defaults_to_dpad(const LauncherModel* m) {
+    const SystemProfile* profile = (const SystemProfile*)m->profile;
+    return profile && !strcmp(profile->id, "psx") &&
+           m->game_name && !strcmp(m->game_name, "Dino Crisis");
+}
+
 void launcher_model_init(LauncherModel* m,
                          const RecompLauncherCSettings* io,
                          const RecompLauncherCGameInfo* game,
@@ -806,7 +812,7 @@ void launcher_model_init(LauncherModel* m,
             } else if (m->s.pad_mode[p] == 0) {
                 /* Hybrid is mod-only and never selectable: migrate any stale
                  * persisted value. The mod requests it at runtime instead. */
-                m->s.pad_mode[p] = 1;
+                m->s.pad_mode[p] = title_defaults_to_dpad(m) ? 2 : 1;
             } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
                        !launcher_model_negcon_mode_available(m)) {
                 /* The neGcon exists only on PSX. */
@@ -841,6 +847,7 @@ void launcher_model_init(LauncherModel* m,
              * A keyboard neGcon stays a neGcon: the keyboard drives it
              * (stick binds twist it, Cross/Square keys press I/II). */
             if (m->pad_mode_selectable &&
+                !title_defaults_to_dpad(m) &&
                 m->s.player_src[p] == 1 &&
                 m->s.pad_mode[p] != RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
@@ -4487,10 +4494,22 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
     if (!pad_mode_is_psx_legacy(m)) return;
     /* A neGcon is the device in the port, whichever host input drives it. */
     if (m->s.pad_mode[player] == RECOMP_LAUNCHER_PAD_MODE_NEGCON) return;
+    if (title_defaults_to_dpad(m)) {
+        // Keyboard presents D-Pad without replacing the saved pad choice.
+        if (m->s.pad_mode[player] != 1 && m->s.pad_mode[player] != 2)
+            m->s.pad_mode[player] = 2;
+        return;
+    }
     if (m->s.player_src[player] == 1)
         m->s.pad_mode[player] = 2;   // D-Pad / digital (no sticks)
     else if (m->s.player_src[player] == 2)
         m->s.pad_mode[player] = 1;   // Analog / DualShock
+}
+
+const char* launcher_model_analog_note(const LauncherModel* m) {
+    return m->pad_mode_supported && m->pad_mode_selectable &&
+           title_defaults_to_dpad(m)
+               ? "this game does not use the analog stick" : NULL;
 }
 
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {

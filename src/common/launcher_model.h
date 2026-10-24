@@ -1196,6 +1196,7 @@ void launcher_model_skip_msu1_patch(LauncherModel* m);
 // D-Pad or neGcon, not Analog. A neGcon seat keeps its pad type when its input
 // source changes.
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode);
+const char* launcher_model_analog_note(const LauncherModel* m);
 void launcher_model_cycle_player_src(LauncherModel* m, int player); // None/Kbd/Pad(/Mouse)
 // 1 when this profile offers the mouse source (player_src 3,
 // RECOMP_LAUNCHER_SRC_MOUSE): only PSX, for the PS1 Mouse port device.

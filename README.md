@@ -39,7 +39,7 @@ Adding a console is (ideally) **one `SystemProfile` row** in
 data passed through the C ABI — theme, platform label, box art, pad image,
 which panels — so there is no `../snes` / `../psx` source fork.
 
-The DRY heart is [`src/launcher_model.h`](src/launcher_model.h): all launcher
+The DRY heart is [`src/launcher_model.h`](src/common/launcher_model.h): all launcher
 STATE + BEHAVIOR, free of any UI toolkit, built purely from the C ABI structs —
 so behavior is identical across every game.
 
@@ -435,6 +435,9 @@ snesrecomp `docs/RECOMP_NET.md` → "Soft-return rematch checklist".
   (Genesis 3-Button / 6-Button, which also sets the visible rebind-row count),
   deadzone, keyboard rebinding that writes each runtime's native keybind format,
   and an optional per-row **GAMEPAD** bind column (Genesis) alongside the key.
+  Dino Crisis defaults a newly assigned PSX gamepad to D-Pad, preserves explicit
+  Analog/D-Pad selections and shows “this game does not use the analog stick”
+  beneath Analog when selected. Other titles keep their existing defaults.
 - **Video** — window scale/size, renderer, supersampling, aspect (4:3/16:9/21:9),
   widescreen 16:9 with an optional "extra cells / side" stepper (Genesis),
   texture filtering, antialiasing (Off/2×/4×/8×), screen model, frame
@@ -593,7 +596,7 @@ LNG_VARIANT=psx LNG_PLAYERS=4 LNG_MULTITAP=1 ./build/recomp-ui-launcher
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.
 `LNG_SCRIPT="wait:40;view:settings;shot:out.png;quit"` (see
-[`src/launcher_debug.h`](src/launcher_debug.h)).
+[`src/launcher_debug.h`](src/common/launcher_debug.h)).
 
 Requires SDL3 (`find_package(SDL3 CONFIG)`) by default, OpenGL, and a C++17
 compiler. Configure with `-DSNESRECOMP_SDL_BACKEND=SDL2` to exercise the

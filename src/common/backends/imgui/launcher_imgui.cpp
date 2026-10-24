@@ -3511,7 +3511,9 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
     const float seg_w = (w - gap * (n - 1)) / n;
     for (int i = 0; i < n; ++i) {
         if (i) ImGui::SameLine(0, gap);
-        bool sel = m->s.pad_mode[p] == segs[i].mode;
+        const int shown = launcher_model_analog_note(m) != NULL &&
+                          kb_digital_only && m->s.pad_mode[p] == 1 ? 2 : m->s.pad_mode[p];
+        bool sel = shown == segs[i].mode;
         // Analog needs sticks; grey out on keyboard.
         const bool stick_mode = (segs[i].mode == 1);
         const bool disabled = kb_digital_only && stick_mode;
@@ -3538,6 +3540,10 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
             ImGui::PopStyleColor(4);
         }
         ImGui::PopID();
+    }
+    if (m->s.player_src[p] == 2 && m->s.pad_mode[p] == 1) {
+        const char* note = launcher_model_analog_note(m);
+        if (note && *note) ImGui::TextWrapped("%s", note);
     }
 }
 
@@ -4131,6 +4137,10 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
             ImGui::EndCombo();
         }
         ImGui::PopID();
+    }
+    if (show_type && m->s.player_src[pad_seat] == 2 && m->s.pad_mode[pad_seat] == 1) {
+        const char* note = launcher_model_analog_note(m);
+        if (note && *note) ImGui::TextWrapped("%s", note);
     }
     ImGui::Dummy(ImVec2(0, px(6)));
     // Configure and the connection state on one row. (Analog-stick deadzone
