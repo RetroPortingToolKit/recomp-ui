@@ -365,12 +365,13 @@ function(recomp_target_launcher_ui TGT)
                     ${RUI_BOXART} $<TARGET_FILE_DIR:${TGT}>/assets/img/${RUI_BOXART_DEST}
             VERBATIM)
     endif()
-    # Per-console brand mark (top-left, next to the game title): overrides the
-    # default brand_mark.tga (e.g. the PlayStation shapes for PSX). 32-bit TGA.
+    # Game brand mark (top-left, next to the game title): staged as
+    # brand_game.tga, which the launcher prefers over the profile's own mark
+    # (e.g. the PlayStation shapes for PSX). 32-bit TGA.
     if(RUI_BRAND AND EXISTS ${RUI_BRAND})
         add_custom_command(TARGET ${TGT} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${RUI_BRAND} $<TARGET_FILE_DIR:${TGT}>/assets/img/brand_mark.tga
+                    ${RUI_BRAND} $<TARGET_FILE_DIR:${TGT}>/assets/img/brand_game.tga
             VERBATIM)
     endif()
 endfunction()

@@ -61,7 +61,7 @@ recomp_target_launcher_ui(my-game-runtime
     CONSOLE psx                                  # required: psx/snes/nds/n64/nes/...
     BOXART ${CMAKE_SOURCE_DIR}/art/boxart.tga   # optional: game box art
     PAD    ${CMAKE_SOURCE_DIR}/art/pad.tga       # optional: per-console controller image
-    BRAND  ${CMAKE_SOURCE_DIR}/art/brand.tga)    # optional: per-console top-left mark
+    BRAND  ${CMAKE_SOURCE_DIR}/art/brand.tga)    # optional: game top-left mark
 ```
 
 `recomp_ui.cmake` is fully self-contained: it bundles Dear ImGui, crc32/sha256/
@@ -608,7 +608,7 @@ recomp_target_launcher_ui(game-target
 | `BOXART <path>` | Optional per-game TGA copied next to the executable. |
 | `BOXART_NAME <name>` | Optional destination basename when several targets share one output directory. Pair it with `GameInfo.boxart_path`. |
 | `PAD <path>` | Optional controller-art override staged as `assets/img/pad.tga`. |
-| `BRAND <path>` | Optional top-left brand override staged as `assets/img/brand_mark.tga`. |
+| `BRAND <path>` | Optional top-left game mark staged as `assets/img/brand_game.tga`; it wins over the console profile's own mark. |
 | `HOST_IMGUI` + `IMGUI_DIR <path>` | Reuse Dear ImGui already compiled by the host, avoiding duplicate core/backend symbols. `IMGUI_DIR` must contain `imgui.h` and the backend headers. |
 
 `RECOMP_UI_HOST_IMGUI=ON` plus `RECOMP_UI_HOST_IMGUI_INCLUDE=<path>` remains
