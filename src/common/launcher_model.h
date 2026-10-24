@@ -433,6 +433,9 @@ typedef struct {
     // Dashboard controller cards use launcher_model_visible_player_count()
     // (PSX multitap may hide seats 5+).
     int         player_count;
+    // Memory-card slots the GAME uses (GameInfo.memcard_slots; 0 = profile
+    // default). Read through launcher_model_memcard_slot_count().
+    int         memcard_slots;
 
     // ---- ROM verification ----
     // Expected fingerprint, borrowed from the game's C-ABI struct.
@@ -1057,6 +1060,8 @@ uint16_t launcher_model_memcard_blocks_used(const LauncherModel* m, int slot);
 // Enable/disable one card slot (mirrors the legacy launcher's per-card switch;
 // a disabled slot's SIO port reports no card present to the host once wired).
 void launcher_model_toggle_memcard(LauncherModel* m, int slot);
+// Slots the Save panel shows: the game's count, capped by the profile's.
+int launcher_model_memcard_slot_count(const LauncherModel* m, int profile_slots);
 // "New" action: format a real, mountable blank 128KB PS1 memory-card image at
 // `path` (recompui_memcard_format_file(), memcard_format.h — no dependency on
 // any host project's runtime headers), then adopt it as the slot's path. A

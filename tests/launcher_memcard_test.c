@@ -134,7 +134,28 @@ static void test_enabled_tristate(void) {
     expect(g_m.s.memcard_enabled[0] == 0, "enabled: toggle on -> off");
 }
 
+/* A game that only ever talks to port 1 hides slot 2; the profile still caps it. */
+static void test_slot_count_game_override(void) {
+    reset_model();
+    g_m.memcard_slots = 1;
+    expect(launcher_model_memcard_slot_count(&g_m, 2) == 1, "game asks for 1 slot");
+}
+
+static void test_slot_count_unset_uses_profile(void) {
+    reset_model();
+    expect(launcher_model_memcard_slot_count(&g_m, 2) == 2, "unset keeps the profile's 2 slots");
+}
+
+static void test_slot_count_capped_by_profile(void) {
+    reset_model();
+    g_m.memcard_slots = 5;
+    expect(launcher_model_memcard_slot_count(&g_m, 2) == 2, "game cannot exceed the profile");
+}
+
 int main(void) {
+    test_slot_count_game_override();
+    test_slot_count_unset_uses_profile();
+    test_slot_count_capped_by_profile();
     test_blocks_used_inspected_wins();
     test_blocks_used_empty_path_with_inspector_is_blank();
     test_blocks_used_declined_inspect_is_blank();

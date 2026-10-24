@@ -2727,7 +2727,8 @@ void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
         // No outer "MEMORY CARDS" card/eyebrow: the small per-slot cards ARE the
         // UI. Fixed width (same as player cards); wider windows add columns
         // instead of stretching the pair across the column.
-        const int slots = (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2;
+        const int slots = launcher_model_memcard_slot_count(
+            m, (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2);
         const float gap = px(th->spacing_sm);
         const float avail = ImGui::GetContentRegionAvail().x;
         const float cw = dash_card_width(avail, gap, slots);
