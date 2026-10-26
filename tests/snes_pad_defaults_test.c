@@ -178,6 +178,33 @@ int main(int argc, char** argv) {
     launcher_model_set_deadzone(&m, 0, 7);
     expect(m.s.deadzone[0] == 7, "and takes any whole percent between");
 
+    /* ---- Super Multitap seats ------------------------------------------ */
+    /* A five-player SNES title shows five cards: the profile's ceiling is the
+     * multitap's, and num_players decides. A two-player title keeps two. */
+    expect(kSystemProfileSnes.controller.max_players >= 5,
+           "the SNES profile admits a five-seat multitap title");
+    make_model(&m);
+    m.player_count = 5;
+    expect(launcher_model_visible_player_count(&m) == 5,
+           "a five-player SNES title draws five controller cards");
+    make_model(&m);
+    expect(launcher_model_visible_player_count(&m) == 2,
+           "a two-player SNES title still draws two");
+    /* Seats 3.. write their own [GamepadMap] line, never seat 1's. */
+    expect(strcmp(snes_gamepad_config_key(0), "Controls") == 0, "seat 1 key is Controls");
+    expect(strcmp(snes_gamepad_config_key(1), "ControlsP2") == 0, "seat 2 key is ControlsP2");
+    expect(strcmp(snes_gamepad_config_key(4), "ControlsP5") == 0, "seat 5 key is ControlsP5");
+    make_model(&m);
+    m.player_count = 5;
+    expect(snes_gamepad_set_button(&m, 4, 0, LNG_PADBIND_NONE, 0, 0) == 1,
+           "seat 5 accepts a gamepad rebind");
+    {
+        char line[LNG_SNES_PAD_BUTTON_COUNT][48];
+        snes_gamepad_read_config_order(0, line);
+        expect(strcmp(line[kSnesUiToGamepadConfig[0]], "") != 0,
+               "and seat 1's mapping is untouched");
+    }
+
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     puts("snes_pad_defaults_test: ok");

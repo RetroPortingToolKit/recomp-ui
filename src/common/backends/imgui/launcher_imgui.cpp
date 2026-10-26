@@ -3486,16 +3486,43 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    for (int i = 0; i < g_pad_count; ++i)
-        push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+    // Live pads are listed per physical device: identical controllers (two
+    // DualSense, two of the same 8BitDo) share one GUID, and listing them once
+    // let only one player ever pick that model. PSX keeps its GUID registry.
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (psx) {
+            push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+            continue;
+        }
+        if (!g_pads[i].guid[0] || nopt >= kMaxOpts) continue;
+        int same = 0;
+        for (int j = 0; j < i; ++j)
+            if (std::strcmp(g_pads[j].guid, g_pads[i].guid) == 0) ++same;
+        std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", g_pads[i].guid);
+        const char* nm = (g_pads[i].name[0] && std::strcmp(g_pads[i].name, "Gamepad") != 0)
+                             ? g_pads[i].name : "Controller";
+        if (same) std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s (%d)", nm, same + 1);
+        else std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s", nm);
+        opts[nopt].id = g_pads[i].id;
+        opts[nopt].live = true;
+        ++nopt;
+    }
 
+    // A seat bound to a live device (player_gamepad_instance) claims that
+    // device; a seat with only a GUID claims the model, as before.
+    auto seat_has = [&](int o, const PadOpt& opt) -> bool {
+        if (m->s.player_src[o] != 2) return false;
+        if (!psx && opt.live && m->s.player_gamepad_instance[o])
+            return m->s.player_gamepad_instance[o] == opt.id + 1;
+        return m->s.player_gamepad_guid[o][0] &&
+               std::strcmp(m->s.player_gamepad_guid[o], opt.guid) == 0;
+    };
     const int claim_n = launcher_model_visible_player_count(m);
     for (int i = 0; i < nopt; ++i) {
         bool claimed = false;
         for (int o = 0; o < claim_n; ++o) {
             if (o == p) continue;
-            if (m->s.player_src[o] == 2 && m->s.player_gamepad_guid[o][0] &&
-                std::strcmp(m->s.player_gamepad_guid[o], opts[i].guid) == 0) {
+            if (seat_has(o, opts[i])) {
                 claimed = true;
                 break;
             }
@@ -3506,10 +3533,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
         else
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
-        const bool sel = m->s.player_src[p] == 2 &&
-                         m->s.player_gamepad_guid[p][0] &&
-                         std::strcmp(m->s.player_gamepad_guid[p],
-                                     opts[i].guid) == 0;
+        const bool sel = seat_has(p, opts[i]);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
