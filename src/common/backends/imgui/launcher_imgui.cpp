@@ -14,6 +14,7 @@
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
 #include "launcher_input.h"
+#include "launcher_pad_capture.h"
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
@@ -3415,8 +3416,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
         return;
     }
-    // Unified pad list (no duplicates): saved mappings + live devices.
-    // Pads already selected on another player are disabled (keyboard is not).
+    // PSX mappings belong to a GUID, but co-op seats select physical devices.
+    // Retain disconnected profiles without merging two identical live pads.
     struct PadOpt {
         char guid[40];
         char name[64];
@@ -3434,7 +3435,11 @@ void draw_source_selectables(LauncherModel* m, int p) {
     };
     auto push_opt = [&](const char* guid, const char* name, uint32_t id,
                         bool live) {
-        if (!guid || !guid[0] || already(guid) || nopt >= kMaxOpts) return;
+        if (!guid || !guid[0] || nopt >= kMaxOpts) return;
+        if (psx && live) {
+            for (int i = 0; i < nopt; ++i)
+                if (opts[i].live && opts[i].id == id) return;
+        } else if (already(guid)) return;
         std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", guid);
         const char* nm = (name && name[0] && std::strcmp(name, "Gamepad") != 0)
                              ? name : "Controller";
@@ -3486,34 +3491,51 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    for (int i = 0; i < g_pad_count; ++i)
-        push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
-
-    const int claim_n = launcher_model_visible_player_count(m);
-    for (int i = 0; i < nopt; ++i) {
-        bool claimed = false;
-        for (int o = 0; o < claim_n; ++o) {
-            if (o == p) continue;
-            if (m->s.player_src[o] == 2 && m->s.player_gamepad_guid[o][0] &&
-                std::strcmp(m->s.player_gamepad_guid[o], opts[i].guid) == 0) {
-                claimed = true;
-                break;
-            }
+    for (int i = 0; i < g_pad_count; ++i) {
+        const char* name = g_pads[i].name;
+        if (psx && launcher_binds_psx_name_is_custom(g_pads[i].guid)) {
+            for (int j = 0; j < nopt; ++j)
+                if (!std::strcmp(opts[j].guid, g_pads[i].guid)) {
+                    name = opts[j].name;
+                    break;
+                }
         }
+        push_opt(g_pads[i].guid, name, g_pads[i].id, true);
+    }
+
+    for (int i = 0; i < nopt; ++i) {
+        const bool claimed = psx && opts[i].live
+            ? launcher_model_gamepad_instance_claimed(m, p, opts[i].id)
+            : launcher_model_gamepad_claimed(m, p, opts[i].guid);
         char label[96];
         if (opts[i].live)
             std::snprintf(label, sizeof(label), "%s", opts[i].name);
         else
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
-        const bool sel = m->s.player_src[p] == 2 &&
+        if (psx && opts[i].live) {
+            int identical = 0, ordinal = 0;
+            for (int j = 0; j < nopt; ++j) {
+                if (opts[j].live && !std::strcmp(opts[j].guid, opts[i].guid)) {
+                    ++identical;
+                    if (j <= i) ++ordinal;
+                }
+            }
+            if (identical > 1)
+                std::snprintf(label, sizeof(label), "%s #%d", opts[i].name, ordinal);
+        }
+        const bool guid_sel = m->s.player_src[p] == 2 &&
                          m->s.player_gamepad_guid[p][0] &&
                          std::strcmp(m->s.player_gamepad_guid[p],
                                      opts[i].guid) == 0;
+        const bool sel = guid_sel && (!psx || !opts[i].live ||
+            m->s.player_gamepad_instance[p] == opts[i].id + 1);
+        ImGui::PushID(i);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
                                      opts[i].guid);
+            if (psx && !opts[i].live) m->s.player_gamepad_instance[p] = 0;
             if (psx) {
                 launcher_binds_apply_psx_pad_profile(m, p);
                 launcher_binds_refresh(m);
@@ -3532,6 +3554,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
             }
         }
         if (claimed) ImGui::EndDisabled();
+        ImGui::PopID();
     }
 
     if (nopt == 0) {
@@ -6414,9 +6437,10 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                 launcher_model_begin_pad_capture(m, b);
                                 // If they start a bind while still holding the
                                 // prior input, wait for a full release first.
-                                if (m->capturing && m->player_pad_id[p] &&
-                                    !launcher_input_gamepad_at_rest(
-                                        m->player_pad_id[p]))
+                                uint32_t selected_id = 0;
+                                if (m->capturing && launcher_pad_capture_resolve(
+                                        m, g_pads, g_pad_count, &selected_id) == 1 &&
+                                    !launcher_input_gamepad_at_rest(selected_id))
                                     m->map_all_wait_release = true;
                             }
                             if (cap) ImGui::PopStyleColor();
@@ -6428,8 +6452,10 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::Spacing();
                 if (ImGui::Button("Map All Bindings")) {
                     launcher_model_begin_map_all(m);
-                    if (m->capturing && m->player_pad_id[p] &&
-                        !launcher_input_gamepad_at_rest(m->player_pad_id[p]))
+                    uint32_t selected_id = 0;
+                    if (m->capturing && launcher_pad_capture_resolve(
+                            m, g_pads, g_pad_count, &selected_id) == 1 &&
+                        !launcher_input_gamepad_at_rest(selected_id))
                         m->map_all_wait_release = true;
                 }
                 ImGui::SameLine();
@@ -6723,8 +6749,10 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             const int b = (cell >= 0 && cell < automap_total)
                 ? (vertical ? order[cell] : cell)
                 : 0;
-            const uint32_t pad_id_now = m->player_pad_id[p];
-            const bool settling = pad_src && pad_id_now && !m->capturing &&
+            uint32_t pad_id_now = 0;
+            const bool selected = launcher_pad_capture_resolve(
+                m, g_pads, g_pad_count, &pad_id_now) == 1;
+            const bool settling = pad_src && selected && !m->capturing &&
                                   !launcher_input_gamepad_at_rest(pad_id_now);
             if (settling) {
                 ImGui::TextColored(col(th.warn),
@@ -6829,16 +6857,20 @@ bool np_prepare_guest_bind(char* out, size_t cap, char* status, size_t status_ca
 void np_connect_and_list(LauncherModel* m) {
     const auto* np = np_cb(m);
     if (!np) return;
+    const bool lan = m->netplay_mode == 1 && np->list_scope_set;
+    if (np->list_scope_set)
+        np->list_scope_set(np->ctx, lan ? RECOMP_LAUNCHER_LIST_SCOPE_LAN
+                                      : RECOMP_LAUNCHER_LIST_SCOPE_ONLINE);
     if (np->set_player_name && m->s.netplay_player_name[0])
         np->set_player_name(np->ctx, m->s.netplay_player_name);
     const bool already = np->connected && np->connected(np->ctx);
     const bool in_flight = np->connecting && np->connecting(np->ctx);
-    if (np->connect && !already && !in_flight)
+    if (!lan && np->connect && !already && !in_flight)
         (void)np->connect(np->ctx);
     if (np->request_list)
         np->request_list(np->ctx);
     m->netplay_list_fresh = true;
-    if (!already)
+    if (!lan && !already)
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Connecting to lobby server…");
 }
@@ -10984,6 +11016,8 @@ static bool np_account_offered(LauncherModel* m) {
 static void np_enter_netplay(LauncherModel* m, int mode) {
     m->netplay_mode = mode;
     m->netplay_list_fresh = false;
+    const auto* np = np_cb(m);
+    if (np && np->clear_last_error) np->clear_last_error(np->ctx);
     if (mode == 2) {
         std::snprintf(m->netplay_status, sizeof(m->netplay_status),
                       "Connecting to lobby server…");
@@ -12319,6 +12353,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
 
                     bool enabled = feature.enabled != 0;
                     if (ImGui::Checkbox("##enabled", &enabled)) {
+                        m->mod_selected = item.index;
                         change_mod_feature(m, feature, enabled);
                     }
                     if (ImGui::IsItemHovered())
@@ -14608,19 +14643,9 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * filter keyed on it would have let any pad bind. Resolve the GUID
          * against the live device list here so the rule holds from a restored
          * selection too. */
-        uint32_t want_id = m->player_pad_id[m->cfg_player];
-        if (!want_id && m->s.player_src[m->cfg_player] == 2) {
-            const char* want_guid = m->s.player_gamepad_guid[m->cfg_player];
-            if (want_guid[0]) {
-                for (int i = 0; i < g_pad_count; ++i) {
-                    if (g_pads[i].guid[0] &&
-                        std::strcmp(g_pads[i].guid, want_guid) == 0) {
-                        want_id = g_pads[i].id;
-                        break;
-                    }
-                }
-            }
-        }
+        uint32_t want_id = 0;
+        const int selected = launcher_pad_capture_resolve(
+            m, g_pads, g_pad_count, &want_id);
         auto from_selected = [&](uint32_t which) -> bool {
             /* A binding belongs to the device the player SELECTED.
              *
@@ -14630,13 +14655,13 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
              * no way to tell which had won. If a device is selected, only that
              * device may bind.
              *
-             * want_id == 0 means no specific device is chosen (the console
+             * selected == 0 means no specific device is chosen (the console
              * offers a generic "Gamepad" source), and any pad is accepted --
              * which is the behaviour Genesis had and keeps. A per-GUID store
              * additionally refuses when its selection has not resolved to a
              * live device, because the binding would otherwise be written
              * against the wrong profile. */
-            if (!want_id) return !guid_store;
+            if (selected <= 0) return selected == 0 && !guid_store;
             return which == want_id;
         };
         auto try_clear_release_wait = [&](uint32_t which) {
@@ -15054,6 +15079,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 if (launch_commit.job.pending()) launch_commit.close_requested = true;
                 else p->should_quit = true;
             }
+            if (launcher_debug_hidden()) continue; // physical input belongs to the desktop
             if (launch_commit.job.pending()) {
                 LNG_ImplSDL_ProcessEvent(&ev);
                 continue;
@@ -15122,8 +15148,9 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             // Pad capture release-gate: clear once the selected pad is fully at
             // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
             if (m->capturing && m->capture_pad && m->map_all_wait_release) {
-                const uint32_t id = m->player_pad_id[m->cfg_player];
-                if (id && launcher_input_gamepad_at_rest(id))
+                uint32_t id = 0;
+                if (launcher_pad_capture_resolve(m, g_pads, g_pad_count, &id) == 1 &&
+                    launcher_input_gamepad_at_rest(id))
                     m->map_all_wait_release = false;
             }
 
@@ -15134,8 +15161,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 m->capture_btn >= 0 && m->capture_btn <= 3) {
                 const SystemProfile* poll_prof = (const SystemProfile*)m->profile;
                 if (poll_prof && poll_prof->id && !strcmp(poll_prof->id, "psx")) {
-                    const uint32_t id = m->player_pad_id[m->cfg_player];
-                    if (id) {
+                    uint32_t id = 0;
+                    if (launcher_pad_capture_resolve(m, g_pads, g_pad_count, &id) == 1) {
     #if defined(LNG_SDL3)
                         static const int kExpect[4] = {
                             (int)SDL_GAMEPAD_BUTTON_DPAD_UP,
@@ -15187,8 +15214,26 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             else
                 nav_io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
+        if (launcher_debug_hidden()) {
+            ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableSetMousePos;
+        }
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
+        if (launcher_debug_hidden()) {
+            ImGuiIO& debug_io = ImGui::GetIO();
+            debug_io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            debug_io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableSetMousePos;
+            debug_io.AddFocusEvent(true);
+            while (launcher_debug_next_event(&ev)) {
+                if (!try_capture(m, ev)) LNG_ImplSDL_ProcessEvent(&ev);
+            }
+            float x, y; bool down;
+            if (launcher_debug_mouse_frame(&x, &y, &down)) {
+                debug_io.AddMousePosEvent(x, y);
+                debug_io.AddMouseButtonEvent(0, down);
+            }
+        }
         ImGui::NewFrame();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
@@ -15241,6 +15286,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
 
     launcher_boot_timing_mark("rui:action_requested");
     launcher_input_shutdown();
+    launcher_debug_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     g_artwork.clear();
     launcher_texture_free(&g_boxart);

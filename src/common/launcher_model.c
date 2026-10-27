@@ -57,7 +57,7 @@ static const char* kHotkeyNames[] = {
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
-static const char* kViewNames[8] = {
+static const char* kViewNames[LNG_VIEW__COUNT] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
     "Assist Tools", "Credits", "Lobby"
 };
@@ -412,6 +412,7 @@ void launcher_model_init(LauncherModel* m,
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
         m->locked_pad_mode      = clampi(game->locked_pad_mode, 0, 2);
         m->lock_device          = game->lock_device != 0;
+        m->allow_shared_gamepad = game->allow_shared_gamepad != 0;
         m->aspect_mask          = game->aspect_mask;
 
         m->has_window_size      = game->has_window_size != 0;
@@ -4582,6 +4583,28 @@ void launcher_model_set_deadzone(LauncherModel* m, int player, int pct) {
     m->s.deadzone[player] = clampi(pct, 0, 100);
 }
 
+int launcher_model_gamepad_instance_claimed(const LauncherModel* m, int player,
+                                           uint32_t pad_id) {
+    if (!m || m->allow_shared_gamepad) return 0;
+    const int count = launcher_model_visible_player_count(m);
+    for (int other = 0; other < count; ++other) {
+        if (other != player && m->s.player_src[other] == 2 &&
+            m->s.player_gamepad_instance[other] == pad_id + 1) return 1;
+    }
+    return 0;
+}
+
+int launcher_model_gamepad_claimed(const LauncherModel* m, int player,
+                                  const char* guid) {
+    if (!m || !guid || !guid[0] || m->allow_shared_gamepad) return 0;
+    const int count = launcher_model_visible_player_count(m);
+    for (int other = 0; other < count; ++other) {
+        if (other != player && m->s.player_src[other] == 2 &&
+            strcmp(m->s.player_gamepad_guid[other], guid) == 0) return 1;
+    }
+    return 0;
+}
+
 void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid) {
@@ -4856,7 +4879,9 @@ const char* launcher_hotkey_name(LngHotkey h) {
 }
 
 const char* launcher_view_name(LngView v) {
-    if (v < 0 || v > LNG_VIEW_LOBBY) return "?";
+    if (v == LNG_VIEW_NETPLAY_MODE) return "Netplay Mode";
+    if (v == LNG_VIEW_NETPLAY_SIGNIN) return "Netplay Sign In";
+    if (v < 0 || v >= LNG_VIEW__COUNT) return "?";
     return kViewNames[v];
 }
 

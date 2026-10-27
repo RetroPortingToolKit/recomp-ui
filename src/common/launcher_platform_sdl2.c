@@ -249,7 +249,8 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
                           SDL_WINDOW_ALLOW_HIGHDPI;
     /* Automated launcher checks must not steal the user's desktop/focus. */
-    const bool test_hidden = getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN");
+    const bool test_hidden = getenv("LNG_TCP_PORT") ||
+        (getenv("LNG_TEST_HIDDEN") && !strcmp(getenv("LNG_TEST_HIDDEN"), "1"));
     if (test_hidden) window_flags |= SDL_WINDOW_HIDDEN;
 #if defined(__ANDROID__)
     window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_BORDERLESS;

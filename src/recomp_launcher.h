@@ -2442,6 +2442,8 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Development hosts may share a physical pad; normal pickers stay exclusive. */
+    int allow_shared_gamepad;
 } RecompLauncherCGameInfo;
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
@@ -2450,6 +2452,7 @@ typedef struct RecompLauncherCGameInfo {
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
 #define RECOMP_LAUNCHER_HAS_FRACTIONAL_FAST_FORWARD 1
+#define RECOMP_LAUNCHER_HAS_SHARED_GAMEPAD 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that

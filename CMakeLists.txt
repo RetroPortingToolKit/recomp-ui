@@ -86,10 +86,14 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-mod-preparation-test>)
 
     add_executable(recomp-ui-launcher-debug-pending-test
-        tests/launcher_debug_pending_test.c src/common/launcher_debug.c)
+        tests/launcher_debug_pending_test.c src/common/launcher_debug.c
+        src/common/launcher_debug_tcp.c)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
-    target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
+    target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS} SDL_MAIN_HANDLED=1)
     target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+    if(WIN32)
+        target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ws2_32)
+    endif()
     foreach(_rui_pending_case wait model launch)
         add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
@@ -589,6 +593,16 @@ if(BUILD_TESTING)
         src src/common src/consoles/psx)
     add_test(NAME recomp-ui-assist-pad-capture
              COMMAND $<TARGET_FILE:recomp-ui-assist-pad-capture-test>)
+
+    add_executable(recomp-ui-pad-capture-test
+        tests/launcher_pad_capture_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c
+        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-pad-capture-test PRIVATE
+        src src/common src/consoles/psx)
+    add_test(NAME recomp-ui-pad-capture
+             COMMAND $<TARGET_FILE:recomp-ui-pad-capture-test>)
 
     # The shared presentation blend, including the holding variant a host with
     # a decoupled presentation clock needs. Pure arithmetic on two buffers, so
