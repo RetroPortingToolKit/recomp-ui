@@ -8,6 +8,7 @@
 
 #ifndef RECOMP_LAUNCHER_H
 #define RECOMP_LAUNCHER_H
+#include "recomp_card_manager.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -2442,7 +2443,10 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Optional two-card editor, borrowed for the launcher session. */
+    const RecompCardManager* card_manager;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1
