@@ -10,6 +10,7 @@
 //   (2) Live resize: immediate mode redraws every frame; a logical-width
 //       breakpoint switches the dashboard between two columns and one column.
 
+#include "card_manager_support.hpp"
 #include "launcher_backend.h"
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
@@ -406,7 +407,8 @@ char        g_pick_buf[512] = {};    // ROM picker result
 /* ---------------------------------------------------------------------------
  * File pickers: ONE entry point, and a fallback nothing can bypass.
  *
- * ui_pick() is the only way this backend opens a picker. It tries the host's
+ * Generic panels use ui_pick(); the optional card editor defers its native
+ * Unicode picker between frames. ui_pick() tries the host's
  * native dialog first and, when that reports itself unusable (-1), browses
  * in-app instead. Callers never learn which happened.
  *
@@ -2907,7 +2909,17 @@ static int dash_card_columns(float availw, float gap, float cardw, int count) {
 
 static void draw_quick_mods(LauncherModel* m,const LauncherTheme& th);
 
+#include "card_manager_imgui.hpp"
+
 void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
+    if (card_manager_ui::available(m)) {
+        ImGui::BeginDisabled(m->in_session);
+        if (ImGui::Button("Open Memory Card Manager")) card_manager_ui::start(m);
+        ImGui::EndDisabled();
+        if (m->in_session && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Close the game before editing memory cards.");
+        ImGui::Spacing();
+    }
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const SaveKind kind = prof ? prof->save.kind : SAVE_NONE;
     if (kind == SAVE_MEMCARD) {
@@ -15092,6 +15104,10 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             }
             LNG_ImplSDL_ProcessEvent(&ev);
         } while (SDL_PollEvent(&ev));
+        if (!launch_commit.job.pending() && p->should_quit && card_manager_ui::has_dirty()) {
+            p->should_quit = false;
+            card_manager_ui::request_close(true);
+        }
 
         launcher_platform_refresh_metrics(p);
         /* Also when a never-seen emoji was registered last frame: the atlas
@@ -15192,6 +15208,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         ImGui::NewFrame();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
+        if (!launch_commit.job.pending()) card_manager_ui::draw(m);
         ImGui::Render();
 
         /* Disc pickers, source/option edits and setup outputs have completed
@@ -15233,6 +15250,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
         }
         launcher_platform_present(p);
+        if (!launch_commit.job.pending()) card_manager_ui::process_picker();
+        if (card_manager_ui::exit_ready) p->should_quit = true;
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");
             first_present_marked = true;
@@ -15240,6 +15259,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     }
 
     launcher_boot_timing_mark("rui:action_requested");
+    card_manager_ui::shutdown();
     launcher_input_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     g_artwork.clear();

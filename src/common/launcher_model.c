@@ -470,6 +470,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_languages        = game->num_languages;
         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
         m->import_sbi_cb        = game->import_sbi;
+        m->card_manager = game->card_manager;
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
         m->bios_verify_cb       = game->bios_verify;
         m->persist_setup_cb     = game->persist_setup;
