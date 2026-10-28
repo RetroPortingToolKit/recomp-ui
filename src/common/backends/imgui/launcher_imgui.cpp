@@ -2209,7 +2209,6 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         if (m->password_save_path || m->password_sram_path)
             reserve += px(96.0f);                      // password-save row (same footprint)
         if (m->bios_name && launcher_model_bios_missing(m)) reserve += px(110.0f);  // "required" notice
-        if (m->msu1_patch_available) reserve += px(198.0f);  // MSU-1 patch-available sub-block
                                                               // (title + up-to-3-line wrapped note + 2 stacked buttons)
         if (builtin_file_picker_should_be_offered()) reserve += px(84.0f);
         if (m->setup_error[0])
@@ -2350,42 +2349,6 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::PushTextWrapPos();
         ImGui::TextColored(col(th.warn), "%s", m->setup_error);
         ImGui::PopTextWrapPos();
-    }
-
-    // MSU-1 patch-available sub-block: this game ships an IPS patch that
-    // converts the verified vanilla ROM into its MSU-1 streamed-audio variant.
-    // Ported from the legacy launcher's dashboard "MSU-1 patch available" card
-    // (snesrecomp/runner/src/launcher/launcher_gui.cpp: msu1_patch_available +
-    // do_patch()/patch_rom/skip_patch). "warn" amber styling — this is a
-    // choice the player should notice, not a routine control.
-    if (m->msu1_patch_available) {
-        ImGui::Dummy(ImVec2(0, px(10)));
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, col(th.panel_hovered));
-        ImGui::PushStyleColor(ImGuiCol_Border, col(th.warn));
-        if (ImGui::BeginChild("msu1_patch_block", ImVec2(availw, 0),
-                              ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
-                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-            ImGui::TextColored(col(th.warn), "MSU-1 patch available");
-            const float inner_w = ImGui::GetContentRegionAvail().x;
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner_w);
-            ImGui::TextColored(col(th.text_muted), "%s",
-                (m->msu1_note && m->msu1_note[0])
-                    ? m->msu1_note
-                    : "An MSU-1 patch exists for this game. Patch a copy beside "
-                      "your ROM (the original is never modified)?");
-            ImGui::PopTextWrapPos();
-            ImGui::Dummy(ImVec2(0, px(8)));
-            // Stacked full-width buttons, not side-by-side: "Skip (Play Unpatched)"
-            // is long enough that splitting the row in half clips its label at
-            // common card widths (verified via the LNG_DEMO_MSU harness).
-            if (ImGui::Button(ui_text("Patch ROM"), ImVec2(inner_w, px(32))))
-                launcher_model_apply_msu1_patch(m);
-            ImGui::Dummy(ImVec2(0, px(th.spacing_xs)));
-            if (ImGui::Button(ui_text("Skip (Play Unpatched)"), ImVec2(inner_w, px(32))))
-                launcher_model_skip_msu1_patch(m);
-        }
-        ImGui::EndChild();
-        ImGui::PopStyleColor(2);
     }
 
     // SAVES lives in the GAME card as a compact row (no separate card / eyebrow).
@@ -12356,56 +12319,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     ImGui::EndChild();
 }
 
-static void draw_rom_patch(LauncherModel* m, const LauncherTheme& th) {
-    if (!m || !m->rom_patch_supported) return;
-
-    if (ImGui::BeginChild("##rom_patch", ImVec2(0, px(170)),
-                          ImGuiChildFlags_Borders)) {
-        eyebrow("ROM PATCH");
-        bool enabled = m->s.rom_patch_enabled != 0;
-        if (ImGui::Checkbox(ui_text("Enable ROM patch"), &enabled))
-            launcher_model_toggle_rom_patch(m);
-
-        const float clear_w = px(70);
-        const float browse_w = px(95);
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - browse_w - clear_w -
-                        px(8));
-        if (ImGui::Button(ui_text("Browse..."), ImVec2(browse_w, px(28)))) {
-            ui_pick_file(m, "Select ROM patch", {"*.ips", "*.ips32", "*.bps"},
-                         "ROM patches", [m](const char* path) {
-                             if (path) launcher_model_set_rom_patch(m, path);
-                         });
-        }
-        ImGui::SameLine(0, px(8));
-        ImGui::BeginDisabled(!m->s.rom_patch_path[0]);
-        if (ImGui::Button(ui_text("Clear"), ImVec2(clear_w, px(28))))
-            launcher_model_clear_rom_patch(m);
-        ImGui::EndDisabled();
-
-        const char* path = m->s.rom_patch_path[0]
-            ? m->s.rom_patch_path : ui_text("No patch selected");
-        char elided[384];
-        elide_left(path, ImGui::GetContentRegionAvail().x,
-                   elided, sizeof(elided));
-        ImGui::TextColored(col(th.text_muted), "%s", elided);
-        if (ImGui::IsItemHovered() && m->s.rom_patch_path[0])
-            ImGui::SetTooltip("%s", m->s.rom_patch_path);
-        if (m->rom_patch_note && m->rom_patch_note[0])
-            ImGui::TextWrapped("%s", m->rom_patch_note);
-        if (m->rom_patch_status[0])
-            ImGui::TextColored(col(th.accent), "%s", m->rom_patch_status);
-    }
-    ImGui::EndChild();
-}
-
 void draw_mods(LauncherModel* m, const LauncherTheme& th) {
     const auto* mods = m ? m->mods : nullptr;
-    if (!m || (!mods && !m->rom_patch_supported)) return;
-    if (m->rom_patch_supported) {
-        draw_rom_patch(m, th);
-        if (!mods) return;
-        ImGui::Dummy(ImVec2(0, px(8)));
-    }
+    if (!m || !mods) return;
     /* Above the Features/Packages switch: a package that failed to parse is
      * missing from BOTH views, so reporting it inside either one would leave
      * the other silent. */
@@ -12778,13 +12694,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
             launcher_model_bios_play_prompt(m);
-        else if (!launcher_model_prepare_rom_patch(m)) {
-            /* The effective image could not be prepared. Send the user to
-             * the page that owns the patch selection instead of launching
-             * an image the runtime's identity gate would reject. */
-            if (m->rom_patch_supported && m->s.rom_patch_enabled)
-                launcher_model_set_view(m, LNG_VIEW_MODS);
-        } else {
+        else {
             request_mod_commit_launch(m);
         }
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {

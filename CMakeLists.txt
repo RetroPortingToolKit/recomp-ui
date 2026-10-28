@@ -113,12 +113,6 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
     target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
     add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)
-    add_executable(recomp-ui-ips-patch-test
-        tests/ips_patch_test.c
-        src/common/ips_patch.c
-        src/common/crc32.c)
-    target_include_directories(recomp-ui-ips-patch-test PRIVATE src/common)
-    add_test(NAME recomp-ui-ips-patch COMMAND $<TARGET_FILE:recomp-ui-ips-patch-test>)
 
     # The photosensitivity flash guard. Pure arithmetic on two ARGB frames --
     # no SDL, no window, no ROM -- so it runs anywhere the rest of these do.
@@ -174,12 +168,6 @@ if(BUILD_TESTING)
             "Browse button without failing the suite.")
     endif()
 
-    add_executable(recomp-ui-rom-patch-tool
-        tools/rom_patch_tool.c
-        src/common/ips_patch.c
-        src/common/crc32.c
-        src/common/sha1.c)
-    target_include_directories(recomp-ui-rom-patch-tool PRIVATE src/common)
 
     add_test(
         NAME recomp-ui-asset-manifests
@@ -296,7 +284,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-discs-test PRIVATE
         src src/common src/consoles/psx)
@@ -313,7 +300,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-video-pick-test PRIVATE
         src src/common src/consoles/psx)
@@ -329,7 +315,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-internal-resolution-test PRIVATE
         src src/common src/consoles/psx)
@@ -345,7 +330,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-render-pipeline-test PRIVATE
         src src/common src/consoles/psx)
@@ -361,7 +345,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-quality-preset-test PRIVATE
         src src/common src/consoles/psx)
@@ -377,7 +360,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-setup-bios-test PRIVATE
         src src/common src/consoles/psx)
@@ -395,7 +377,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-setup-confirm-test PRIVATE
         src src/common src/consoles/psx)
@@ -415,7 +396,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-pad-mode-test PRIVATE
         src src/common src/consoles/psx)
@@ -432,7 +412,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-genesis-seats-test PRIVATE
         src src/common src/consoles/psx)
@@ -451,7 +430,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-netplay-seat-cap-test PRIVATE
         src src/common src/consoles/psx)
@@ -470,7 +448,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-memcard-test PRIVATE
         src src/common src/consoles/psx)
@@ -489,7 +466,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-snes-pad-defaults-test PRIVATE
         src src/common src/consoles/psx)
@@ -526,7 +502,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-assist-pad-capture-test PRIVATE
         src src/common src/consoles/psx)
@@ -576,12 +551,10 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     add_executable(recomp-ui-netplay-view-test
         tests/netplay_view_test.c src/common/launcher_model.c
-        src/common/crc32.c src/common/sha1.c src/common/sha256.c
-        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-netplay-view-test PRIVATE src src/common src/consoles/psx)
     add_test(NAME recomp-ui-netplay-view COMMAND $<TARGET_FILE:recomp-ui-netplay-view-test>)
     target_include_directories(recomp-ui-launcher-model-cache-test PRIVATE
@@ -601,7 +574,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-rom-persistence-test PRIVATE
         src src/common src/consoles/psx)
@@ -619,7 +591,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-in-session-test PRIVATE
         src src/common src/consoles/psx)
@@ -637,7 +608,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-settings-test PRIVATE
         src src/common src/consoles/psx)
@@ -657,7 +627,6 @@ if(BUILD_TESTING)
         src/common/crc32.c
         src/common/sha1.c
         src/common/sha256.c
-        src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-launcher-netplay-handoff-test PRIVATE
         src src/common src/consoles/psx)
@@ -687,8 +656,7 @@ if(BUILD_TESTING)
         src/consoles/psx/memcard_format.c
         src/common/crc32.c
         src/common/sha1.c
-        src/common/sha256.c
-        src/common/ips_patch.c)
+        src/common/sha256.c)
     target_include_directories(recomp-ui-nes-host-bindings-test PRIVATE
         src src/common src/consoles/psx)
     target_link_libraries(recomp-ui-nes-host-bindings-test PRIVATE ${RUI_SDL_TARGET})

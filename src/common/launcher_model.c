@@ -10,7 +10,6 @@
 #include "consoles/psx/memcard_format.h"   // PSX-specific; used only under SAVE_MEMCARD
 #include "sha256.h"
 #include "sha1.h"
-#include "ips_patch.h"
 
 #include <stdio.h>
 #include <ctype.h>
@@ -223,7 +222,6 @@ static void lm_bind_disc_selection(LauncherModel* m) {
 }
 
 static void run_verify(LauncherModel* m);   // fwd; defined below, called from launcher_model_set_rom
-static void update_msu1_patch_available(LauncherModel* m);   // fwd; called from launcher_model_set_rom
 static void lm_inspect_memcard(LauncherModel* m, int slot); // fwd; host memcard_inspect callback
 
 // Host-facing tri-state -> model 0/1 (see RecompLauncherCSettings.memcard_enabled).
@@ -361,7 +359,6 @@ void launcher_model_init(LauncherModel* m,
         m->widescreen_supported = game->widescreen_supported != 0;
         m->msu1_supported       = game->msu1_supported != 0;
         m->msu1_note            = game->msu1_note;
-        m->msu1_patch_path      = game->msu1_patch_path;
         m->saves_supported      = game->sram_path != NULL;
         m->sram_path            = game->sram_path;
         m->has_solar_sensor     = game->has_solar_sensor != 0;
@@ -582,10 +579,6 @@ void launcher_model_init(LauncherModel* m,
         m->netplay_view_labels = game->netplay_view_labels;
         m->num_netplay_view_labels = m->netplay_supported && game->netplay_view_labels
             ? clampi(game->num_netplay_view_labels, 0, 16) : 0;
-        m->rom_patch_supported  = game->rom_patch_supported != 0;
-        m->rom_patch_note       = game->rom_patch_note;
-        m->rom_patch_cache_dir  = game->rom_patch_cache_dir;
-        m->rom_patch_required_sha1 = game->rom_patch_required_sha1;
 #if RECOMP_UI_ENABLE_MODS
         m->mods                 = game->mods;
 #else
@@ -622,16 +615,6 @@ void launcher_model_init(LauncherModel* m,
         if (iv != 1 && iv != 4 && iv != 8 && iv != 12 && iv != 15)
             m->s.rewind_interval = 15;
     }
-    if (!m->rom_patch_supported) {
-        m->s.rom_patch_enabled = 0;
-        m->s.rom_patch_path[0] = '\0';
-    } else {
-        m->s.rom_patch_enabled =
-            m->s.rom_patch_enabled && m->s.rom_patch_path[0] ? 1 : 0;
-    }
-    m->s.rom_patch_source_path[0] = '\0';
-    m->s.rom_patch_sha1[0] = '\0';
-    m->s.rom_patch_crc32[0] = '\0';
     m->s.assist_fast_forward_multiplier = clampi(
         m->s.assist_fast_forward_multiplier > 0
             ? m->s.assist_fast_forward_multiplier
@@ -1325,8 +1308,6 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->rom_present = path && path[0] != '\0';
     safe_copy(m->rom_full, sizeof(m->rom_full), m->rom_present ? path : "");
     m->rom_sha1_hex[0] = '\0';
-    m->rom_patch_prepared_path[0] = '\0';
-    m->rom_patch_prepared_sha1[0] = '\0';
 
     // Display just the basename (handles both / and \ separators).
     const char* base = m->rom_full;
@@ -1415,7 +1396,6 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     lm_bind_disc_selection(m);
 
     run_verify(m);
-    update_msu1_patch_available(m);
     /* A host whose BIOS lookup sees the image answers again for this one. */
     if (m->has_bios && m->bios_verify_for_rom_cb) launcher_model_refresh_bios_status(m);
 }
@@ -1472,8 +1452,6 @@ const char* launcher_model_rom_path(const LauncherModel* m) {
 }
 
 const char* launcher_model_effective_rom_path(const LauncherModel* m) {
-    if (m && m->rom_patch_prepared_path[0])
-        return m->rom_patch_prepared_path;
     return m ? m->rom_full : "";
 }
 
@@ -3040,8 +3018,6 @@ bool launcher_model_can_finish_setup(const LauncherModel* m) {
 bool launcher_model_can_launch(const LauncherModel* m) {
     if (!m) return false;
     if (!m->rom_present || strcmp(m->rom_size, "--") == 0) return false;
-    if (m->rom_patch_supported && m->s.rom_patch_enabled &&
-        !m->s.rom_patch_path[0]) return false;
     if (m->profile && m->profile->verify.mode == 1) {
         /* Disc systems: reject none/bad; warn (2) and ok (1) are playable. */
         if (m->verify.verdict == 0 || m->verify.verdict == 3) return false;
@@ -4052,256 +4028,6 @@ void launcher_model_toggle_zapper_crosshair(LauncherModel* m) {
     m->zapper_crosshair = !m->zapper_crosshair;
     if (m->settings_bindings) m->s.zapper_crosshair = m->zapper_crosshair ? 1 : -1;
     else launcher_binds_set_zapper(m->zapper_mouse ? 1 : 0, m->zapper_crosshair ? 1 : 0);
-}
-
-// ---- MSU-1 IPS auto-patching (mirrors the legacy launcher's do_patch() /
-// msu1_patch_available predicate in snesrecomp's launcher_gui.cpp) -----------
-
-// Recomputed on every ROM change: the dashboard prompt only makes sense when
-// this game HAS a patch, the loaded file verifies against the vanilla CRC
-// (patching an already-patched or wrong ROM would corrupt it), and the user
-// hasn't already dismissed it this run.
-static void update_msu1_patch_available(LauncherModel* m) {
-    m->msu1_patch_available = m->msu1_supported && m->msu1_patch_path &&
-                              m->msu1_patch_path[0] && m->rom_present &&
-                              m->crc_match && !m->msu1_patch_skipped;
-}
-
-static bool lm_read_whole_file(const char* path, uint8_t** out_data, size_t* out_len) {
-    FILE* f = fopen(path, "rb");
-    if (!f) return false;
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (n < 0) { fclose(f); return false; }
-    uint8_t* buf = (uint8_t*)malloc(n ? (size_t)n : 1);
-    if (!buf) { fclose(f); return false; }
-    if (n > 0 && fread(buf, 1, (size_t)n, f) != (size_t)n) { free(buf); fclose(f); return false; }
-    fclose(f);
-    *out_data = buf;
-    *out_len  = (size_t)n;
-    return true;
-}
-
-void launcher_model_set_rom_patch(LauncherModel* m, const char* path) {
-    if (!m || !m->rom_patch_supported) return;
-    safe_copy(m->s.rom_patch_path, sizeof(m->s.rom_patch_path),
-              path ? path : "");
-    m->s.rom_patch_enabled = m->s.rom_patch_path[0] ? 1 : 0;
-    m->rom_patch_prepared_path[0] = '\0';
-    m->rom_patch_prepared_sha1[0] = '\0';
-    m->rom_patch_status[0] = '\0';
-}
-
-void launcher_model_clear_rom_patch(LauncherModel* m) {
-    if (!m) return;
-    m->s.rom_patch_enabled = 0;
-    m->s.rom_patch_path[0] = '\0';
-    m->s.rom_patch_source_path[0] = '\0';
-    m->s.rom_patch_sha1[0] = '\0';
-    m->s.rom_patch_crc32[0] = '\0';
-    m->rom_patch_prepared_path[0] = '\0';
-    m->rom_patch_prepared_sha1[0] = '\0';
-    m->rom_patch_status[0] = '\0';
-}
-
-void launcher_model_toggle_rom_patch(LauncherModel* m) {
-    if (!m || !m->rom_patch_supported) return;
-    if (!m->s.rom_patch_path[0]) {
-        m->s.rom_patch_enabled = 0;
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Select a patch file first.");
-        return;
-    }
-    m->s.rom_patch_enabled = m->s.rom_patch_enabled ? 0 : 1;
-    m->rom_patch_prepared_path[0] = '\0';
-    m->rom_patch_prepared_sha1[0] = '\0';
-}
-
-static const char* lm_path_extension(const char* path) {
-    const char* base = path;
-    const char* dot = NULL;
-    for (const char* p = path; p && *p; ++p) {
-        if (*p == '/' || *p == '\\') { base = p + 1; dot = NULL; }
-        else if (*p == '.') dot = p;
-    }
-    return dot && dot >= base && strlen(dot) <= 12 ? dot : ".rom";
-}
-
-bool launcher_model_prepare_rom_patch(LauncherModel* m) {
-    if (!m || !m->rom_patch_supported || !m->s.rom_patch_enabled) {
-        if (m) {
-            m->rom_patch_prepared_path[0] = '\0';
-            m->rom_patch_prepared_sha1[0] = '\0';
-            safe_copy(m->s.rom_patch_source_path,
-                      sizeof(m->s.rom_patch_source_path), m->rom_full);
-            m->s.rom_patch_sha1[0] = '\0';
-            m->s.rom_patch_crc32[0] = '\0';
-        }
-        return true;
-    }
-    if (!launcher_model_rom_verified(m) || !m->rom_sha1_hex[0]) {
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "The source ROM must verify before applying a patch.");
-        return false;
-    }
-    if (!m->s.rom_patch_path[0] || !m->rom_patch_cache_dir ||
-        !m->rom_patch_cache_dir[0]) {
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Patch file or cache directory is unavailable.");
-        return false;
-    }
-
-    uint8_t* source = NULL; size_t source_len = 0;
-    uint8_t* patch = NULL; size_t patch_len = 0;
-    if (!lm_read_whole_file(m->rom_full, &source, &source_len) ||
-        !lm_read_whole_file(m->s.rom_patch_path, &patch, &patch_len)) {
-        free(source); free(patch);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Could not read the source ROM or patch file.");
-        return false;
-    }
-
-    uint8_t* output = NULL; size_t output_len = 0;
-    const bool applied = rom_patch_apply(source, source_len, patch, patch_len,
-                                         &output, &output_len);
-    free(source);
-    if (!applied) {
-        free(patch);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Patch rejected: wrong source, invalid data, or checksum failure.");
-        return false;
-    }
-
-    uint8_t patch_sha[20], output_sha[20];
-    char patch_hex[41], output_hex[41];
-    recompui_sha1_compute(patch, patch_len, patch_sha);
-    recompui_sha1_hex(patch_sha, patch_hex);
-    recompui_sha1_compute(output, output_len, output_sha);
-    recompui_sha1_hex(output_sha, output_hex);
-    free(patch);
-    if (m->rom_patch_required_sha1 && m->rom_patch_required_sha1[0] &&
-        strcmp(output_hex, m->rom_patch_required_sha1) != 0) {
-        free(output);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "This executable was built for a different patch release.");
-        return false;
-    }
-    snprintf(m->s.rom_patch_crc32, sizeof(m->s.rom_patch_crc32), "%08x",
-             recompui_crc32_compute(output, output_len));
-
-    const size_t cache_len = strlen(m->rom_patch_cache_dir);
-    const char* separator =
-        cache_len && (m->rom_patch_cache_dir[cache_len - 1] == '/' ||
-                      m->rom_patch_cache_dir[cache_len - 1] == '\\') ? "" : "/";
-    char target[512];
-    const int target_chars = snprintf(target, sizeof(target), "%s%s%s-%s%s",
-             m->rom_patch_cache_dir, separator, m->rom_sha1_hex, patch_hex,
-             lm_path_extension(m->rom_full));
-    if (target_chars < 0 || (size_t)target_chars >= sizeof(target)) {
-        free(output);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "The patched-ROM cache path is too long.");
-        return false;
-    }
-    char temporary[520];
-    const int temporary_chars =
-        snprintf(temporary, sizeof(temporary), "%s.tmp", target);
-    if (temporary_chars < 0 || (size_t)temporary_chars >= sizeof(temporary)) {
-        free(output);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "The patched-ROM cache path is too long.");
-        return false;
-    }
-    FILE* file = fopen(temporary, "wb");
-    const bool wrote = file && fwrite(output, 1, output_len, file) == output_len;
-    if (file) fclose(file);
-    free(output);
-    if (!wrote) {
-        remove(temporary);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Could not write the patched-ROM cache.");
-        return false;
-    }
-    remove(target);
-    if (rename(temporary, target) != 0) {
-        remove(temporary);
-        safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-                  "Could not publish the patched-ROM cache.");
-        return false;
-    }
-
-    safe_copy(m->rom_patch_prepared_path,
-              sizeof(m->rom_patch_prepared_path), target);
-    safe_copy(m->rom_patch_prepared_sha1,
-              sizeof(m->rom_patch_prepared_sha1), output_hex);
-    safe_copy(m->s.rom_patch_source_path,
-              sizeof(m->s.rom_patch_source_path), m->rom_full);
-    safe_copy(m->s.rom_patch_sha1, sizeof(m->s.rom_patch_sha1), output_hex);
-    safe_copy(m->rom_patch_status, sizeof(m->rom_patch_status),
-              "Patch prepared and checksum-verified.");
-    return true;
-}
-
-// Build "<dir>/<stem>.msu1.<ext>" beside `rom_path` (matches the legacy
-// launcher's std::filesystem stem()/extension() splice exactly).
-static void lm_msu1_target_path(const char* rom_path, char* out, size_t out_cap) {
-    const char* base = rom_path;
-    for (const char* q = rom_path; *q; ++q)
-        if (*q == '/' || *q == '\\') base = q + 1;
-    const char* dot = strrchr(base, '.');
-    size_t dir_len  = (size_t)(base - rom_path);
-    size_t stem_len = dot ? (size_t)(dot - base) : strlen(base);
-    const char* ext = dot ? dot : "";
-    snprintf(out, out_cap, "%.*s%.*s.msu1%s",
-             (int)dir_len, rom_path, (int)stem_len, base, ext);
-}
-
-void launcher_model_apply_msu1_patch(LauncherModel* m) {
-    if (!m->msu1_patch_available) return;
-    if (!m->rom_present || !m->msu1_patch_path || !m->msu1_patch_path[0]) return;
-
-    uint8_t* src = NULL;   size_t src_len = 0;
-    uint8_t* patch = NULL; size_t patch_len = 0;
-    if (!lm_read_whole_file(m->rom_full, &src, &src_len)) return;
-    if (!lm_read_whole_file(m->msu1_patch_path, &patch, &patch_len)) { free(src); return; }
-
-    uint8_t* out = NULL; size_t out_len = 0;
-    bool ok = ips_apply(src, src_len, patch, patch_len, &out, &out_len);
-    free(src);
-    free(patch);
-    if (!ok) {
-        fprintf(stderr, "launcher: IPS patch failed (%s)\n", m->msu1_patch_path);
-        return;
-    }
-
-    char target[600];
-    lm_msu1_target_path(m->rom_full, target, sizeof(target));
-    FILE* f = fopen(target, "wb");
-    if (!f) {
-        fprintf(stderr, "launcher: cannot write %s\n", target);
-        free(out);
-        return;
-    }
-    bool wrote = fwrite(out, 1, out_len, f) == out_len;
-    fclose(f);
-    free(out);
-    if (!wrote) { fprintf(stderr, "launcher: short write to %s\n", target); return; }
-
-    fprintf(stderr, "launcher: wrote MSU-1 patched ROM: %s\n", target);
-    // Switch the model onto the patched file and re-verify (this also
-    // recomputes msu1_patch_available — the patched ROM's CRC will no longer
-    // match the vanilla expected_crc, so it naturally clears). Belt-and-braces:
-    // also mark skipped so the prompt never reappears if a game's expected_crc
-    // happens to also match the patched image.
-    m->msu1_patch_skipped = true;
-    launcher_model_set_rom(m, target);
-}
-
-void launcher_model_skip_msu1_patch(LauncherModel* m) {
-    if (!m->msu1_patch_available) return;
-    m->msu1_patch_skipped = true;
-    update_msu1_patch_available(m);
 }
 
 /* PSX Hybrid/Analog need sticks; keyboard players are forced to D-Pad.

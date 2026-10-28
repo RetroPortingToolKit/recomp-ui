@@ -165,16 +165,6 @@ typedef struct {
     bool        widescreen_supported;
     bool        msu1_supported;      // sram-like: show the MSU-1 module when true
     const char* msu1_note;           // borrowed; which patch, shown in the card
-    // ---- MSU-1 IPS auto-patching (dashboard "Patch ROM"/"Skip" flow) ----
-    // Borrowed IPS file path; NULL => this game has no auto-patch (msu1_note-only
-    // games still show the Settings->Audio MSU-1 toggle, just no dashboard prompt).
-    const char* msu1_patch_path;
-    // Computed each time the ROM changes (launcher_model_set_rom): true iff
-    // msu1_supported && msu1_patch_path && the loaded ROM verifies against the
-    // game's vanilla CRC && the user hasn't dismissed the prompt this session.
-    // Mirrors the legacy launcher's `msu1_patch_available` predicate exactly.
-    bool        msu1_patch_available;
-    bool        msu1_patch_skipped;  // session-only "Play Unpatched" dismissal
     bool        saves_supported;     // sram_path != NULL -> show the SAVES panel
     const char* sram_path;           // borrowed; NULL when the game has no SRAM
 
@@ -380,13 +370,6 @@ typedef struct {
     bool      mod_show_packages;
     char      mod_search[96];
     char      mod_status[256];
-    bool      rom_patch_supported;
-    const char* rom_patch_note;
-    const char* rom_patch_cache_dir;
-    const char* rom_patch_required_sha1;
-    char      rom_patch_status[256];
-    char      rom_patch_prepared_path[512];
-    char      rom_patch_prepared_sha1[41];
     // Game-supplied aspect vocabulary (GameInfo.aspect_labels): when set,
     // the aspect cycle walks these 0..num_aspect_labels-1 instead of the
     // built-in 4:3/16:9/21:9 mask set; aspect_experimental tags the row.
@@ -784,17 +767,8 @@ int  launcher_model_autofill_sibling_discs(LauncherModel* m);
 // Full path of the currently selected ROM ("" when none).
 const char* launcher_model_rom_path(const LauncherModel* m);
 
-// Effective path returned to the host after a patch was prepared; otherwise
-// the selected stock-ROM path.
+// Selected ROM path returned to the host.
 const char* launcher_model_effective_rom_path(const LauncherModel* m);
-
-// Patch selection and launch preparation. Selecting a patch enables it;
-// clearing disables it. Preparation verifies the stock image, applies the
-// patch into the host-provided cache, and records the effective SHA-1.
-void launcher_model_set_rom_patch(LauncherModel* m, const char* path);
-void launcher_model_clear_rom_patch(LauncherModel* m);
-void launcher_model_toggle_rom_patch(LauncherModel* m);
-bool launcher_model_prepare_rom_patch(LauncherModel* m);
 
 // True iff a ROM is loaded and every fingerprint the game provides (CRC and/or
 // SHA-256) matches. If the game provides no fingerprint at all, returns false
@@ -1108,17 +1082,6 @@ void launcher_model_password_commit(LauncherModel* m, const char* text);
 // launcher_binds' [zapper] section writer, mirroring how rebinds persist.
 void launcher_model_toggle_zapper_mouse(LauncherModel* m);
 void launcher_model_toggle_zapper_crosshair(LauncherModel* m);
-
-// ---- MSU-1 IPS auto-patching (dashboard GAME-panel "Patch ROM"/"Skip") ----
-// Apply msu1_patch_path onto the currently loaded (vanilla) ROM, writing
-// "<stem>.msu1.<ext>" beside it, then adopt the patched file as the current
-// ROM (re-verifies CRC/SHA, same as launcher_model_set_rom). No-op unless
-// msu1_patch_available is true.
-void launcher_model_apply_msu1_patch(LauncherModel* m);
-// Hide the "MSU-1 patch available" prompt for the rest of this run (does not
-// persist to disk — the prompt returns next launch unless the patch is
-// actually applied). No-op if the prompt wasn't showing.
-void launcher_model_skip_msu1_patch(LauncherModel* m);
 
 // ---- controllers ----
 // PSX-style pad mode: 1=Analog, 2=D-Pad. Gated: no-op when

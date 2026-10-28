@@ -65,7 +65,7 @@ recomp_target_launcher_ui(my-game-runtime
 ```
 
 `recomp_ui.cmake` is fully self-contained: it bundles Dear ImGui, crc32/sha256/
-keybinds, tinyfiledialogs, an IPS applier, and a PS1 memcard formatter, and
+keybinds, tinyfiledialogs, and a PS1 memcard formatter, and
 stages its fonts/images next to your exe. No network / FetchContent — builds
 offline. It defines `RECOMP_LAUNCHER` on the target and links OpenGL. The
 standalone recomp-ui project defaults to SDL3; a generic project that directly
@@ -474,7 +474,10 @@ snesrecomp `docs/RECOMP_NET.md` → "Soft-return rematch checklist".
 - **Save** — SRAM Import/Clear (with `.bak` backup) or PS1 memory cards (per-slot
   enable, Browse / New-formats-a-blank-card, real block-usage grid via the host
   `memcard_inspect` callback).
-- **MSU-1** — dashboard IPS auto-patching for SNES MSU-1 titles.
+- **MSU-1** — streamed-audio settings for titles with native MSU-1 support.
+
+ROM patching is forbidden. The launcher has no patch picker, patched-ROM
+cache, MSU-1 auto-patcher, or IPS/BPS command-line tool.
 - **Hotkeys** — per-console subset of the emulator hotkey catalog, editable.
 - **Mods** — default-off, host-provided package catalog with local archive
   installation, enable/disable, version rollback, removal, and schema-generated

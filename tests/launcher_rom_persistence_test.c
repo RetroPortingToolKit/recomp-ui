@@ -56,16 +56,13 @@ int main(int argc, char** argv) {
     launcher_model_init(m, &settings, &game, "");
     launcher_model_set_rom(m, rom);
     require(launcher_model_can_launch(m), "valid selection launches");
-    /* Effective patched images are temporary; remember the user's source. */
-    snprintf(m->rom_patch_prepared_path, sizeof(m->rom_patch_prepared_path),
-             "%s/patched-cache.sfc", argv[1]);
     launcher_model_commit(m, &settings);
     FILE* f = fopen(cache, "rb");
     require(f != NULL, "selection creates the configured ROM cache");
     require(fgets(saved, sizeof(saved), f) != NULL, "cache contains a path");
     fclose(f);
     saved[strcspn(saved, "\r\n")] = '\0';
-    require(strcmp(saved, rom) == 0, "cache contains source ROM, not patched output");
+    require(strcmp(saved, rom) == 0, "cache contains the selected ROM");
     launcher_model_init(m, &settings, &game, "");
     require(strcmp(launcher_model_rom_path(m), rom) == 0,
             "fresh launcher restores the selected ROM");
