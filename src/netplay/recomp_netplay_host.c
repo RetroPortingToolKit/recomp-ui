@@ -429,6 +429,17 @@ static const char *game_version(void)
 
 static void dl_queue_step(void);
 static void mod_set_sync_step(void);
+
+/* The lobby field is the authority for storage. Leave room to restore its
+ * final newline, and honour the session bound when the pin exposes it. */
+#define MOD_SET_TEXT_CAP (sizeof(((RNetLobbyMatchCaps *)0)->mod_set) + 2u)
+static uint32_t mod_set_capacity(uint32_t capacity)
+{
+#ifdef RNET_MODSET_TEXT_MAX
+  if (capacity > RNET_MODSET_TEXT_MAX) capacity = RNET_MODSET_TEXT_MAX;
+#endif
+  return capacity;
+}
 static int room_mods_ready(void);
 static void desync_report_step(void);
 static void cb_push_match_caps(void *ctx);
@@ -489,10 +500,11 @@ static void fill_caps_mods(RNetLobbyMatchCaps *caps)
   caps->mod_count = n;
   /* The exact configuration, not just the package list. */
   if (g_mods->effective_set) {
-    char text[1024];
+    char text[MOD_SET_TEXT_CAP];
+    const uint32_t capacity = mod_set_capacity((uint32_t)sizeof(text));
     const int need = g_mods->effective_set(g_mods->ctx, text,
-                                           (uint32_t)sizeof(text));
-    if (need > 0 && need < (int)sizeof(text) && strcmp(text, "(none)\n") != 0) {
+                                           capacity);
+    if (need > 0 && need < (int)capacity && strcmp(text, "(none)\n") != 0) {
       size_t o = 0;
       size_t k;
       for (k = 0; text[k] && o + 1 < sizeof(caps->mod_set); ++k) {
@@ -3251,11 +3263,12 @@ static void dl_queue_step(void)
  * layer's job: any path that changes the effective set, present or future, is
  * covered by comparing the set itself. The comparison is against the canonical
  * text, so it fires on a real change and not on a redraw. */
-static char g_published_set[1024];
+static char g_published_set[MOD_SET_TEXT_CAP];
 
 static void host_caps_watch_step(void)
 {
-  char text[1024];
+  char text[MOD_SET_TEXT_CAP];
+  const uint32_t capacity = mod_set_capacity((uint32_t)sizeof(text));
   int need;
 
   if (!g_mods || !g_mods->effective_set)
@@ -3264,8 +3277,8 @@ static void host_caps_watch_step(void)
     g_published_set[0] = '\0';
     return;
   }
-  need = g_mods->effective_set(g_mods->ctx, text, (uint32_t)sizeof(text));
-  if (need <= 0 || need >= (int)sizeof(text))
+  need = g_mods->effective_set(g_mods->ctx, text, capacity);
+  if (need <= 0 || need >= (int)capacity)
     return;
   if (!strcmp(text, g_published_set))
     return;
@@ -3293,12 +3306,12 @@ static void host_caps_watch_step(void)
  *
  * Only ever toward the host's set, only for a guest, and only when it
  * actually differs. */
-static char g_adopted_set[512];
+static char g_adopted_set[sizeof(((RNetLobbyMatchCaps *)0)->mod_set)];
 
 static void mod_set_sync_step(void)
 {
   const RNetLobbyMatchCaps *caps;
-  char want[1024];
+  char want[MOD_SET_TEXT_CAP];
   char reason[160];
   size_t i;
   size_t o = 0;
@@ -3356,7 +3369,7 @@ static void mod_set_sync_step(void)
 static int room_mods_ready(void)
 {
   const RNetLobbyMatchCaps *caps = room_caps();
-  char want[1024], reason[160] = {0};
+  char want[MOD_SET_TEXT_CAP], reason[160] = {0};
   size_t i = 0;
   if (!caps || !caps->valid || !caps->mod_set[0]) return 1;
   if (!g_mods || !g_mods->check_set) {

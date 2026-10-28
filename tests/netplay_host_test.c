@@ -194,6 +194,50 @@ static void case_default_caps(void)
        "and reads them back");
 }
 
+static char long_mod_settings[4097];
+static int one_mod_row(void *ctx,RNetLobbyModPkg *out,int max) {
+    (void)ctx;if(max<1)return 0;
+    memset(out,0,sizeof(*out));strcpy(out->id,"test.qol");strcpy(out->ver,"1");return 1;
+}
+static int long_effective_set(void *ctx,char *out,uint32_t cap) {
+    (void)ctx;snprintf(out,cap,"%s",long_mod_settings);return (int)strlen(long_mod_settings);
+}
+static unsigned large_adoptions;
+static char adopted_settings[4098];
+static int large_check_set(void *ctx,const char *want,char *reason,uint32_t cap) {
+    (void)ctx;(void)reason;(void)cap;return strcmp(want,adopted_settings)?3:0;
+}
+static int large_adopt_set(void *ctx,const char *want,char *reason,uint32_t cap) {
+    (void)ctx;(void)reason;(void)cap;++large_adoptions;
+    ck(!strcmp(want,long_mod_settings),"adoption receives every canonical option, including its tail");
+    snprintf(adopted_settings,sizeof(adopted_settings),"%s",want);return 0;
+}
+static void case_large_mod_settings(void) {
+    RecompNetplayModHooks mods={0};RNetLobbyMatchCaps caps;
+    size_t length=sizeof(caps.mod_set)>2526?2526:sizeof(caps.mod_set)-1;
+    hooks_with(RECOMP_NETPLAY_SLOTS_HOST_FIRST,2);
+    mods.plan_rows=one_mod_row;mods.effective_set=long_effective_set;g_mods=&mods;
+    { const char prefix[]="test.qol@1/f setting=";
+      memset(long_mod_settings,'m',length);memcpy(long_mod_settings,prefix,sizeof(prefix)-1); }
+    long_mod_settings[length-1]='\n';long_mod_settings[length]=0;
+    caps=default_caps(NULL);
+    ck(caps.mod_count==1 && strlen(caps.mod_set)==length-1 && !strncmp(caps.mod_set,long_mod_settings,length-1),
+       "all large settings survive lobby publication, including the tail");
+    mods.check_set=large_check_set;mods.adopt_set=large_adopt_set;
+    g_joined_lan=g_joined_direct=1;g_hosting_lan=0;
+    snprintf(g_lan_room.mod_set,sizeof(g_lan_room.mod_set),"%s",caps.mod_set);
+    g_adopted_set[0]=0;large_adoptions=0;adopted_settings[0]=0;
+    mod_set_sync_step();mod_set_sync_step();
+    ck(large_adoptions==1,"a large host configuration is adopted once");
+    ck(room_mods_ready(),"the full adopted configuration is ready to launch");
+    g_lan_room.mod_set[length-2]='z';
+    ck(!room_mods_ready(),"a tail option change blocks launch");
+    g_joined_lan=g_joined_direct=0;g_adopted_set[0]=0;g_runtime_error[0]=0;
+    memset(long_mod_settings,'m',sizeof(long_mod_settings)-1);long_mod_settings[sizeof(long_mod_settings)-1]=0;
+    caps=default_caps(NULL);ck(!caps.mod_set[0],"an oversized settings list never publishes a prefix");
+    g_mods=NULL;
+}
+
 static void case_seat_ceiling(void)
 {
     printf("  seat ceiling\n");
@@ -635,6 +679,7 @@ int main(void)
     case_seat_policy();
     case_lan_launch();
     case_default_caps();
+    case_large_mod_settings();
     case_seat_ceiling();
     case_table_and_names();
     case_lan_rematch_as_host();
