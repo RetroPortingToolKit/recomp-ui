@@ -1689,13 +1689,14 @@ void launcher_model_cancel_restore_defaults(LauncherModel* m) {
 }
 
 void launcher_model_cycle_scale(LauncherModel* m) {
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = (m->s.window_scale >= LNG_WINDOW_SCALE_MAX)
                             ? 1 : m->s.window_scale + 1;
     if (m->s.window_scale < 1) m->s.window_scale = 1;
 }
 
 void launcher_model_set_scale(LauncherModel* m, int scale) {
-    if (!m) return;
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = clampi(scale, 1, LNG_WINDOW_SCALE_MAX);
 }
 
