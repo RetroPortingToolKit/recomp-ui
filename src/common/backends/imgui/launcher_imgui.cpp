@@ -14559,7 +14559,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     // axis push (past a dead threshold) commits. PSX only accepts events from
     // the player's selected Input source device.
     if (m->capturing && m->capture_pad) {
-        if (m->settings_bindings && m->capture_assist) {
+        if (m->capture_assist) {
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int button = (int)LNG_EVGBTN(ev);
                 uint32_t mask = launcher_input_gamepad_button_mask(
@@ -14779,7 +14779,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // the legacy setter — capture_slot is always 0 for them.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const bool alt_slots = prof && prof->controller.binds_per_input >= 2;
-        if ((m->settings_bindings && m->capture_assist) || host_player_binds)
+        if (m->capture_assist || host_player_binds)
             launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
         else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
             launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn, m->capture_slot,
