@@ -332,6 +332,11 @@ typedef struct {
     int (*toolchain_update_available_cb)(char* local_ver, size_t local_cap,
                                          char* remote_ver, size_t remote_cap);
     bool        setup_prepare_satisfied; // prepare (+ rebuild if chained) succeeded
+    // The disc check answers "bad" for the selected file because setup
+    // refused it, not because of its header or serial. Set when a failed
+    // prepare turned the verdict to "bad"; cleared by another file and by a
+    // verdict that is no longer "bad". See launcher_model_disc_refused_by_setup().
+    bool        disc_refused_by_setup;
     char        relaunch_exe[512];       // set when rebuild requests relaunch
     // Box-art path relative to the assets dir (GameInfo.boxart_path);
     // NULL => the default "assets/img/boxart.tga".
@@ -1400,7 +1405,15 @@ bool launcher_model_can_advance_toolchain(const LauncherModel* m);
 // Keep the current pack for this session and leave toolchain page 0.
 void launcher_model_skip_toolchain_update(LauncherModel* m);
 // Poll prepare/rebuild/toolchain job; call once per frame while setup_preparing.
+// When a prepare fails, the disc check runs again for the selected file: a
+// setup host answers "bad" for a file its own check refused, so the disc
+// panel does not say "Disc verified" above setup's refusal.
 void launcher_model_poll_prepare_disc(LauncherModel* m);
+// True while the disc panel's "bad" verdict for the selected file comes from
+// setup's refusal of it (the failed prepare), and not from the game program's
+// own check of the header and the serial. The panel's rows for the serial,
+// the region and the header are then all true and none of them is the reason.
+bool launcher_model_disc_refused_by_setup(const LauncherModel* m);
 // Dismiss the wizard once can_finish_setup is true (keeps dashboard).
 void launcher_model_finish_setup(LauncherModel* m);
 

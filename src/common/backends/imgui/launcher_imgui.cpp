@@ -2249,6 +2249,24 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw,
                th, !pending, v.region[0] != '\0');
         kv_row("ISO header", pending ? dash : (v.iso_ok ? "OK" : "Mismatch"),
                th, !pending, v.iso_ok);
+        // Setup refused this file (PS1B-415): the three rows above are true
+        // of it and keep their ticks, so the headline said "failed" over
+        // nothing but ticks. This row carries the cross (Alex, 2026-10-02,
+        // A12). It shows only while the refusal stands. The value wraps: the
+        // dashboard's card is narrower than the setup window.
+        if (launcher_model_disc_refused_by_setup(m)) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+            ImGui::TextUnformatted(ui_text("Disc image"));
+            ImGui::PopStyleColor();
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(ui_text("Not the image this kit was made from"));
+            ImGui::PopTextWrapPos();
+            ImGui::TableNextColumn();
+            state_mark(false, th, &refused_red);
+        }
         const char* sbi_text = v.sbi_status == RECOMP_SBI_OK ? "OK" :
                               v.sbi_status == RECOMP_SBI_MISSING ? "Missing" : "N/A";
         kv_row("SBI File", pending ? dash : sbi_text,
