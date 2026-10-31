@@ -203,7 +203,7 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
     if (g_key_release != SDLK_UNKNOWN) {
         push_key(p, g_key_release, false);
         g_key_release = SDLK_UNKNOWN;
-        return;
+        return false;
     }
 
     // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
