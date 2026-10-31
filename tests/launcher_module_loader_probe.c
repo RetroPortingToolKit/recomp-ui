@@ -34,6 +34,13 @@ int main(int argc, char** argv) {
     answer.header = launcher_v2_header(sizeof(answer));
     CHECK(query(&request,&answer,error,sizeof(error)) == 0);
     CHECK(answer.run != NULL);
+    CHECK(answer.psx_menu != NULL);
+#if LAUNCHER_V2_HAS_PSX_MENU
+    const PsxMenuProvider *menu = answer.psx_menu();
+    CHECK(menu && menu->abi_version == PSX_MENU_ABI_VERSION && menu->attach && menu->event &&
+        menu->is_open && menu->set_open && menu->draw && menu->detach);
+    CHECK(!strcmp(menu->name,"recomp-ui"));
+#endif
     CHECK(strlen(answer.build_identity) == 64);
     CHECK(memcmp(&answer.sdl,&sdl,sizeof(sdl)) == 0);
     RecompLauncherV2Query bad = request;

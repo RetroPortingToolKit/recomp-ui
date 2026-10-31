@@ -257,8 +257,8 @@ function(recomp_target_launcher_ui TGT)
         ${_rui_imgui_sources}
     )
     if(RUI_MODULE_ONLY)
-        # The in-game overlay stays compiled in the host. Common non-launcher
-        # helpers may exist privately on both sides, with hidden module symbols.
+        # The PS1 provider and its private model/ImGui renderer live in the DLL.
+        # General host helpers may exist on both sides with hidden symbols.
         get_target_property(_rui_module_sources ${TGT} SOURCES)
         list(REMOVE_ITEM _rui_module_sources
             ${RUI_SRC}/common/recomp_frame_blend.c
