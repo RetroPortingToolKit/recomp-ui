@@ -17,6 +17,7 @@
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
+#include "launcher_audio_buffer.h"
 #include "launcher_quick_mods.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
@@ -4619,6 +4620,27 @@ void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
     }
 }
 
+static bool draw_audio_buffer_slider(const char *id, int *target) {
+    int steps = launcher_audio_buffer_step(*target);
+    char format[96];
+    std::snprintf(format, sizeof(format), "%d ms - %s", *target, launcher_audio_buffer_note(*target));
+    ImGui::PushID(id);
+    bool changed = ImGui::SliderInt(id, &steps, 0, 32, format,
+        ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+    if (changed) *target = 20 + steps * 5;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("20-180 ms target in 5 ms steps. Next game start only. 70 ms: Recommended/default. Below 70 ms: Experimental; 20 ms: unstable. Above 70 ms: more buffer reserve. This is not measured speaker latency.");
+    if (ImGui::SmallButton("Reset to Defaults")) {
+        *target = 70;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Reset Audio Buffer to 70 ms. Applies at the next game start; other settings are unchanged.");
+    ImGui::PopID();
+    return changed;
+}
+static void draw_audio_buffer_setting(LauncherModel*, const LauncherTheme&);
+
 void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("AUDIO");
     // Labels at the card's left edge, controls at its right (row_label_right),
@@ -4719,6 +4741,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
         if (ImGui::Button(ui_text(launcher_model_language_label(m)), ImVec2(lw, px(30))))
             launcher_model_cycle_language(m);
     }
+    draw_audio_buffer_setting(m, th);
+
 }
 
 // Audio module adapter — same AutoResizeY-vs-fixed-row_h sizing pattern as
@@ -11657,7 +11681,7 @@ static void mod_option_tooltip(const RecompLauncherCModOption& option) {
 }
 
 static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
-                                    char* next, size_t next_size) {
+                                    char* next, size_t next_size, bool audio_buffer = false) {
     ImGui::TextUnformatted(option.label);
     ImGui::SameLine(px(260));
     ImGui::SetNextItemWidth(px(230));
@@ -11671,6 +11695,13 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
             : option.min_value;
     provider_value = std::max(
         option.min_value, std::min(option.max_value, provider_value));
+
+    if (audio_buffer && option.min_value == 20 && option.max_value == 180 && option.step == 5) {
+        int target = static_cast<int>(provider_value);
+        const bool changed = draw_audio_buffer_slider("##audio_buffer", &target);
+        if (changed) std::snprintf(next, next_size, "%d", target);
+        return changed;
+    }
 
     static std::unordered_map<ImGuiID, ModIntegerEditState> edits;
     const ImGuiID id = ImGui::GetID("##integer");
@@ -12040,7 +12071,8 @@ static void draw_mod_feature_option(LauncherModel* m,
     } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
         changed = draw_mod_text_option(option, next, sizeof(next));
     } else {
-        changed = draw_mod_integer_option(option, next, sizeof(next));
+        changed = draw_mod_integer_option(option, next, sizeof(next),
+            launcher_audio_buffer_option(feature.package_id, feature.id, option.id));
     }
 
     const bool hovered = ImGui::IsItemHovered();
@@ -12057,6 +12089,43 @@ static void draw_mod_feature_option(LauncherModel* m,
     if (changed && !inert && m->has_bios && m->bios_verify_for_rom_cb)
         launcher_model_refresh_bios_status(m);
     ImGui::PopID();
+}
+
+static void draw_audio_buffer_setting(LauncherModel* m, const LauncherTheme& th) {
+    const auto *mods = m->mods;
+    if (!mods || !mods->feature_count || !mods->feature_get ||
+        !mods->feature_option_get || !mods->feature_set_option) return;
+    for (int i=0,n=mods->feature_count(mods->ctx);i<n;++i) {
+        RecompLauncherCModFeature feature{};
+        if (!mods->feature_get(mods->ctx,i,&feature) ||
+            std::strcmp(feature.package_id,"psx.audio.low-latency") ||
+            std::strcmp(feature.id,"low-latency-audio") ||
+            !launcher_mod_feature_listed(mods, &feature)) continue;
+        ImGui::PushID("audio_buffer_settings");
+        ImGui::BeginDisabled(!launcher_model_can_open_mods(m) || !feature.enabled);
+        for (int j=0;j<feature.option_count;++j) {
+            RecompLauncherCModOption option{};
+            if (!mods->feature_option_get(mods->ctx,feature.package_id,feature.id,j,&option)) continue;
+            if (!std::strcmp(option.id,"target_ms") && option.min_value == 20 &&
+                option.max_value == 180 && option.step == 5) {
+                ImGui::BeginDisabled(option.disabled != 0);
+                row_label_right("Audio Buffer",th,px(SETTINGS_CTRL_W));
+                ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+                int target=std::atoi(option.value);
+                if (draw_audio_buffer_slider("##buffer",&target) && !option.disabled) {
+                    char next[24];std::snprintf(next,sizeof(next),"%d",target);
+                    if (!mods->feature_set_option(mods->ctx,feature.package_id,feature.id,option.id,next)) mod_note_error(m);
+                }
+                ImGui::EndDisabled();
+            } else if (!std::strcmp(option.id,"diagnostics")) {
+                draw_mod_feature_option(m,feature,option);
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Applies at next game start.");
+        ImGui::PopID();
+        break;
+    }
 }
 
 static void draw_mod_feature_diagnostics(
