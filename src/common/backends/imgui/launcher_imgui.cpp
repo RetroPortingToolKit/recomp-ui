@@ -13908,8 +13908,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
                 launcher_model_toggle_record_replay(m);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip(
-                    "Record this session from power-on until you quit, for\n"
-                    "automated testing. The file goes to saves/replays in the\n"
+                    "Record this session from power-on until you quit, or stop\n"
+                    "with the replay hotkey (F11 by default). Files go to\n"
+                    "saves/replays in the\n"
                     "game folder. Only for this launch: it is not remembered.\n\n"
                     "Recorded: Player 1's pad, the memory cards at boot and the\n"
                     "settings that change game timing.\n"
