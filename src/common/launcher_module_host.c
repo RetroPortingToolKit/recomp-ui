@@ -80,6 +80,61 @@ int recomp_launcher_relaunch_exe(char* out, size_t capacity) {
     return 1;
 }
 
+static int query_module(uint64_t required, RecompLauncherV2Query *out_query, RecompLauncherV2Module *out_module) {
+    if (!g_module) {
+        char module_path[1200];
+        snprintf(module_path, sizeof(module_path), "%s/%s", g_product, MODULE_NAME);
+        g_module = SDL_LoadObject(module_path);
+        if (!g_module) {
+            snprintf(g_error, sizeof(g_error), "Cannot load matching launcher module: %.380s. Restore the matching v1 module.", SDL_GetError());
+            return RECOMP_LAUNCHER_RESULT_REFUSED;
+        }
+        g_query = (RecompLauncherV2QueryFn)SDL_LoadFunction(g_module, "recomp_launcher_query_v2");
+        if (!g_query) {
+            launcher_v2_diagnostic(g_error, sizeof(g_error), "Launcher library has no recomp_launcher_query_v2 entry; restore the matching module.");
+            recomp_launcher_module_close();
+            return RECOMP_LAUNCHER_RESULT_REFUSED;
+        }
+    }
+    RecompLauncherV2Query query = {0};
+    query.header = launcher_v2_header(sizeof(query));
+    query.pointer_bits = sizeof(void*) * 8;
+    query.byte_order = launcher_v2_byte_order();
+    query.architecture = launcher_v2_architecture();
+    query.calling_convention = RECOMP_LAUNCHER_V2_CDECL;
+    query.layout = launcher_v2_layout();
+    query.offered = RECOMP_LAUNCHER_V2_CAPABILITIES;
+    query.required = required;
+    if (launcher_v2_sdl_identity(&query.sdl, g_error, sizeof(g_error))) {
+        return RECOMP_LAUNCHER_RESULT_REFUSED;
+    }
+    RecompLauncherV2Module module = {0};
+    module.header = launcher_v2_header(sizeof(module));
+    if (g_query(&query, &module, g_error, sizeof(g_error))) {
+        return RECOMP_LAUNCHER_RESULT_REFUSED;
+    }
+    if (launcher_v2_check_header(&module.header, sizeof(module)) || !module.run ||
+        (query.required & ~module.supported)) {
+        launcher_v2_diagnostic(g_error, sizeof(g_error), "Launcher returned an invalid v1 function table or missing required capability; restore a matching module.");
+        return RECOMP_LAUNCHER_RESULT_REFUSED;
+    }
+    RecompLauncherV2Query returned = query;
+    returned.layout = module.layout;
+    returned.sdl = module.sdl;
+    if (launcher_v2_validate_query(&returned, &query.sdl, module.supported, g_error, sizeof(g_error))) {
+        return RECOMP_LAUNCHER_RESULT_REFUSED;
+    }
+    *out_query = query; *out_module = module;
+    return 0;
+}
+
+const struct PsxMenuProvider *recomp_ui_psx_menu_provider(void) {
+    RecompLauncherV2Query query;
+    RecompLauncherV2Module module;
+    if (!g_product[0] || query_module(RECOMP_LAUNCHER_V2_PSX_MENU,&query,&module) || !module.psx_menu) return NULL;
+    return module.psx_menu();
+}
+
 int recomp_launcher_run_window(const char* title, RecompLauncherCSettings* settings,
                               const RecompLauncherCGameInfo* game, const char* assets,
                               const char* initial_disc, char* selected, size_t capacity) {
@@ -99,57 +154,15 @@ int recomp_launcher_run_window(const char* title, RecompLauncherCSettings* setti
         launcher_v2_diagnostic(g_error, sizeof(g_error), "PS1B-482 settings/actions probe could not allocate its selected-path snapshot.");
         return RECOMP_LAUNCHER_RESULT_REFUSED;
     }
-    if (!g_module) {
-        char module_path[1200];
-        snprintf(module_path, sizeof(module_path), "%s/%s", g_product, MODULE_NAME);
-        g_module = SDL_LoadObject(module_path);
-        if (!g_module) {
-            snprintf(g_error, sizeof(g_error), "Cannot load matching launcher module: %.380s. Restore the matching v1 module.", SDL_GetError());
-            free(probe_selected_after_module);
-            return RECOMP_LAUNCHER_RESULT_REFUSED;
-        }
-        g_query = (RecompLauncherV2QueryFn)SDL_LoadFunction(g_module, "recomp_launcher_query_v2");
-        if (!g_query) {
-            launcher_v2_diagnostic(g_error, sizeof(g_error), "Launcher library has no recomp_launcher_query_v2 entry; restore the matching module.");
-            recomp_launcher_module_close();
-            free(probe_selected_after_module);
-            return RECOMP_LAUNCHER_RESULT_REFUSED;
-        }
-    }
-    RecompLauncherV2Query query = {0};
-    query.header = launcher_v2_header(sizeof(query));
-    query.pointer_bits = sizeof(void*) * 8;
-    query.byte_order = launcher_v2_byte_order();
-    query.architecture = launcher_v2_architecture();
-    query.calling_convention = RECOMP_LAUNCHER_V2_CDECL;
-    query.layout = launcher_v2_layout();
-    query.offered = RECOMP_LAUNCHER_V2_CAPABILITIES;
-    query.required = RECOMP_LAUNCHER_V2_SETTINGS | RECOMP_LAUNCHER_V2_DISC_BIOS_CARD |
-                     RECOMP_LAUNCHER_V2_INPUT | RECOMP_LAUNCHER_V2_START_CHOICE;
-    if (game->mods) query.required |= RECOMP_LAUNCHER_V2_MODS;
-    if (game->netplay || game->netplay_supported) query.required |= RECOMP_LAUNCHER_V2_NETPLAY;
-    if (game->setup_wizard_supported) query.required |= RECOMP_LAUNCHER_V2_SETUP_PROGRESS;
-    if (game->in_session) query.required |= RECOMP_LAUNCHER_V2_IN_SESSION;
-    if (launcher_v2_sdl_identity(&query.sdl, g_error, sizeof(g_error))) {
-        free(probe_selected_after_module);
-        return RECOMP_LAUNCHER_RESULT_REFUSED;
-    }
-    RecompLauncherV2Module module = {0};
-    module.header = launcher_v2_header(sizeof(module));
-    if (g_query(&query, &module, g_error, sizeof(g_error))) {
-        free(probe_selected_after_module);
-        return RECOMP_LAUNCHER_RESULT_REFUSED;
-    }
-    if (launcher_v2_check_header(&module.header, sizeof(module)) || !module.run ||
-        (query.required & ~module.supported)) {
-        launcher_v2_diagnostic(g_error, sizeof(g_error), "Launcher returned an invalid v1 function table or missing required capability; restore a matching module.");
-        free(probe_selected_after_module);
-        return RECOMP_LAUNCHER_RESULT_REFUSED;
-    }
-    RecompLauncherV2Query returned = query;
-    returned.layout = module.layout;
-    returned.sdl = module.sdl;
-    if (launcher_v2_validate_query(&returned, &query.sdl, module.supported, g_error, sizeof(g_error))) {
+    RecompLauncherV2Query query;
+    RecompLauncherV2Module module;
+    uint64_t required = RECOMP_LAUNCHER_V2_SETTINGS | RECOMP_LAUNCHER_V2_DISC_BIOS_CARD |
+        RECOMP_LAUNCHER_V2_INPUT | RECOMP_LAUNCHER_V2_START_CHOICE;
+    if (game->mods) required |= RECOMP_LAUNCHER_V2_MODS;
+    if (game->netplay || game->netplay_supported) required |= RECOMP_LAUNCHER_V2_NETPLAY;
+    if (game->setup_wizard_supported) required |= RECOMP_LAUNCHER_V2_SETUP_PROGRESS;
+    if (game->in_session) required |= RECOMP_LAUNCHER_V2_IN_SESSION;
+    if (query_module(required,&query,&module)) {
         free(probe_selected_after_module);
         return RECOMP_LAUNCHER_RESULT_REFUSED;
     }

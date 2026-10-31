@@ -10,6 +10,8 @@
 #error A SHA-256 source/build receipt identity is required for the module.
 #endif
 
+#include "recomp_ui_psx_menu.h"
+
 static atomic_flag g_running = ATOMIC_FLAG_INIT;
 static const RecompLauncherV2Run* g_run;
 static RecompLauncherV2Result* g_result;
@@ -108,6 +110,9 @@ static uint32_t RECOMP_LAUNCHER_V2_CALL run_module(const RecompLauncherV2Run* ru
     uint32_t status = launcher_v2_sdl_identity(&local_sdl, error, cap);
     if (status) return status;
     uint64_t supported = RECOMP_LAUNCHER_V2_CAPABILITIES;
+#if !LAUNCHER_V2_HAS_PSX_MENU
+    supported &= ~RECOMP_LAUNCHER_V2_PSX_MENU;
+#endif
 #if !RECOMP_UI_ENABLE_MODS
     supported &= ~RECOMP_LAUNCHER_V2_MODS;
 #endif
@@ -156,6 +161,9 @@ RECOMP_LAUNCHER_V2_EXPORT uint32_t RECOMP_LAUNCHER_V2_CALL recomp_launcher_query
         return status;
     }
     uint64_t supported = RECOMP_LAUNCHER_V2_CAPABILITIES;
+#if !LAUNCHER_V2_HAS_PSX_MENU
+    supported &= ~RECOMP_LAUNCHER_V2_PSX_MENU;
+#endif
 #if !RECOMP_UI_ENABLE_MODS
     supported &= ~RECOMP_LAUNCHER_V2_MODS;
 #endif
@@ -174,6 +182,9 @@ RECOMP_LAUNCHER_V2_EXPORT uint32_t RECOMP_LAUNCHER_V2_CALL recomp_launcher_query
     answer.layout = launcher_v2_layout();
     answer.sdl = local_sdl;
     answer.run = run_module;
+#if LAUNCHER_V2_HAS_PSX_MENU
+    answer.psx_menu = recomp_ui_psx_menu_provider;
+#endif
     snprintf(answer.build_identity, sizeof(answer.build_identity), "%s", RECOMP_LAUNCHER_V2_BUILD_IDENTITY);
     *module = answer;
     return RECOMP_LAUNCHER_V2_OK;

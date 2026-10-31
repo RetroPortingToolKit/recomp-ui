@@ -449,6 +449,9 @@ function(recomp_add_launcher_module TGT)
         ${RUI_SRC}/common/launcher_module_contract.c
         ${RUI_SRC}/common/launcher_module_sdl.c)
     recomp_target_launcher_ui(${TGT} MODULE_ONLY CONSOLE "${RLM_CONSOLE}")
+    if(EXISTS "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include/psx_menu_host.h")
+        target_include_directories(${TGT} PRIVATE "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
+    endif()
     target_compile_definitions(${TGT} PRIVATE
         RECOMP_LAUNCHER_V2_BUILD_MODULE=1)
     # The receipt identity is consumed only by launcher_module.c. Keep it off

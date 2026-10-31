@@ -56,6 +56,11 @@ else()
     set(RUI_GL_LIBS ${RUI_GL_TARGET} ${CMAKE_DL_LIBS})
 endif()
 
+set(RECOMP_UI_PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../psxrecomp" CACHE PATH "PS1 menu-provider host contract")
+if(EXISTS "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include/psx_menu_host.h")
+    include_directories("${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
+endif()
+
 add_executable(recomp-ui-launcher src/proto_main.c)
 target_link_libraries(recomp-ui-launcher PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
 if(WIN32 AND RUI_SDL_RUNTIME_TARGET)

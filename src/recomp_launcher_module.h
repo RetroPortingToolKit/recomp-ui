@@ -42,7 +42,8 @@ extern "C" {
 #define RECOMP_LAUNCHER_V2_SETUP_PROGRESS (UINT64_C(1) << 5)
 #define RECOMP_LAUNCHER_V2_START_CHOICE (UINT64_C(1) << 6)
 #define RECOMP_LAUNCHER_V2_IN_SESSION (UINT64_C(1) << 7)
-#define RECOMP_LAUNCHER_V2_CAPABILITIES UINT64_C(255)
+#define RECOMP_LAUNCHER_V2_PSX_MENU (UINT64_C(1) << 8)
+#define RECOMP_LAUNCHER_V2_CAPABILITIES UINT64_C(511)
 
 /* Query/run status is separate from the unchanged 0/1/2/3 launcher action.
  * A refusal must be displayed and must not silently boot as UNAVAILABLE. */
@@ -198,12 +199,16 @@ typedef struct RecompLauncherV2Result {
 typedef uint32_t (RECOMP_LAUNCHER_V2_CALL *RecompLauncherV2RunFn)(
     const RecompLauncherV2Run*, RecompLauncherV2Result*, char* diagnostic, uint32_t diagnostic_capacity);
 
+struct PsxMenuProvider;
+typedef const struct PsxMenuProvider* (RECOMP_LAUNCHER_V2_CALL *RecompLauncherV2MenuFn)(void);
+
 typedef struct RecompLauncherV2Module {
     RecompLauncherV2Header header;
     uint64_t supported;
     RecompLauncherV2Layout layout;
     RecompLauncherV2SDL sdl;
     RecompLauncherV2RunFn run;
+    RecompLauncherV2MenuFn psx_menu;
     char build_identity[65];
 } RecompLauncherV2Module;
 

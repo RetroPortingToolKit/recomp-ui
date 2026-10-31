@@ -19,3 +19,15 @@ uint32_t launcher_v2_validate_run(const RecompLauncherV2Run*, const RecompLaunch
 #endif
 #endif
 
+
+/* This optional provider is a C-only host contract. Its complete typed layout
+ * participates in the existing records fingerprint when present. */
+#if defined(__has_include)
+#if __has_include("psx_menu_host.h")
+#include "psx_menu_host.h"
+#define LAUNCHER_V2_HAS_PSX_MENU 1
+#endif
+#endif
+#ifndef LAUNCHER_V2_HAS_PSX_MENU
+#define LAUNCHER_V2_HAS_PSX_MENU 0
+#endif
