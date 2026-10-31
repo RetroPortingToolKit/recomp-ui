@@ -78,6 +78,21 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    if(WIN32 AND RECOMP_UI_BUILD_LAUNCHER_MODULE)
+        add_executable(recomp-ui-module-loader-probe
+            tests/launcher_module_loader_probe.c src/common/launcher_module_contract.c
+            src/common/launcher_module_sdl.c src/common/sha256.c)
+        target_include_directories(recomp-ui-module-loader-probe PRIVATE src src/common)
+        target_compile_definitions(recomp-ui-module-loader-probe PRIVATE LNG_SDL3=1 SDL_MAIN_HANDLED=1)
+        target_link_libraries(recomp-ui-module-loader-probe PRIVATE SDL3::SDL3-shared)
+        add_dependencies(recomp-ui-module-loader-probe recomp-launcher-module)
+        add_custom_command(TARGET recomp-ui-module-loader-probe POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3::SDL3-shared>
+                "${CMAKE_CURRENT_BINARY_DIR}/SDL3-second.dll")
+        add_test(NAME recomp-ui-module-loader-real
+            COMMAND recomp-ui-module-loader-probe $<TARGET_FILE:recomp-launcher-module>
+                "${CMAKE_CURRENT_BINARY_DIR}/SDL3-second.dll")
+    endif()
     find_package(Threads REQUIRED)
     add_executable(recomp-ui-launcher-mod-commit-job-test
         tests/launcher_mod_commit_job_test.cpp)
