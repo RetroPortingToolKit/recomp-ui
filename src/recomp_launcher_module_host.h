@@ -14,7 +14,10 @@ int recomp_launcher_module_set_roots(const char* product, const char* saves, con
  * The module itself never writes PSX_LOAD_SLOT/PSX_REPLAY_FILE. */
 uint32_t recomp_launcher_module_start_choice(int32_t* slot, char* replay, uint32_t capacity);
 const char* recomp_launcher_module_diagnostic(void);
-/* Close only after blocking run returns and all module workers have joined.
+/* Validate/load only; no window, callbacks or persistent writes. Copies the
+ * actual module source/build identity for a host's headless packaging check. */
+int recomp_launcher_module_inspect(char* identity, uint32_t capacity);
+/* Close only after blocking run returns and all module workers have joined and menu providers have detached.
  * A compatible replacement takes effect in a subsequent host process. */
 void recomp_launcher_module_close(void);
 

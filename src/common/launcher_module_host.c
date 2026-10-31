@@ -132,7 +132,26 @@ const struct PsxMenuProvider *recomp_ui_psx_menu_provider(void) {
     RecompLauncherV2Query query;
     RecompLauncherV2Module module;
     if (!g_product[0] || query_module(RECOMP_LAUNCHER_V2_PSX_MENU,&query,&module) || !module.psx_menu) return NULL;
-    return module.psx_menu();
+    const struct PsxMenuProvider *provider = module.psx_menu();
+#if LAUNCHER_V2_HAS_PSX_MENU
+    if (!provider || provider->abi_version != PSX_MENU_ABI_VERSION || !provider->attach ||
+        !provider->event || !provider->is_open || !provider->set_open || !provider->draw || !provider->detach) {
+        launcher_v2_diagnostic(g_error,sizeof(g_error),"Launcher returned an incomplete PS1 menu provider.");
+        return NULL;
+    }
+#endif
+    return provider;
+}
+
+int recomp_launcher_module_inspect(char* identity, uint32_t capacity) {
+    RecompLauncherV2Query query;
+    RecompLauncherV2Module module;
+    if (!identity || capacity < 65 || !g_product[0] ||
+        query_module(RECOMP_LAUNCHER_V2_CAPABILITIES,&query,&module) ||
+        !module.psx_menu || !recomp_ui_psx_menu_provider()) return 0;
+    if (!memchr(module.build_identity,0,sizeof(module.build_identity)) || strlen(module.build_identity) != 64) return 0;
+    snprintf(identity,capacity,"%s",module.build_identity);
+    return 1;
 }
 
 int recomp_launcher_run_window(const char* title, RecompLauncherCSettings* settings,
