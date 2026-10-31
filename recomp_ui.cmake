@@ -261,11 +261,8 @@ function(recomp_target_launcher_ui TGT)
         # helpers may exist privately on both sides, with hidden module symbols.
         get_target_property(_rui_module_sources ${TGT} SOURCES)
         list(REMOVE_ITEM _rui_module_sources
-            ${RUI_SRC}/common/recomp_runtime_ui.c
-            ${RUI_SRC}/common/recomp_runtime_settings.c
             ${RUI_SRC}/common/recomp_frame_blend.c
             ${RUI_SRC}/common/recomp_flash_guard.c
-            ${RUI_SRC}/common/backends/imgui/runtime_ui_imgui.cpp
             ${RUI_SRC}/consoles/psx/psx_start_from.cpp)
         set_property(TARGET ${TGT} PROPERTY SOURCES "${_rui_module_sources}")
     endif()
