@@ -39,8 +39,8 @@ int main(void) {
 #define RL_WITNESS_STRUCT(type) sizeof(type), _Alignof(type),
 #define RL_WITNESS_FIELD(type, member, signature) offsetof(type, member), sizeof(((type*)0)->member),
 #define RL_WITNESS_SIGNATURE(signature)
-#include "launcher_module_legacy_witness.inc"
-#include "launcher_module_boundary_witness.inc"
+#include "launcher_module_v2_records_witness.inc"
+#include "launcher_module_v2_boundary_witness.inc"
 #undef RL_WITNESS_STRUCT
 #undef RL_WITNESS_FIELD
 #undef RL_WITNESS_SIGNATURE
@@ -96,7 +96,8 @@ int main(void) {
     CHECK(launcher_v2_validate_run(&run, &result, &sdl, good.offered, diagnostic, sizeof(diagnostic)) == 0);
 
 #define BAD_QUERY(edit, expected) do { RecompLauncherV2Query bad = good; edit; run.contract = &bad; CHECK(refused_unchanged(&run, &result, &sdl, expected) == 0); } while (0)
-    BAD_QUERY(bad.header.major = 2, RECOMP_LAUNCHER_V2_BAD_VERSION);
+    BAD_QUERY(bad.header.major = 1, RECOMP_LAUNCHER_V2_BAD_VERSION);
+    BAD_QUERY(bad.header.major = 3, RECOMP_LAUNCHER_V2_BAD_VERSION);
     BAD_QUERY(bad.header.minor = 1, RECOMP_LAUNCHER_V2_BAD_VERSION);
     BAD_QUERY(bad.header.size -= 1, RECOMP_LAUNCHER_V2_BAD_RECORD);
     BAD_QUERY(bad.header.reserved = 1, RECOMP_LAUNCHER_V2_BAD_RECORD);
@@ -135,7 +136,7 @@ int main(void) {
     RecompLauncherV2Netplay netplay = {0};
     netplay.header = launcher_v2_header(sizeof(netplay));
     run.netplay = &netplay;
-    netplay.header.major = 2;
+    netplay.header.major = 1;
     CHECK(refused_unchanged(&run, &result, &sdl, RECOMP_LAUNCHER_V2_BAD_RECORD) == 0);
     run.netplay = NULL;
     result.replay_path_capacity = 511;
