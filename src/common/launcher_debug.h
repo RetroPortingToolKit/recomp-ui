@@ -10,6 +10,10 @@
 //   view:dashboard|settings|controller|assist_tools|credits
 //                                          switch view (no clicking required)
 //   player:0|1                           which player the controller view edits
+//   tab:N                                open player N's tab on the dashboard (0-based)
+//   cardtab:N                            open memory card N's tab on the dashboard (0-based)
+//   start:N                              choose entry N of "Start from" (0-based; -1 = Power on)
+//   disc:N                               choose the disc to boot of a multi-disc title (0-based)
 //   size:WxH                             resize the window (tests live reflow)
 //   click:X,Y                            synthetic click at logical coords
 //   key:escape                           synthetic key press
@@ -25,7 +29,8 @@
 //
 // LNG_TEST_HIDDEN=1 (with LNG_SCRIPT) creates the window hidden on both the
 // SDL2 and SDL3 backends, so automated runs never appear on the desktop or
-// take focus; shot: still captures the rendered frame.
+// take focus; shot: still captures the rendered frame, and click: reaches the
+// window as events without moving the desktop's pointer.
 
 #ifndef LAUNCHER_NG_DEBUG_H
 #define LAUNCHER_NG_DEBUG_H

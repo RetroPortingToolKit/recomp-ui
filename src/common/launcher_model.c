@@ -5,6 +5,9 @@
 
 #include "launcher_model.h"
 #include "launcher_system.h"
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+#include "launcher_module_runtime.h"
+#endif
 
 #include "crc32.h"
 #include "consoles/psx/memcard_format.h"   // PSX-specific; used only under SAVE_MEMCARD
@@ -61,7 +64,9 @@ static const char* kViewNames[8] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
     "Assist Tools", "Credits", "Lobby"
 };
-static const char* kSrcNames[3]  = { "None", "Keyboard", "Gamepad" };
+/* Index 3 (RECOMP_LAUNCHER_SRC_MOUSE) and 4 (RECOMP_LAUNCHER_SRC_GUNCON) exist
+ * only where launcher_model_mouse/guncon_source_available() say so. */
+static const char* kSrcNames[5]  = { "None", "Keyboard", "Gamepad", "PS1 Mouse", "GunCon" };
 
 static void safe_copy(char* dst, size_t cap, const char* src) {
     if (!dst || cap == 0) return;
@@ -178,28 +183,59 @@ static size_t lm_path_stem(const char* path, char* out, size_t cap) {
     return n;
 }
 
-// Compare two disc paths for "same image". Exact string equality first (the
-// common case: the launcher hands back exactly the path the host gave it),
-// then a case-insensitive compare of the file-name STEM. The stem, not the
-// whole name: a .cue and the .bin it owns are one disc, and hosts hand us
-// either — psxrecomp resolves a picked .cue to its .bin before it mounts —
-// so "Disc 2.cue" and "Disc 2.bin" must land on the same roster slot. Two
-// different discs of a set never share a stem; they are numbered.
-static int lm_path_eq(const char* a, const char* b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    if (strcmp(a, b) == 0) return 1;
-    char sa[128], sb[128];
-    if (!lm_path_stem(a, sa, sizeof(sa)) || !lm_path_stem(b, sb, sizeof(sb)))
-        return 0;
-    return strcmp(sa, sb) == 0;
+// Identity key of a disc path: the whole path with the file name's last
+// extension dropped, separators unified, case-folded on Windows. Same rule as
+// psxrecomp's disc_roster_key(). The directory stays in the key, so two cache
+// folders that both hold "disc.cue" are different discs, while a .cue and the
+// same-directory .bin it owns (hosts hand us either) share one key. Hosts pass
+// normalized absolute paths, so nothing further is normalized here. Length 0
+// when there is nothing usable or the path does not fit.
+static size_t lm_path_key(const char* path, char* out, size_t cap) {
+    if (!path || !out || cap == 0) return 0;
+    out[0] = '\0';
+    size_t n = strlen(path);
+    if (n == 0 || n >= cap) return 0;
+    const char* base = path;
+    for (const char* p = path; *p; ++p)
+        if (*p == '/' || *p == '\\') base = p + 1;
+    const char* dot = NULL;
+    for (const char* p = base; *p; ++p)
+        if (*p == '.') dot = p;
+    if (dot && dot != base) n = (size_t)(dot - path);
+    for (size_t i = 0; i < n; ++i) {
+        char c = path[i] == '\\' ? '/' : path[i];
+#ifdef _WIN32
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+#endif
+        out[i] = c;
+    }
+    out[n] = '\0';
+    return n;
 }
 
 // Roster slot whose effective path is `path`, or -1 when it is off-roster.
+// Same rule as psxrecomp's disc_roster_index(): a path-key match wins; a
+// relocated image binds by file-name stem only when exactly one slot has that
+// stem. An ambiguous stem is no disc identity at all.
 static int lm_disc_index_for_path(const LauncherModel* m, const char* path) {
     if (!m || m->num_discs <= 0 || !path || !path[0]) return -1;
-    for (int i = 0; i < m->num_discs; ++i)
-        if (lm_path_eq(launcher_model_disc_path(m, i), path)) return i;
-    return -1;
+    char want[512], have[512];
+    if (lm_path_key(path, want, sizeof(want)))
+        for (int i = 0; i < m->num_discs; ++i)
+            if (lm_path_key(launcher_model_disc_path(m, i), have, sizeof(have)) &&
+                strcmp(want, have) == 0)
+                return i;
+    char sw[128], sh[128];
+    if (!lm_path_stem(path, sw, sizeof(sw))) return -1;
+    int match = -1;
+    for (int i = 0; i < m->num_discs; ++i) {
+        if (!lm_path_stem(launcher_model_disc_path(m, i), sh, sizeof(sh)) ||
+            strcmp(sw, sh) != 0)
+            continue;
+        if (match != -1) return -1;
+        match = i;
+    }
+    return match;
 }
 
 // Bind rom_full to the roster after any ROM change. Either the new path IS a
@@ -361,6 +397,11 @@ static void lm_warn_non_utf8_code_page(void) {
                     "non-ASCII characters may not open\n", (unsigned)GetACP());
 }
 #endif
+static int title_defaults_to_dpad(const LauncherModel* m) {
+    const SystemProfile* profile = (const SystemProfile*)m->profile;
+    return profile && !strcmp(profile->id, "psx") &&
+           m->game_name && !strcmp(m->game_name, "Dino Crisis");
+}
 
 void launcher_model_init(LauncherModel* m,
                          const RecompLauncherCSettings* io,
@@ -541,6 +582,19 @@ void launcher_model_init(LauncherModel* m,
         m->fmv_timing_busy_status = game->fmv_timing_busy_status;
         m->fmv_timing_success_status = game->fmv_timing_success_status;
         m->boxart_path          = game->boxart_path;      // NULL => default boxart.tga
+        {
+            /* The folder of the host's settings file is the title's own. */
+            const char* cfg = game->config_path;
+            const char* slash = cfg ? strrchr(cfg, '/') : NULL;
+            const char* back = cfg ? strrchr(cfg, '\\') : NULL;
+            if (back && (!slash || back > slash)) slash = back;
+            const size_t n = slash ? (size_t)(slash - cfg + 1) : 0;
+            m->user_dir[0] = '\0';
+            if (n && n < sizeof(m->user_dir)) {
+                memcpy(m->user_dir, cfg, n);
+                m->user_dir[n] = '\0';
+            }
+        }
         m->aspect_labels        = game->aspect_labels;    // NULL => built-in 4:3/16:9/21:9
         m->num_aspect_labels    = game->num_aspect_labels;
         m->aspect_experimental  = game->aspect_experimental != 0;
@@ -591,6 +645,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_affine_filter    = game->has_affine_filter != 0;
         m->has_frame_blend      = game->has_frame_blend != 0;
         m->has_run_ahead        = game->has_run_ahead != 0;
+        m->has_record_replay    = game->has_record_replay != 0;
         m->has_shader           = game->has_shader != 0;
         m->netplay_supported    = game->netplay_supported != 0 && game->netplay != NULL;
         m->netplay              = game->netplay;
@@ -689,6 +744,8 @@ void launcher_model_init(LauncherModel* m,
         if (m->s.run_ahead > RECOMP_LAUNCHER_RUN_AHEAD_MAX)
             m->s.run_ahead = RECOMP_LAUNCHER_RUN_AHEAD_MAX;
     }
+    /* A console without the checkbox never hands a recording request back. */
+    m->s.record_replay = m->has_record_replay && m->s.record_replay > 0 ? 1 : 0;
     memset(&m->s.netplay_launch, 0, sizeof(m->s.netplay_launch));
     if (!m->s.netplay_player_name[0] && m->netplay && m->netplay->player_name) {
         safe_copy(m->s.netplay_player_name, sizeof(m->s.netplay_player_name),
@@ -753,6 +810,9 @@ void launcher_model_init(LauncherModel* m,
     // ---- infer the SystemProfile this game belongs to (panel composition +
     // per-system specs) from the ABI caps launcher_profile_apply() already set ----
     m->profile = launcher_system_infer(game);
+    m->has_start_from = m->profile && ((const SystemProfile*)m->profile)->start_from;
+    m->start_count = 0;
+    m->start_selected = -1;
     if (m->profile && m->profile->controller.max_players > 0) {
         /* num_players is a per-game capability, while max_players is the
          * console ceiling. Raising the ABI storage width must never make a
@@ -792,6 +852,10 @@ void launcher_model_init(LauncherModel* m,
             } else if (m->s.pad_mode[p] == 0) {
                 /* Hybrid is mod-only and never selectable: migrate any stale
                  * persisted value. The mod requests it at runtime instead. */
+                m->s.pad_mode[p] = title_defaults_to_dpad(m) ? 2 : 1;
+            } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                       !launcher_model_negcon_mode_available(m)) {
+                /* The neGcon exists only on PSX. */
                 m->s.pad_mode[p] = 1;
             }
             /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
@@ -818,9 +882,14 @@ void launcher_model_init(LauncherModel* m,
              *
              * Leaving the locked mode intact costs nothing while the keyboard
              * is driving the seat, and is already right the moment the player
-             * attaches a real pad. */
+             * attaches a real pad.
+             *
+             * A keyboard neGcon stays a neGcon: the keyboard drives it
+             * (stick binds twist it, Cross/Square keys press I/II). */
             if (m->pad_mode_selectable &&
+                !title_defaults_to_dpad(m) &&
                 m->s.player_src[p] == 1 &&
+                m->s.pad_mode[p] != RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
                 m->s.pad_mode[p] = 2;
         }
@@ -965,6 +1034,7 @@ void launcher_model_init(LauncherModel* m,
     m->setup_tc_remote_ver[0] = '\0';
     m->setup_tc_zip[0] = '\0';
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_confirm_open = false;
     m->bios_pending_path[0] = '\0';
     m->setup_wizard_suspended_for_bios = false;
@@ -1158,6 +1228,15 @@ void launcher_model_select_disc(LauncherModel* m, int idx) {
     if (idx < 0 || idx >= m->num_discs) return;
     if (idx == m->disc_selected) return;
     m->disc_selected = idx;
+    /* A save state belongs to the disc it was made on: with another disc to
+     * boot, the start is from power-on again. */
+    {
+        const LauncherStartEntry* e =
+            launcher_model_start_entry(m, launcher_model_start_selected(m));
+        if (e && e->kind == LNG_START_STATE && e->disc > 0 &&
+            e->disc != launcher_model_disc_number(m, idx))
+            m->start_selected = -1;
+    }
     /* set_rom re-runs the disc verdict against the newly mounted image and
      * calls back into lm_bind_disc_selection, which writes s.disc_index. */
     launcher_model_set_rom(m, launcher_model_disc_path(m, idx));
@@ -1585,6 +1664,18 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
         return;
     }
     m->setup_error[0] = '\0';
+    /* Setup's refusal belongs to one file. Selecting that same file again
+     * keeps it while the host still answers "bad" (decided after the check
+     * below); any other file ends it. */
+    const bool same_refused_file = m->disc_refused_by_setup && m->rom_present &&
+                                   path && strcmp(m->rom_full, path) == 0;
+    /* A disc was chosen: the wrong-disc sentence it gets is a new one for the
+     * dashboard, also when the same wrong disc was chosen again and the words
+     * are the same. No frame is drawn between the two in which the sentence
+     * was absent, so the text that was shown is forgotten here
+     * (launcher_model_disc_note_reveal). */
+    m->disc_note_revealed[0] = '\0';
+    m->disc_note_reveal_frames = 0;
     m->rom_present = path && path[0] != '\0';
     safe_copy(m->rom_full, sizeof(m->rom_full), m->rom_present ? path : "");
     m->rom_sha1_hex[0] = '\0';
@@ -1646,6 +1737,7 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     lm_bind_disc_selection(m);
 
     run_verify(m);
+    m->disc_refused_by_setup = same_refused_file && m->verify.verdict == 3;
     update_msu1_patch_available(m);
     /* A host whose BIOS lookup sees the image answers again for this one. */
     if (m->has_bios && m->bios_verify_for_rom_cb) launcher_model_refresh_bios_status(m);
@@ -1674,6 +1766,9 @@ static void run_verify(LauncherModel* m) {
             m->verify.iso_ok  = dv.iso_ok != 0;
             m->verify.verdict = dv.verdict;
             m->verify.sbi_status = dv.sbi_status;
+            m->verify.serial_status = dv.serial_status;
+            safe_copy(m->verify.expected_serials, sizeof(m->verify.expected_serials),
+                      dv.expected_serials);
             m->verify.track_count = dv.track_count;
             m->verify.netplay_ok = dv.netplay_ok;
             safe_copy(m->verify.disc_fp, sizeof(m->verify.disc_fp), dv.disc_fp);
@@ -1700,6 +1795,79 @@ static void run_verify(LauncherModel* m) {
         m->verify.iso_ok  = false;
         m->verify.verdict = 0;   // none
     }
+}
+
+bool launcher_model_disc_serial_ok(const LauncherModel* m) {
+    if (!m || !m->verify.serial[0]) return false;
+    return m->verify.serial_status != RECOMP_SERIAL_NOT_LISTED;
+}
+
+bool launcher_model_disc_serial_refused(const LauncherModel* m) {
+    return m && m->rom_present && m->verify.verdict == 3 &&
+           m->verify.serial_status == RECOMP_SERIAL_NOT_LISTED;
+}
+
+const char* launcher_model_disc_note(const LauncherModel* m, char* buf, size_t cap,
+                                     bool* wrong_disc) {
+    if (wrong_disc) *wrong_disc = false;
+    if (!buf || !cap) return "";
+    buf[0] = '\0';
+    if (!m || !m->rom_present) return buf;
+    const VerifyResult* v = &m->verify;
+    const bool read = v->serial[0] != '\0';
+    const bool known = v->expected_serials[0] != '\0';
+    /* A host that says "not listed" and gives neither a serial nor what the
+     * build needs leaves nothing to print: the old note below stands. */
+    if (v->serial_status == RECOMP_SERIAL_NOT_LISTED && (read || known)) {
+        if (wrong_disc) *wrong_disc = true;
+        if (read && known)
+            snprintf(buf, cap, "This disc is %s. This build needs %s.",
+                     v->serial, v->expected_serials);
+        else if (read)
+            snprintf(buf, cap, "This disc is %s. This build is made for another disc.",
+                     v->serial);
+        else
+            snprintf(buf, cap, "No serial was found on this disc. This build needs %s.",
+                     v->expected_serials);
+        return buf;
+    }
+    if (m->netplay_supported && v->netplay_detail[0] && !v->netplay_ok)
+        safe_copy(buf, cap, v->netplay_detail);
+    return buf;
+}
+
+bool launcher_model_disc_note_reveal(LauncherModel* m) {
+    char note[sizeof(m->disc_note_revealed)];
+    bool wrong_disc = false;
+    if (!m) return false;
+    launcher_model_disc_note(m, note, sizeof(note), &wrong_disc);
+    if (!wrong_disc || !note[0]) {
+        m->disc_note_revealed[0] = '\0';
+        m->disc_note_reveal_frames = 0;
+        return false;
+    }
+    if (strcmp(note, m->disc_note_revealed) != 0) {
+        safe_copy(m->disc_note_revealed, sizeof(m->disc_note_revealed), note);
+        m->disc_note_reveal_frames = LNG_DISC_NOTE_REVEAL_FRAMES;
+    }
+    if (m->disc_note_reveal_frames > 0) {
+        m->disc_note_reveal_frames--;
+        return true;
+    }
+    return false;
+}
+
+float launcher_model_scroll_into_view(float item_top, float item_bottom,
+                                      float view_top, float view_bottom, float margin) {
+    if (item_bottom + margin > view_bottom) {
+        const float down = item_bottom + margin - view_bottom;
+        const float room = item_top - margin - view_top;   /* before the top leaves */
+        if (room <= 0.0f) return 0.0f;
+        return down < room ? down : room;
+    }
+    if (item_top - margin < view_top)
+        return item_top - margin - view_top;
+    return 0.0f;
 }
 
 const char* launcher_model_rom_path(const LauncherModel* m) {
@@ -1749,7 +1917,9 @@ void launcher_model_request_restore_defaults(LauncherModel* m) {
 
 void launcher_model_restore_defaults(LauncherModel* m) {
     if (!launcher_model_can_restore_defaults(m)) return;
+    const int record_replay = m->s.record_replay;   /* a session choice, kept */
     m->s = m->default_settings;
+    m->s.record_replay = record_replay;
     {
         int d = m->s.rewind_depth;
         if (d != 50 && d != 100 && d != 150 && d != 200)
@@ -1769,13 +1939,14 @@ void launcher_model_cancel_restore_defaults(LauncherModel* m) {
 }
 
 void launcher_model_cycle_scale(LauncherModel* m) {
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = (m->s.window_scale >= LNG_WINDOW_SCALE_MAX)
                             ? 1 : m->s.window_scale + 1;
     if (m->s.window_scale < 1) m->s.window_scale = 1;
 }
 
 void launcher_model_set_scale(LauncherModel* m, int scale) {
-    if (!m) return;
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = clampi(scale, 1, LNG_WINDOW_SCALE_MAX);
 }
 
@@ -1813,6 +1984,77 @@ void launcher_model_toggle_affine_filter(LauncherModel* m) {
 void launcher_model_toggle_frame_blend(LauncherModel* m) {
     if (!m || !m->has_frame_blend) return;
     m->s.frame_blend = !m->s.frame_blend;
+}
+
+void launcher_model_toggle_record_replay(LauncherModel* m) {
+    if (!m || !m->has_record_replay) return;
+    m->s.record_replay = !m->s.record_replay;
+    if (m->s.record_replay) m->start_selected = -1;
+}
+
+const char* launcher_model_user_dir(const LauncherModel* m) {
+    return m ? m->user_dir : "";
+}
+
+int launcher_model_start_from_available(const LauncherModel* m) {
+    return m && m->has_start_from ? 1 : 0;
+}
+
+void launcher_model_set_start_entries(LauncherModel* m, const LauncherStartEntry* entries,
+                                      int count, const LauncherStartNotes* notes) {
+    if (!m) return;
+    if (!entries || count < 0) count = 0;
+    if (count > LNG_START_MAX) count = LNG_START_MAX;
+    if (count) memcpy(m->start_entries, entries, (size_t)count * sizeof(entries[0]));
+    m->start_count = count;
+    m->start_selected = -1;
+    if (notes) m->start_notes = *notes;
+    else memset(&m->start_notes, 0, sizeof(m->start_notes));
+}
+
+int launcher_model_start_count(const LauncherModel* m) {
+    return launcher_model_start_from_available(m) ? m->start_count : 0;
+}
+
+const LauncherStartEntry* launcher_model_start_entry(const LauncherModel* m, int idx) {
+    if (idx < 0 || idx >= launcher_model_start_count(m)) return NULL;
+    return &m->start_entries[idx];
+}
+
+int launcher_model_start_selected(const LauncherModel* m) {
+    if (!m || m->start_selected < 0 || m->start_selected >= launcher_model_start_count(m))
+        return -1;
+    return m->start_selected;
+}
+
+void launcher_model_select_start(LauncherModel* m, int idx) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, idx);
+    if (!m) return;
+    if (!e || (e->kind != LNG_START_STATE && e->kind != LNG_START_REPLAY)) {
+        m->start_selected = -1;
+        return;
+    }
+    if (e->kind == LNG_START_STATE && e->disc > 0)
+        for (int d = 0; d < m->num_discs; ++d)
+            if (launcher_model_disc_number(m, d) == e->disc)
+                launcher_model_select_disc(m, d);   /* may reset the choice: set it after */
+    m->start_selected = idx;
+    m->s.record_replay = 0;
+}
+
+int launcher_model_start_handover(const LauncherModel* m, int* slot, const char** path) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, launcher_model_start_selected(m));
+    if (slot) *slot = -1;
+    if (path) *path = NULL;
+    if (!e) return LNG_START_POWER_ON;
+    if (e->kind == LNG_START_STATE) {
+        if (e->slot < 0) return LNG_START_POWER_ON;
+        if (slot) *slot = e->slot;
+        return LNG_START_STATE;
+    }
+    if (!e->path[0]) return LNG_START_POWER_ON;
+    if (path) *path = e->path;
+    return LNG_START_REPLAY;
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {
@@ -2594,6 +2836,7 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
     m->setup_bios_ok = false;
     m->setup_bios_warn = false;
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_not_needed = false;
     m->bios_pick_rejected = false;
     m->setup_bios_detail[0] = '\0';
@@ -2602,7 +2845,12 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
         return;
     }
     RecompLauncherCBiosVerify bv;
-    const int r = lm_bios_verify(m, m->s.bios_path, &bv);
+    int r = lm_bios_verify(m, "", &bv);
+    if (r > 0)
+        m->bundled_bios_offered = bv.ok != 0 || bv.not_needed != 0;
+    /* Host verification also updates its run report. Ask about the chosen
+     * file last, and never ask again from the draw-time offer query. */
+    if (m->s.bios_path[0]) r = lm_bios_verify(m, m->s.bios_path, &bv);
     /* Empty path = the host's own choice: the BIOS this build ships with
      * (OpenBIOS / bundled), or a host lookup (a required system file). Host
      * bios_verify("", ...) may refuse that for titles that require a retail
@@ -2655,6 +2903,16 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
 
 bool launcher_model_bios_applies(const LauncherModel* m) {
     return m && m->has_bios && !m->bios_not_needed;
+}
+
+bool launcher_model_bundled_bios_offered(const LauncherModel* m) {
+    return m && m->bundled_bios_offered;
+}
+
+bool launcher_model_setup_bios_blocks_generate(const LauncherModel* m) {
+    if (!m || !m->has_bios) return false;
+    if (launcher_model_bundled_bios_offered(m)) return false;
+    return !(m->setup_bios_ok || m->setup_bios_needs_regen);
 }
 
 bool launcher_model_bios_missing(const LauncherModel* m) {
@@ -3265,6 +3523,39 @@ bool launcher_model_can_launch(const LauncherModel* m) {
     return true;
 }
 
+void launcher_model_launch_request(LauncherModel* m) {
+    if (m && m->launch_pending == LNG_LAUNCH_IDLE)
+        m->launch_pending = LNG_LAUNCH_ANNOUNCE;
+}
+
+bool launcher_model_launch_announced(const LauncherModel* m) {
+    return m && m->launch_pending != LNG_LAUNCH_IDLE;
+}
+
+bool launcher_model_launch_due(LauncherModel* m) {
+    if (!m) return false;
+    if (m->launch_pending == LNG_LAUNCH_ANNOUNCE) {
+        /* This frame draws "Launching...". The work waits for the next one, so
+         * that the greyed button is on screen while it runs. */
+        m->launch_pending = LNG_LAUNCH_RUN;
+        return false;
+    }
+    if (m->launch_pending == LNG_LAUNCH_RUN && m->action == LNG_ACTION_NONE) {
+        /* Handed out once: a caller that asks again must not start the work
+         * twice. finish() ends the request. */
+        m->launch_pending = LNG_LAUNCH_WORKING;
+        return true;
+    }
+    return false;
+}
+
+void launcher_model_launch_finish(LauncherModel* m, bool launched) {
+    if (!m) return;
+    /* Refused: back to PLAY. Launched: the window is about to close; keep the
+     * greyed label for whatever frames remain. */
+    m->launch_pending = launched ? LNG_LAUNCH_WORKING : LNG_LAUNCH_IDLE;
+}
+
 bool launcher_model_netplay_disc_ok(const LauncherModel* m) {
     if (!m || !m->netplay_supported) return false;
     if (!m->profile || m->profile->verify.mode != 1)
@@ -3322,6 +3613,35 @@ typedef struct {
 
 static PrepJob g_prep_job;
 
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+#if defined(_WIN32)
+static HANDLE g_prep_thread;
+#else
+static pthread_t g_prep_thread;
+static int g_prep_thread_joinable;
+#endif
+/* A done flag is not thread termination. Keep the real thread joinable until
+ * its callbacks have returned; unloading a module with detached code is unsafe. */
+void launcher_model_wait_worker(void) {
+#if defined(_WIN32)
+    if (g_prep_thread) {
+        const DWORD wait_status = WaitForSingleObject(g_prep_thread, INFINITE);
+        if (wait_status != WAIT_OBJECT_0)
+            launcher_v2_worker_join_failed("prepare", (uint32_t)wait_status);
+        CloseHandle(g_prep_thread);
+        g_prep_thread = NULL;
+    }
+#else
+    if (g_prep_thread_joinable) {
+        const int wait_status = pthread_join(g_prep_thread, NULL);
+        if (wait_status)
+            launcher_v2_worker_join_failed("prepare", (uint32_t)wait_status);
+        g_prep_thread_joinable = 0;
+    }
+#endif
+}
+#endif
+
 #if defined(_WIN32)
 static CRITICAL_SECTION g_prep_lock;
 static int g_prep_lock_ready = 0;
@@ -3334,6 +3654,19 @@ static void prep_unlock(void) { LeaveCriticalSection(&g_prep_lock); }
 static pthread_mutex_t g_prep_lock = PTHREAD_MUTEX_INITIALIZER;
 static void prep_lock(void) { pthread_mutex_lock(&g_prep_lock); }
 static void prep_unlock(void) { pthread_mutex_unlock(&g_prep_lock); }
+#endif
+
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+void launcher_model_finish_worker(void) {
+    launcher_model_wait_worker();
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+#if defined(_WIN32)
+    if (g_prep_lock_ready) {
+        DeleteCriticalSection(&g_prep_lock);
+        g_prep_lock_ready = 0;
+    }
+#endif
+}
 #endif
 
 static void prep_progress_cb(void* ctx, float pct, const char* message) {
@@ -3354,6 +3687,9 @@ static void* prep_thread_main(void* arg);
 #endif
 
 static int prep_spawn_thread(LauncherModel* m) {
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+    launcher_model_wait_worker();
+#endif
 #if defined(_WIN32)
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
     if (!th) {
@@ -3362,7 +3698,11 @@ static int prep_spawn_thread(LauncherModel* m) {
         m->setup_status[0] = '\0';
         return 0;
     }
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+    g_prep_thread = th;
+#else
     CloseHandle(th);
+#endif
 #else
     pthread_t th;
     if (pthread_create(&th, NULL, prep_thread_main, &g_prep_job) != 0) {
@@ -3371,7 +3711,12 @@ static int prep_spawn_thread(LauncherModel* m) {
         m->setup_status[0] = '\0';
         return 0;
     }
+#if defined(RECOMP_LAUNCHER_V2_BUILD_MODULE)
+    g_prep_thread = th;
+    g_prep_thread_joinable = 1;
+#else
     pthread_detach(th);
+#endif
 #endif
     return 1;
 }
@@ -3690,6 +4035,25 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     prep_spawn_thread(m);
 }
 
+/* A prepare failed. The host may now judge the selected file differently: a
+ * setup host answers "bad" for a file its own disc check refused, and the
+ * panel must not say "Disc verified" above that refusal. So the disc check
+ * runs again. A failure that is not a refusal of the file (a build that
+ * failed, tools that are missing) leaves the host's answer as it was, and so
+ * the verdict.
+ *
+ * disc_refused_by_setup: the "bad" is setup's, not the game program's. It is
+ * so when this check turned a verdict that was not "bad" into "bad", and it
+ * stays so while a later failure leaves the verdict "bad". A file the game
+ * program itself calls bad (no header, another serial) never gets it. */
+static void lm_recheck_disc_after_failed_prepare(LauncherModel* m) {
+    const int  before = m->verify.verdict;
+    const bool was_refused = m->disc_refused_by_setup;
+    run_verify(m);
+    m->disc_refused_by_setup =
+        m->verify.verdict == 3 && (was_refused || before != 3);
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3839,7 +4203,12 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
         safe_copy(m->setup_error, sizeof(m->setup_error),
                   err[0] ? err : "Disc prepare failed.");
         lm_restore_setup_wizard_after_bios(m, 1);
+        lm_recheck_disc_after_failed_prepare(m);
     }
+}
+
+bool launcher_model_disc_refused_by_setup(const LauncherModel* m) {
+    return m && m->rom_present && m->disc_refused_by_setup && m->verify.verdict == 3;
 }
 
 // Re-inspect one memory-card slot via the host callback (if any), caching the
@@ -3939,6 +4308,46 @@ int launcher_model_visible_player_count(const LauncherModel* m) {
         if (n > 2) n = 2;
     }
     return n;
+}
+
+int launcher_model_player_tabs(const LauncherModel* m) {
+    if (!m || m->lock_device) return 0;
+    const SystemProfile* prof = (const SystemProfile*)m->profile;
+    if (!prof || !prof->controller.player_tabs) return 0;
+    const int n = launcher_model_visible_player_count(m);
+    return n >= 2 ? n : 0;
+}
+
+int launcher_model_player_tab(const LauncherModel* m) {
+    const int n = launcher_model_player_tabs(m);
+    if (n < 1 || m->player_tab < 0) return 0;
+    return m->player_tab < n ? m->player_tab : n - 1;
+}
+
+void launcher_model_set_player_tab(LauncherModel* m, int player) {
+    if (m) m->player_tab = clampi(player, 0, LNG_MAX_PLAYERS - 1);
+}
+
+int launcher_model_dashboard_tabbed(const LauncherModel* m) {
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    return prof && prof->controller.player_tabs ? 1 : 0;
+}
+
+int launcher_model_card_tabs(const LauncherModel* m) {
+    if (!launcher_model_dashboard_tabbed(m)) return 0;
+    const SystemProfile* prof = (const SystemProfile*)m->profile;
+    if (prof->save.kind != SAVE_MEMCARD) return 0;
+    return prof->save.slots > 0 && prof->save.slots <= 2 ? prof->save.slots : 2;
+}
+
+int launcher_model_card_tab(const LauncherModel* m) {
+    const int n = launcher_model_card_tabs(m);
+    if (n < 1 || m->card_tab < 0) return 0;
+    return m->card_tab < n ? m->card_tab : n - 1;
+}
+
+void launcher_model_set_card_tab(LauncherModel* m, int slot) {
+    if (m) m->card_tab = clampi(slot, 0, 1);
 }
 
 int launcher_model_multitap_analog_available(const LauncherModel* m) {
@@ -4526,10 +4935,24 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
     if (!m->pad_mode_supported || !m->pad_mode_selectable) return;
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     if (!pad_mode_is_psx_legacy(m)) return;
+    /* A neGcon is the device in the port, whichever host input drives it. */
+    if (m->s.pad_mode[player] == RECOMP_LAUNCHER_PAD_MODE_NEGCON) return;
+    if (title_defaults_to_dpad(m)) {
+        // Keyboard presents D-Pad without replacing the saved pad choice.
+        if (m->s.pad_mode[player] != 1 && m->s.pad_mode[player] != 2)
+            m->s.pad_mode[player] = 2;
+        return;
+    }
     if (m->s.player_src[player] == 1)
         m->s.pad_mode[player] = 2;   // D-Pad / digital (no sticks)
     else if (m->s.player_src[player] == 2)
         m->s.pad_mode[player] = 1;   // Analog / DualShock
+}
+
+const char* launcher_model_analog_note(const LauncherModel* m) {
+    return m->pad_mode_supported && m->pad_mode_selectable &&
+           title_defaults_to_dpad(m)
+               ? "this game does not use the analog stick" : NULL;
 }
 
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
@@ -4543,11 +4966,21 @@ void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
             if (spec->modes[i].mode == mode) { m->s.pad_mode[player] = mode; return; }
         return;
     }
+    /* neGcon (PSX): any input source may drive it, the keyboard included. */
+    if (mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON) {
+        if (launcher_model_negcon_mode_available(m)) m->s.pad_mode[player] = mode;
+        return;
+    }
     /* Keyboard has no sticks — Analog is unavailable. */
     if (m->s.player_src[player] == 1 && mode != 2) return;
     mode = clampi(mode, 0, 2);
     if (mode == 0) mode = 1;   /* Hybrid is mod-only -> snap to Analog */
     m->s.pad_mode[player] = mode;
+}
+
+int launcher_model_negcon_mode_available(const LauncherModel* m) {
+    /* The neGcon is a PSX controller; other profiles have no such pad type. */
+    return launcher_model_mouse_source_available(m);
 }
 
 int launcher_model_active_button_count(const LauncherModel* m, int player) {
@@ -4566,9 +4999,27 @@ int launcher_model_active_button_count(const LauncherModel* m, int player) {
     return bc;
 }
 
+int launcher_model_mouse_source_available(const LauncherModel* m) {
+    /* The PS1 Mouse is a PSX port device; no other profile has one. */
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    return (prof && prof->id && strcmp(prof->id, "psx") == 0) ? 1 : 0;
+}
+
+int launcher_model_guncon_source_available(const LauncherModel* m) {
+    /* The GunCon is a PSX port device, like the PS1 Mouse. */
+    return launcher_model_mouse_source_available(m);
+}
+
+int launcher_model_source_is_pointer(int kind) {
+    return kind == RECOMP_LAUNCHER_SRC_MOUSE || kind == RECOMP_LAUNCHER_SRC_GUNCON;
+}
+
 void launcher_model_cycle_player_src(LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = (m->s.player_src[player] + 1) % 3;  // None/Kbd/Pad
+    /* None/Kbd/Pad, plus Mouse and GunCon where the profile has them. */
+    const int n = launcher_model_guncon_source_available(m) ? 5
+                : launcher_model_mouse_source_available(m) ? 4 : 3;
+    m->s.player_src[player] = (m->s.player_src[player] + 1) % n;
     apply_default_pad_mode_for_source(m, player);
 }
 
@@ -4586,7 +5037,12 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = clampi(kind, 0, 2);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        kind = 0;
+    if (kind == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        kind = 0;
+    kind = clampi(kind, 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    m->s.player_src[player] = kind;
     if (kind == 2) {
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
@@ -4602,6 +5058,81 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
         m->s.player_gamepad_guid[player][0] = '\0';
     }
     apply_default_pad_mode_for_source(m, player);
+}
+
+// ---- PS1 Mouse + pad (PS1B-279) --------------------------------------------
+// Mouse titles often want a pad in the other console port for the same player
+// (Syndicate Wars keeps pause and view rotation on the pad; Quake II moves on
+// the pad and aims with the mouse). A one-player title shows one card, so the
+// second port has no card of its own: the Player 1 card owns both ports while
+// either holds the mouse. Seats stay ports (seat 0 = port 1, seat 1 = port 2),
+// so the host needs nothing new: it already round-trips every seat.
+
+int launcher_model_mouse_pair_available(const LauncherModel* m) {
+    return launcher_model_mouse_source_available(m) && LNG_MAX_PLAYERS >= 2 &&
+           launcher_model_visible_player_count(m) == 1;
+}
+
+int launcher_model_mouse_pair_port(const LauncherModel* m) {
+    if (!launcher_model_mouse_pair_available(m)) return 0;
+    if (m->s.player_src[0] == RECOMP_LAUNCHER_SRC_MOUSE) return 1;
+    if (m->s.player_src[1] == RECOMP_LAUNCHER_SRC_MOUSE) return 2;
+    return 0;
+}
+
+int launcher_model_mouse_pair_pad_seat(const LauncherModel* m) {
+    const int port = launcher_model_mouse_pair_port(m);
+    return port == 1 ? 1 : port == 2 ? 0 : -1;
+}
+
+/* Swap everything that belongs to a seat's device between seats 0 and 1. */
+static void swap_seats_0_1(LauncherModel* m) {
+    int t;
+    char g[sizeof(m->s.player_gamepad_guid[0])];
+    char n[sizeof(m->player_pad_name[0])];
+    uint32_t id;
+    t = m->s.player_src[0]; m->s.player_src[0] = m->s.player_src[1]; m->s.player_src[1] = t;
+    t = m->s.pad_mode[0];   m->s.pad_mode[0]   = m->s.pad_mode[1];   m->s.pad_mode[1]   = t;
+    t = m->s.deadzone[0];   m->s.deadzone[0]   = m->s.deadzone[1];   m->s.deadzone[1]   = t;
+    memcpy(g, m->s.player_gamepad_guid[0], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[0], m->s.player_gamepad_guid[1], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[1], g, sizeof(g));
+    memcpy(n, m->player_pad_name[0], sizeof(n));
+    memcpy(m->player_pad_name[0], m->player_pad_name[1], sizeof(n));
+    memcpy(m->player_pad_name[1], n, sizeof(n));
+    id = m->player_pad_id[0]; m->player_pad_id[0] = m->player_pad_id[1]; m->player_pad_id[1] = id;
+}
+
+void launcher_model_set_mouse_pair_port(LauncherModel* m, int port) {
+    const int cur = launcher_model_mouse_pair_port(m);
+    if (!cur || (port != 1 && port != 2) || port == cur) return;
+    swap_seats_0_1(m);
+}
+
+void launcher_model_set_primary_source(LauncherModel* m, int kind,
+                                       uint32_t pad_id, const char* pad_name,
+                                       const char* pad_guid) {
+    if (!launcher_model_mouse_pair_available(m)) {
+        launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+        return;
+    }
+    const int port = launcher_model_mouse_pair_port(m);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE) {
+        if (port) return;   /* already the mouse player */
+        /* The keyboard or pad Player 1 had becomes the pad in port 2, unless
+         * port 2 already has a device. */
+        if (m->s.player_src[1] == 0 && m->s.player_src[0] != 0) swap_seats_0_1(m);
+        launcher_model_set_source(m, 0, RECOMP_LAUNCHER_SRC_MOUSE, 0, NULL, NULL);
+        return;
+    }
+    /* Leaving the mouse: the pick goes to port 1. The mouse leaves its port;
+     * a pad kept in port 2 stays there (a one-player title reads it only
+     * after a live port swap), unless it is the very pad just picked. */
+    if (port == 2) launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
+    launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+    if (kind == 2 && pad_guid && pad_guid[0] && m->s.player_src[1] == 2 &&
+        strcmp(m->s.player_gamepad_guid[1], pad_guid) == 0)
+        launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
 }
 
 // ---- mouse controls --------------------------------------------------------
@@ -4828,7 +5359,11 @@ const char* launcher_model_freq_label(const LauncherModel* m) {
 
 const char* launcher_model_player_src_label(const LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    int src = clampi(m->s.player_src[player], 0, 2);
+    int src = clampi(m->s.player_src[player], 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    if (src == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        src = 0;
+    if (src == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        src = 0;
     if (src == 2) {
         // Never show the generic "Gamepad" placeholder when we have a concrete
         // pad name (or at least a GUID-backed label filled by sync/hydrate).
@@ -4885,3 +5420,5 @@ const char* launcher_model_relay_error_text(const char* err, bool ice_mode) {
     }
     return NULL;
 }
+
+

@@ -35,10 +35,30 @@ extern "C" {
 #define RECOMP_LAUNCHER_MAX_PLAYERS 8
 /* Host may #ifdef this when reading player_gamepad_guid[] from settings. */
 #define RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_GUID 1
+/* player_src value 3: the port holds a mouse device driven by the host
+ * pointer (PSX: the Sony PS1 Mouse). Offered only by profiles that support it
+ * (launcher_model_mouse_source_available); hosts #ifdef the macro so an older
+ * launcher is never handed a value it would clamp to Gamepad. */
+#define RECOMP_LAUNCHER_HAS_MOUSE_SOURCE 1
+#define RECOMP_LAUNCHER_SRC_MOUSE 3
+/* pad_mode value 3: the port presents a Namco neGcon driven by the seat's pad
+ * or keyboard (PSX only; launcher_model_negcon_mode_available). Hosts #ifdef
+ * the macro so an older launcher is never handed a value it would clamp. */
+#define RECOMP_LAUNCHER_HAS_NEGCON_MODE 1
+#define RECOMP_LAUNCHER_PAD_MODE_NEGCON 3
+/* player_src value 4: the port holds a light gun aimed by the host pointer
+ * (PSX: the Namco GunCon). Offered only by profiles that support it
+ * (launcher_model_guncon_source_available); hosts #ifdef the macro so an older
+ * launcher is never handed a value it would clamp. */
+#define RECOMP_LAUNCHER_HAS_GUNCON_SOURCE 1
+#define RECOMP_LAUNCHER_SRC_GUNCON 4
 /* Host may #ifdef this when reading multitap_enabled from settings. */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ENABLED 1
 /* Host may #ifdef this when reading multitap_analog (DualShock-on-tap hack). */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ANALOG 1
+/* Host may #ifdef this when setting GameInfo.has_record_replay and reading
+ * Settings.record_replay (the "Record replay" checkbox). */
+#define RECOMP_LAUNCHER_HAS_RECORD_REPLAY 1
 /* Host may #ifdef this when reading Settings.rewind_depth. */
 #define RECOMP_LAUNCHER_HAS_REWIND_DEPTH 1
 /* Host may #ifdef this when reading Settings.rewind_interval. */
@@ -1253,12 +1273,12 @@ struct RecompLauncherCSettings {
     int  enable_audio;      // bool
     int  audio_freq;        // Hz (the Sample rate row; SystemProfile.hide_audio_freq hides it)
     int  volume;            // 0..100
-    int  player_src[RECOMP_LAUNCHER_MAX_PLAYERS];  // 0 none, 1 keyboard, 2 gamepad
+    int  player_src[RECOMP_LAUNCHER_MAX_PLAYERS];  // 0 none, 1 keyboard, 2 gamepad, 3 mouse (RECOMP_LAUNCHER_SRC_MOUSE), 4 light gun (RECOMP_LAUNCHER_SRC_GUNCON)
     int  deadzone[RECOMP_LAUNCHER_MAX_PLAYERS];    // 0..100
     int  skip_launcher;     // bool: boot straight to the game next time
     int  msu1_enabled;      // bool
     char msu1_dir[512];
-    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital)
+    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital), 3=neGcon (PSX, RECOMP_LAUNCHER_PAD_MODE_NEGCON)
     int  aspect_index;      // 0 = 4:3, 1 = 16:9, 2 = 21:9
 
     // ---- deeper PSX-style settings (capability-gated; see RecompLauncherCGameInfo
@@ -1602,6 +1622,14 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+
+    /* "Record replay" (GameInfo.has_record_replay consoles): 1 = the host
+     * records the next session as a replay from power-on, for automated
+     * testing. A per-launch choice, not a preference: hosts seed it from
+     * their own session state and should not persist it, so a tick is never
+     * left on by accident. 0 = off (the default, and what a zero-initialized
+     * host predating this field gets). Appended for ABI stability. */
+    int  record_replay;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -1639,6 +1667,11 @@ struct RecompLauncherCSettings {
 // internal types. Mirror what the legacy launcher computed inline.
 #define RECOMP_LAUNCHER_HAS_SBI_STATUS 1
 enum { RECOMP_SBI_NA = 0, RECOMP_SBI_MISSING = 1, RECOMP_SBI_OK = 2 };
+/* Whether the disc's serial is one this build lists. Hosts #ifdef on this to
+ * stay source-compatible with older recomp-ui that lacks the fields. A host
+ * that does not say (0) gets the old Serial row: a tick for any serial read. */
+#define RECOMP_LAUNCHER_HAS_SERIAL_STATUS 1
+enum { RECOMP_SERIAL_UNSAID = 0, RECOMP_SERIAL_LISTED = 1, RECOMP_SERIAL_NOT_LISTED = 2 };
 typedef struct RecompLauncherCDiscVerify {
     char serial[16];   // e.g. "SCUS-94423"; "" = unknown/unread
     char region[8];    // e.g. "NTSC-U"; "" = unknown
@@ -1651,6 +1684,11 @@ typedef struct RecompLauncherCDiscVerify {
     char netplay_detail[160];
     int sbi_status; // RECOMP_SBI_*; zero means no requirement recorded by host.
     int profile_handoff; // host verified another shipped backend; close without committing edits
+    /* Appended for ABI (memset 0 = a host that does not say). With
+     * RECOMP_SERIAL_NOT_LISTED, `serial` holds what was read from the disc
+     * ("" when nothing was read), never the serial the build expects. */
+    int  serial_status;         // RECOMP_SERIAL_*
+    char expected_serials[96];  // what this build lists, e.g. "SLES-03396"; "" if unknown
 } RecompLauncherCDiscVerify;
 
 /* Host BIOS check for the first-run setup wizard (has_bios games). */
@@ -2451,6 +2489,10 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Dashboard footer checkbox for Settings.record_replay. 0 => no checkbox,
+     * so a console without a replay recorder keeps today's footer. Appended
+     * for ABI stability. */
+    int has_record_replay;
 } RecompLauncherCGameInfo;
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
@@ -2521,3 +2563,4 @@ void recomp_launcher_set_preserve_sdl(int preserve);
 #endif
 
 #endif // RECOMP_LAUNCHER_H
+

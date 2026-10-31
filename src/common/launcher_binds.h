@@ -110,6 +110,10 @@ void launcher_binds_save_psx_gamepad(LauncherModel* m, int player /*1-based*/);
 // Save Profile with a KEYBOARD input source: flush this player's keyboard map
 // to keybinds.ini (captures already persist; this is the explicit commit).
 void launcher_binds_save_psx_keyboard(LauncherModel* m, int player /*1-based*/);
+// Load Profile with a KEYBOARD input source: replace this player's keyboard map
+// from another keybinds.ini and persist. Returns 1 on success, 0 if refused.
+int launcher_binds_load_psx_keyboard(LauncherModel* m, int player /*1-based*/,
+                                     const char* src);
 // Rename the selected gamepad (custom display name for the GUID).
 void launcher_binds_rename_psx_gamepad(LauncherModel* m, int player /*1-based*/,
                                        const char* name);

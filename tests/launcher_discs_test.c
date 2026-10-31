@@ -183,11 +183,46 @@ static void test_sbi_verification_refresh(void) {
     free(m);
 }
 
+/* Slot binding uses psxrecomp's disc_roster.h identity. Regression: two cache
+ * folders that both hold disc.cue share a stem, so stem binding put disc 2's
+ * mount on slot 1 and saved disc_index = 1 with disc 2's path. */
+static void test_path_identity(void) {
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!m) { ++fails; return; }
+    RecompLauncherCDisc dup[2] = {{0}};
+    dup[0].number = 1; dup[0].path = "/cache/a/disc.cue";
+    dup[1].number = 2; dup[1].path = "/cache/b/disc.cue";
+    m->discs = dup;
+    m->num_discs = 2;
+    expect(lm_disc_index_for_path(m, "/cache/a/disc.cue") == 0, "same-name disc 1 binds by directory");
+    expect(lm_disc_index_for_path(m, "/cache/b/disc.cue") == 1, "same-name disc 2 binds by directory");
+    expect(lm_disc_index_for_path(m, "/cache/b/disc.bin") == 1, "same-directory BIN is the CUE's disc");
+    expect(lm_disc_index_for_path(m, "/relocated/disc.bin") == -1, "ambiguous relocated stem is no disc");
+    m->disc_selected = 0;
+    m->rom_present = true;
+    safe_copy(m->rom_full, sizeof(m->rom_full), "/cache/b/disc.cue");
+    lm_bind_disc_selection(m);
+    expect(m->disc_selected == 1 && m->s.disc_index == 2, "mounting disc 2 selects disc 2");
+    expect(!m->disc_path_override[0][0], "same-name disc 2 is not recorded as a disc 1 override");
+
+    RecompLauncherCDisc named[2] = {{0}};
+    named[0].number = 1; named[0].path = "/a/Game (Disc 1).cue";
+    named[1].number = 2; named[1].path = "/b/Game (Disc 2).cue";
+    memset(m->disc_path_override, 0, sizeof(m->disc_path_override));
+    m->discs = named;
+    expect(lm_disc_index_for_path(m, "/moved/Game (Disc 2).bin") == 1, "unique relocated stem still binds");
+#ifdef _WIN32
+    expect(lm_disc_index_for_path(m, "\\A\\GAME (DISC 1).BIN") == 0, "Windows keys fold case and separators");
+#endif
+    free(m);
+}
+
 int main(int argc, char** argv) {
     const char* dir = (argc > 1) ? argv[1] : ".";
     test_token_rewriting();
     test_autofill(dir);
     test_sbi_verification_refresh();
+    test_path_identity();
     if (fails) { fprintf(stderr, "\n%d FAILED\n", fails); return 1; }
     printf("\nall passed\n");
     return 0;

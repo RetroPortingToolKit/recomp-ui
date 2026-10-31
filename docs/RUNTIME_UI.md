@@ -185,3 +185,10 @@ the same.
   of recomp-ui changes.
 - Test: `recomp-ui-psx-menu-provider` (needs `-DRECOMP_UI_PSXRECOMP_ROOT=` a
   psxrecomp checkout, or one next to this repo).
+- Window scale applies to windowed output only. Disable that control in
+  borderless and exclusive fullscreen, and reject resize callbacks in those
+  modes before changing the saved windowed size.
+- Expose live internal resolution only when the host can rebuild its renderer
+  targets and preserve the running game's video memory. A launch-time scale
+  setter alone does not provide that capability.
+

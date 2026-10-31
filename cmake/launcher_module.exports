@@ -1,0 +1,5 @@
+{
+    global: recomp_launcher_query_v2;
+    local: *;
+};
+

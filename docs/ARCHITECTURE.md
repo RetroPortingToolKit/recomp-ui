@@ -49,7 +49,12 @@ labels. That file also tracks, per console, the rows still waiting to move.
   analog/digital (swaps the image, gated by `allow_hybrid`), or a **custom mode
   list** (`ControllerSpec.modes`, e.g. Genesis **3-Button / 6-Button**) where
   the selected mode's `button_count` also sets how many rebind rows show
-  (3-Button hides X/Y/Z/Mode).
+  (3-Button hides X/Y/Z/Mode). Optional `player_tabs` (PSX, whose dashboard
+  also carries the memory cards) gives the tabbed dashboard: from two players
+  on, one tab per player (players 5 to 8 in a second row) and one card under
+  the strip, instead of the grid; the card is as wide as the memory-card
+  block, with the pad type and the device as two lists; the memory cards are
+  tabs as well (`Card 1 · 3/15`), one card shown.
 - **Binds:** the game-pad buttons are rebound on a **page reached from the
   Controller panel's Configure** (controller view). Per-system base button set.
   A console can set `has_pad_binds` to add a second **GAMEPAD** chip per row

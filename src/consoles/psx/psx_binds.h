@@ -47,6 +47,12 @@ void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int s
 // on capture; this is the explicit Save Profile action of the keyboard panel.
 void rui_psx_binds_save(const char* path);
 
+// Load Profile: replace one player's keyboard map (0-based player) with the
+// [player<N>] section of `src` (else its [player1]) and persist to `path`.
+// Returns 1 on success, 0 if `src` is unreadable, foreign-format or has no
+// usable section; the current map is then left unchanged.
+int rui_psx_binds_load_profile(const char* path, int player, const char* src);
+
 // Reset one player to the shared default keyboard map + persist.
 void rui_psx_binds_reset(const char* path, int player);
 

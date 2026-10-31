@@ -142,7 +142,7 @@ function(recomp_target_launcher_ui TGT)
     # keys fall back to the source English string.
     cmake_parse_arguments(
         RUI
-        "HOST_IMGUI"
+        "HOST_IMGUI;MODULE_ONLY"
         "CONSOLE;BOXART;BOXART_NAME;PAD;BRAND;IMGUI_DIR;LANGUAGE"
         ""
         ${ARGN})
@@ -161,7 +161,10 @@ function(recomp_target_launcher_ui TGT)
     # against the host's ImGui even when older than the vendored one.
     set(_rui_use_host_imgui FALSE)
     set(_rui_host_imgui_include "")
-    if(RECOMP_UI_HOST_IMGUI)
+    if(RUI_MODULE_ONLY)
+        # The separately built module owns its hidden ImGui implementation.
+        set(_rui_use_host_imgui FALSE)
+    elseif(RECOMP_UI_HOST_IMGUI)
         set(_rui_use_host_imgui TRUE)
         set(_rui_host_imgui_include "${RECOMP_UI_HOST_IMGUI_INCLUDE}")
     elseif(RUI_HOST_IMGUI)
@@ -208,6 +211,8 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_binds.c
         ${RUI_SRC}/common/pad_binds.c          # per-GUID input.ini store (all consoles)
         ${RUI_SRC}/common/launcher_udp_port.c  # host-lobby UDP port probe / auto-pick
+        ${RUI_SRC}/common/launcher_cover.c     # the cover button: fetch with the system curl, check, save
+        ${RUI_SRC}/common/launcher_icon.c      # a desktop icon file from the cover or from a save's icon
         ${RUI_SRC}/common/recomp_runtime_ui.c # renderer-agnostic in-game overlay
         ${RUI_SRC}/common/recomp_runtime_settings.c # shared cross-ecosystem setting catalog
         ${RUI_SRC}/common/recomp_frame_blend.c # shared presentation blend (Settings.frame_blend)
@@ -227,6 +232,7 @@ function(recomp_target_launcher_ui TGT)
         # console-specific helpers (src/consoles/<id>/) — always compiled, only
         # reached when the active SystemProfile opts into the capability
         ${RUI_SRC}/consoles/psx/memcard_format.c   # PS1 blank memory-card image writer
+        ${RUI_SRC}/consoles/psx/psx_start_from.cpp # "Start from": a title's save states and replays
         ${RUI_SRC}/consoles/psx/psx_binds.c        # PSX-native keybind persistence bridge
         ${RUI_SRC}/consoles/psx/psx_pad_binds.c    # PSX button table over common/pad_binds.c
         ${RUI_SRC}/consoles/psx/psx_menu_provider.cpp       # psxrecomp in-game menu provider (psx_menu_host.h)
@@ -250,6 +256,19 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/backends/imgui/runtime_ui_imgui.cpp
         ${_rui_imgui_sources}
     )
+    if(RUI_MODULE_ONLY)
+        # The in-game overlay stays compiled in the host. Common non-launcher
+        # helpers may exist privately on both sides, with hidden module symbols.
+        get_target_property(_rui_module_sources ${TGT} SOURCES)
+        list(REMOVE_ITEM _rui_module_sources
+            ${RUI_SRC}/common/recomp_runtime_ui.c
+            ${RUI_SRC}/common/recomp_runtime_settings.c
+            ${RUI_SRC}/common/recomp_frame_blend.c
+            ${RUI_SRC}/common/recomp_flash_guard.c
+            ${RUI_SRC}/common/backends/imgui/runtime_ui_imgui.cpp
+            ${RUI_SRC}/consoles/psx/psx_start_from.cpp)
+        set_property(TARGET ${TGT} PROPERTY SOURCES "${_rui_module_sources}")
+    endif()
     # Two TUs carry the vendored stb_image.h, which trips GCC 15's
     # -Wstringop-overflow in stbi__parse_png_file (a false positive on the
     # 3-byte transparency key). A clean build of a game should not print a
@@ -388,6 +407,150 @@ function(recomp_target_launcher_ui TGT)
     endif()
 endfunction()
 
+# Explicit pilot helpers; legacy callers keep their existing compiled UI path.
+# SDL_TARGET must be the same actual shared SDL3 target for host and module.
+function(_recomp_require_shared_sdl3 SDL_TARGET)
+    if(NOT RECOMP_UI_SDL3 OR NOT TARGET ${SDL_TARGET})
+        message(FATAL_ERROR "Launcher v1 requires an existing shared SDL3 target")
+    endif()
+    get_target_property(_rui_sdl_type ${SDL_TARGET} TYPE)
+    if(NOT _rui_sdl_type STREQUAL "SHARED_LIBRARY")
+        message(FATAL_ERROR "Launcher v1 refuses static SDL or an interface alias to an unverified provider")
+    endif()
+    get_target_property(_rui_sdl_framework ${SDL_TARGET} FRAMEWORK)
+    if(_rui_sdl_framework)
+        message(FATAL_ERROR "Launcher v1 pilot stages a shared SDL3 library, not a framework bundle")
+    endif()
+endfunction()
+
+function(_recomp_stage_shared_sdl TGT SDL_TARGET)
+    set(_rui_sdl_soname "")
+    if(NOT WIN32)
+        set(_rui_sdl_soname "$<TARGET_SONAME_FILE_NAME:${SDL_TARGET}>")
+    endif()
+    add_custom_command(TARGET ${TGT} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DSDL_SOURCE=$<TARGET_FILE:${SDL_TARGET}>"
+            "-DSDL_DESTINATION=$<TARGET_FILE_DIR:${TGT}>"
+            "-DSDL_SONAME=${_rui_sdl_soname}"
+            -P "${RECOMP_UI_ROOT}/cmake/stage_shared_sdl.cmake"
+        VERBATIM)
+endfunction()
+
+function(recomp_add_launcher_module TGT)
+    cmake_parse_arguments(RLM "" "SDL_TARGET;BUILD_IDENTITY;CONSOLE" "" ${ARGN})
+    _recomp_require_shared_sdl3("${RLM_SDL_TARGET}")
+    string(LENGTH "${RLM_BUILD_IDENTITY}" _rui_identity_length)
+    if(NOT RLM_BUILD_IDENTITY MATCHES "^[0-9a-f]+$" OR NOT _rui_identity_length EQUAL 64)
+        message(FATAL_ERROR "Launcher module needs its SHA-256 source/build receipt identity")
+    endif()
+    add_library(${TGT} SHARED
+        ${RUI_SRC}/common/launcher_module.c
+        ${RUI_SRC}/common/launcher_module_contract.c
+        ${RUI_SRC}/common/launcher_module_sdl.c)
+    recomp_target_launcher_ui(${TGT} MODULE_ONLY CONSOLE "${RLM_CONSOLE}")
+    target_compile_definitions(${TGT} PRIVATE
+        RECOMP_LAUNCHER_V2_BUILD_MODULE=1)
+    # The receipt identity is consumed only by launcher_module.c. Keep it off
+    # the target-wide command line so replacing a launcher receipt rebuilds
+    # that one translation unit and never fans out into the shared UI core.
+    set_property(SOURCE ${RUI_SRC}/common/launcher_module.c APPEND PROPERTY
+        COMPILE_DEFINITIONS
+        "RECOMP_LAUNCHER_V2_BUILD_IDENTITY=\"${RLM_BUILD_IDENTITY}\"")
+    target_link_libraries(${TGT} PRIVATE ${RLM_SDL_TARGET} ${CMAKE_DL_LIBS})
+    set_target_properties(${TGT} PROPERTIES
+        C_STANDARD 11 C_STANDARD_REQUIRED ON
+        OUTPUT_NAME recomp-launcher-v2
+        C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON WINDOWS_EXPORT_ALL_SYMBOLS OFF
+        BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    if(WIN32)
+        # GNU Windows otherwise adds lib, unlike the v1 loader's DLL name.
+        set_target_properties(${TGT} PROPERTIES PREFIX "")
+    endif()
+    if(APPLE)
+        set_target_properties(${TGT} PROPERTIES BUILD_RPATH "@loader_path" INSTALL_RPATH "@loader_path")
+    elseif(UNIX)
+        # Prevent module helpers/vendored ImGui from binding to host symbols.
+        target_link_options(${TGT} PRIVATE
+            "LINKER:--version-script=${RECOMP_UI_ROOT}/cmake/launcher_module.exports")
+    endif()
+    if(MSVC)
+        target_compile_options(${TGT} PRIVATE /Gd)
+    endif()
+    _recomp_stage_shared_sdl(${TGT} ${RLM_SDL_TARGET})
+endfunction()
+
+function(recomp_target_launcher_module_host TGT)
+    cmake_parse_arguments(RMH "" "SDL_TARGET;MODULE_FILE;CONSOLE;BOXART;BOXART_NAME;PAD;BRAND" "" ${ARGN})
+    _recomp_require_shared_sdl3("${RMH_SDL_TARGET}")
+    if(NOT IS_ABSOLUTE "${RMH_MODULE_FILE}" OR NOT EXISTS "${RMH_MODULE_FILE}")
+        message(FATAL_ERROR "Launcher host needs an exact prebuilt module artifact; title builds must not build the launcher")
+    endif()
+    if(WIN32)
+        set(_rui_module_name "recomp-launcher-v2.dll")
+    elseif(APPLE)
+        set(_rui_module_name "librecomp-launcher-v2.dylib")
+    else()
+        set(_rui_module_name "librecomp-launcher-v2.so")
+    endif()
+    get_filename_component(_rui_input_module_name "${RMH_MODULE_FILE}" NAME)
+    if(NOT _rui_input_module_name STREQUAL _rui_module_name)
+        message(FATAL_ERROR "Launcher artifact name must match the platform loader: ${_rui_module_name}")
+    endif()
+    target_sources(${TGT} PRIVATE
+        ${RUI_SRC}/common/launcher_module_host.c
+        ${RUI_SRC}/common/launcher_module_host_starts.cpp
+        ${RUI_SRC}/common/launcher_module_contract.c
+        ${RUI_SRC}/common/launcher_module_sdl.c
+        ${RUI_SRC}/consoles/psx/psx_start_from.cpp
+        ${RUI_SRC}/common/launcher_files.c
+        ${RUI_SRC}/third_party/tinyfiledialogs.c
+        ${RUI_SRC}/common/launcher_boot_timing.c
+        ${RUI_SRC}/common/sha256.c
+        ${RUI_SRC}/common/recomp_runtime_ui.c
+        ${RUI_SRC}/common/recomp_runtime_settings.c
+        ${RUI_SRC}/common/recomp_frame_blend.c
+        ${RUI_SRC}/common/recomp_flash_guard.c
+        ${RUI_SRC}/common/recomp_moderation.c
+        ${RUI_SRC}/common/backends/imgui/runtime_ui_imgui.cpp
+        ${RUI_IMGUI}/imgui.cpp ${RUI_IMGUI}/imgui_draw.cpp
+        ${RUI_IMGUI}/imgui_tables.cpp ${RUI_IMGUI}/imgui_widgets.cpp
+        ${RUI_IMGUI}/backends/imgui_impl_sdl3.cpp
+        ${RUI_IMGUI}/backends/imgui_impl_opengl3.cpp)
+    target_include_directories(${TGT} PRIVATE ${RUI_SRC} ${RUI_SRC}/common ${RUI_IMGUI} ${RUI_IMGUI}/backends)
+    target_compile_definitions(${TGT} PRIVATE RECOMP_LAUNCHER RECOMP_LAUNCHER_MODULE_HOST=1
+        RECOMP_LAUNCHER_V2_HOST_SCANNER=1 LNG_SDL3=1 SDL_MAIN_HANDLED=1)
+    set_target_properties(${TGT} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON
+        BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
+    if(APPLE)
+        set_target_properties(${TGT} PROPERTIES BUILD_RPATH "@executable_path" INSTALL_RPATH "@executable_path")
+    endif()
+    if(MSVC)
+        target_compile_options(${TGT} PRIVATE /Gd)
+    endif()
+    target_link_libraries(${TGT} PRIVATE ${RMH_SDL_TARGET} ${CMAKE_DL_LIBS})
+    if(WIN32)
+        target_link_libraries(${TGT} PRIVATE opengl32)
+    else()
+        recomp_resolve_gl(_rui_host_gl_target)
+        target_link_libraries(${TGT} PRIVATE ${_rui_host_gl_target})
+    endif()
+    recomp_stage_launcher_assets(${TGT} CONSOLE "${RMH_CONSOLE}" BOXART "${RMH_BOXART}" BOXART_NAME "${RMH_BOXART_NAME}")
+    if(RMH_PAD)
+        add_custom_command(TARGET ${TGT} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${RMH_PAD}" "$<TARGET_FILE_DIR:${TGT}>/assets/img/pad.tga" VERBATIM)
+    endif()
+    if(RMH_BRAND)
+        add_custom_command(TARGET ${TGT} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${RMH_BRAND}" "$<TARGET_FILE_DIR:${TGT}>/assets/img/brand_mark.tga" VERBATIM)
+    endif()
+    add_custom_command(TARGET ${TGT} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RMH_MODULE_FILE}" "$<TARGET_FILE_DIR:${TGT}>"
+        VERBATIM)
+    _recomp_stage_shared_sdl(${TGT} ${RMH_SDL_TARGET})
+endfunction()
+
 # recomp_target_runtime_ui_sdlrenderer2(<host_target>)
 #
 # Adds the official Dear ImGui SDL_Renderer2 renderer backend to exactly one
@@ -495,3 +658,4 @@ function(recomp_target_launcher_netplay TGT)
     target_link_libraries(${TGT} PRIVATE recomp_launcher_netplay)
     target_compile_definitions(${TGT} PRIVATE RECOMP_UI_HAS_NETPLAY_HOST=1)
 endfunction()
+

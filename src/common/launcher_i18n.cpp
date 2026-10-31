@@ -196,6 +196,7 @@ static const LauncherI18nEntry kItalian[] = {
     {"Save states menu", "Menu stati salvataggio"},
     {"Open launcher", "Apri launcher"},
     {"RESUME", "RIPRENDI"},
+    {"Launching...", "Avvio in corso..."},
     {"QUIT GAME", "ESCI DAL GIOCO"},
     {"(unbound)", "(non assegnato)"},
     {"[ press... ]", "[ premi... ]"},

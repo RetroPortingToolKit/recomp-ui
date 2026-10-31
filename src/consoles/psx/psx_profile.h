@@ -93,6 +93,11 @@ static const SystemProfile kSystemProfilePsx = {
         /* has_pad_mode */ 1,
         /* binds_per_input */ 2,  // primary + alternate; either asserts the
                                   // input, and either may be a mouse button
+        /* modes */ NULL, /* mode_count */ 0, /* has_pad_binds */ 0,
+        /* pad_bind_order */ NULL, /* pad_bind_cols */ 0, /* pad_bind_rows */ 0,
+        /* has_pak */ 0,
+        /* player_tabs */ 1,      // the memory cards sit under the controller
+                                  // card: one tab per player, not a grid
     },
     // MEMCARD is PSX's real target shape (2 slots): the standalone "save" panel
     // (see kPanelsDashboardPsx above) renders a dual-slot picker + 15-block
@@ -138,6 +143,7 @@ static const SystemProfile kSystemProfilePsx = {
     /* hide_audio_freq   */ 1,       // psxrecomp opens audio at its built-in rate; Volume only
     /* brand             */ "brand_psx.tga",
     /* wordmark_image    */ NULL,
+    /* start_from        */ 1,      // psx_start_from.h lists states and replays
 };
 
 // ---- name aliases + ABI capability defaults -------------------------------------

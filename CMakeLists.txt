@@ -68,6 +68,14 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/recomp_ui.cmake)
 recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
+option(RECOMP_UI_BUILD_LAUNCHER_MODULE "Build the opt-in PS1B-482 v1 module pilot" OFF)
+set(RECOMP_LAUNCHER_V2_BUILD_IDENTITY "" CACHE STRING "SHA-256 source/build receipt for the launcher module")
+if(RECOMP_UI_BUILD_LAUNCHER_MODULE)
+    recomp_add_launcher_module(recomp-launcher-module
+        SDL_TARGET SDL3::SDL3-shared CONSOLE psx
+        BUILD_IDENTITY "${RECOMP_LAUNCHER_V2_BUILD_IDENTITY}")
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     find_package(Threads REQUIRED)
@@ -113,6 +121,12 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
     target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
     add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)
+    add_executable(recomp-ui-launcher-module-contract-test
+        tests/launcher_module_contract_test.c
+        tests/launcher_module_contract_cpp.cpp
+        src/common/launcher_module_contract.c)
+    target_include_directories(recomp-ui-launcher-module-contract-test PRIVATE src src/common)
+    add_test(NAME recomp-ui-launcher-module-contract COMMAND $<TARGET_FILE:recomp-ui-launcher-module-contract-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c
@@ -167,6 +181,21 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_no_raw_pickers.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}")
+        # OpenBIOS is offered only in a build that holds it: every "Use
+        # OpenBIOS" button behind the model's answer, and the accepted words
+        # for a build that needs the player's own BIOS.
+        add_test(
+            NAME recomp-ui-bios-step-words
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_bios_step_words.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+        # The disc panel's "Disc image" row: only for a file setup refused,
+        # with the accepted words and a red cross.
+        add_test(
+            NAME recomp-ui-disc-image-row
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_disc_image_row.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(WARNING
             "Python3 not found: recomp-ui-no-raw-pickers picker-API guard is "
@@ -186,6 +215,12 @@ if(BUILD_TESTING)
         COMMAND ${CMAKE_COMMAND}
             "-DRECOMP_UI_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/asset_manifest_test.cmake)
+
+    add_test(
+        NAME recomp-ui-setup-toolchain-platform-copy
+        COMMAND ${CMAKE_COMMAND}
+            "-DRECOMP_UI_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/setup_toolchain_platform_copy_test.cmake)
 
     add_executable(recomp-ui-psx-asset-stage-probe
         tests/asset_stage_probe.c)
@@ -288,6 +323,19 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-psx-binds-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/psx-binds-test.ini")
 
+    # PS1B-305: a rebind keeps the runtime's [guncon] and other sections.
+    add_executable(recomp-ui-psx-binds-sections-test
+        tests/psx_binds_sections_test.c
+        src/consoles/psx/psx_binds.c)
+    target_include_directories(recomp-ui-psx-binds-sections-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-psx-binds-sections-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-psx-binds-sections-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(
+        NAME recomp-ui-psx-binds-sections
+        COMMAND $<TARGET_FILE:recomp-ui-psx-binds-sections-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/psx-binds-sections-test.ini")
+
     # Multi-disc roster: sibling autofill + per-slot binding. Includes
     # launcher_model.c (not links it) to reach the static path rewriter, so the
     # model's own deps are compiled in alongside.
@@ -346,6 +394,22 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-launcher-artwork-folder
         COMMAND recomp-ui-launcher-artwork-folder-test
                 "${CMAKE_CURRENT_BINARY_DIR}/artwork-folder-test-$<CONFIG>")
+    # The disc panel's Serial row and the reason line under it: a tick only
+    # for a serial the build lists. Same include-the-TU shape as the discs
+    # test above.
+    add_executable(recomp-ui-launcher-disc-serial-test
+        tests/launcher_disc_serial_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-disc-serial-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-disc-serial-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-disc-serial
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-disc-serial-test>)
 
     # Renderer / VSync as enumerable lists rather than cycle buttons. Same
     # include-the-TU shape as the discs test above.
@@ -463,6 +527,42 @@ if(BUILD_TESTING)
                 "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
 
+    # The BIOS step of a build that holds no BIOS of its own: the model's
+    # answer to "is OpenBIOS offered" and "must Generate wait for a BIOS".
+    # Same include-the-TU shape.
+    add_executable(recomp-ui-launcher-bios-step-test
+        tests/launcher_bios_step_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-bios-step-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-bios-step-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-bios-step
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-bios-step-test>)
+
+    # Setup window: the disc panel follows a file that setup refused. After a
+    # failed prepare the disc check runs again, so "Disc verified" does not
+    # stand above setup's refusal of the same file. Same include-the-TU shape.
+    add_executable(recomp-ui-launcher-setup-refusal-verdict-test
+        tests/launcher_setup_refusal_verdict_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-setup-refusal-verdict
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-refusal-verdict-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
+
     # Per-seat pad_mode resolution: a locked mode (game.toml lock_mode) must
     # survive the keyboard-has-no-sticks presentation default, because the
     # selector that could undo it is hidden. Same include-the-TU shape as the
@@ -517,6 +617,140 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
+
+    # The PSX-only "PS1 Mouse" input source (player_src 3). Same shape.
+    add_executable(recomp-ui-launcher-mouse-source-test
+        tests/launcher_mouse_source_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-mouse-source-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-mouse-source-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-mouse-source
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mouse-source-test>)
+
+    # The PSX-only "NeGcon" pad type (pad_mode 3). Same shape.
+    add_executable(recomp-ui-launcher-negcon-mode-test
+        tests/launcher_negcon_mode_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-negcon-mode-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-negcon-mode-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-negcon-mode
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-negcon-mode-test>)
+
+    # Dashboard player tabs: the tab count per declared player number and
+    # Multitap state, and the open tab. Same shape.
+    add_executable(recomp-ui-launcher-player-tabs-test
+        tests/launcher_player_tabs_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-player-tabs-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-player-tabs-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-player-tabs
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-test>)
+
+    # The cover button's model side: serial and address, the check of what
+    # came back, the replace rule and the worker job, with fake fetchers. No
+    # network.
+    add_executable(recomp-ui-launcher-cover-test
+        tests/launcher_cover_test.c
+        src/common/launcher_cover.c)
+    target_include_directories(recomp-ui-launcher-cover-test PRIVATE src src/common)
+    if(UNIX)
+        find_package(Threads REQUIRED)
+        target_link_libraries(recomp-ui-launcher-cover-test PRIVATE Threads::Threads)
+    endif()
+    add_test(
+        NAME recomp-ui-launcher-cover
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
+    # The desktop icon file: the square picture, the .ico and the .png as
+    # written, and the save icon read from a memory-card image the test
+    # builds itself.
+    add_executable(recomp-ui-launcher-icon-test
+        tests/launcher_icon_test.c
+        src/common/launcher_icon.c
+        src/common/crc32.c)
+    target_include_directories(recomp-ui-launcher-icon-test PRIVATE src src/common)
+    add_test(
+        NAME recomp-ui-launcher-icon
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-icon-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
+    # "Start from" on the dashboard: the list the model holds, the choice,
+    # what it does to Record replay and to the disc to boot, and what PLAY
+    # hands to the host. Same shape.
+    add_executable(recomp-ui-launcher-start-from-test
+        tests/launcher_start_from_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-start-from-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-start-from-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-start-from
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-start-from-test>)
+
+    # The PlayStation lister of "Start from": the save states and replays it
+    # finds in a product folder the test builds itself, their build marks,
+    # and the start-up variables that carry the choice to the host.
+    add_executable(recomp-ui-psx-start-from-test
+        tests/psx_start_from_test.cpp
+        src/consoles/psx/psx_start_from.cpp
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-psx-start-from-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-psx-start-from-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-psx-start-from
+        COMMAND $<TARGET_FILE:recomp-ui-psx-start-from-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
+    # The "Record replay" footer checkbox: gated on the host's
+    # has_record_replay, handed back on PLAY, kept by Restore Defaults.
+    add_executable(recomp-ui-launcher-record-replay-test
+        tests/launcher_record_replay_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-record-replay-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-record-replay-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-record-replay
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-record-replay-test>)
 
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
@@ -705,9 +939,29 @@ if(BUILD_TESTING)
     set_tests_properties(recomp-ui-launcher-in-session PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-in-session-test")
 
+    # The PLAY press: asked in one frame, shown as "Launching..." in the next,
+    # done in the one after that.
+    add_executable(recomp-ui-launcher-play-launching-test
+        tests/launcher_play_launching_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-play-launching-test PRIVATE
+        src src/common src/consoles/psx)
+    set_target_properties(recomp-ui-launcher-play-launching-test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-play-launching-test")
+    add_test(NAME recomp-ui-launcher-play-launching
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-play-launching-test>)
+    set_tests_properties(recomp-ui-launcher-play-launching PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-play-launching-test")
+
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
+        src/consoles/psx/psx_start_from.cpp
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -806,4 +1060,28 @@ if(BUILD_TESTING)
         add_test(NAME recomp-ui-netplay-host
                  COMMAND $<TARGET_FILE:recomp-ui-netplay-host-test>)
     endif()
+    # Pad buttons held when pad nav turns on must be released first.
+    add_executable(recomp-ui-launcher-pad-nav-test
+        tests/launcher_pad_nav_test.cpp
+        src/third_party/imgui/imgui.cpp
+        src/third_party/imgui/imgui_draw.cpp
+        src/third_party/imgui/imgui_tables.cpp
+        src/third_party/imgui/imgui_widgets.cpp)
+    target_include_directories(recomp-ui-launcher-pad-nav-test PRIVATE
+        src/common/backends/imgui src/third_party/imgui)
+    add_test(NAME recomp-ui-launcher-pad-nav COMMAND $<TARGET_FILE:recomp-ui-launcher-pad-nav-test>)
+    # The dashboard's player tab strip: one tab per player, opened by a click,
+    # by activate on the focused tab, or by L1 / R1.
+    add_executable(recomp-ui-launcher-player-tabs-strip-test
+        tests/launcher_player_tabs_strip_test.cpp
+        src/third_party/imgui/imgui.cpp
+        src/third_party/imgui/imgui_draw.cpp
+        src/third_party/imgui/imgui_tables.cpp
+        src/third_party/imgui/imgui_widgets.cpp)
+    target_include_directories(recomp-ui-launcher-player-tabs-strip-test PRIVATE
+        src/common/backends/imgui src/third_party/imgui)
+    add_test(NAME recomp-ui-launcher-player-tabs-strip
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-strip-test>)
 endif()
+
+

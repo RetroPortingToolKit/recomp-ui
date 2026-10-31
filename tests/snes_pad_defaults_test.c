@@ -72,6 +72,7 @@ int rui_psx_binds_get_slot(const char* path, int player, int b, int slot) { (voi
 void rui_psx_binds_init(const char* path) { (void)path; }
 void rui_psx_binds_reset(const char* path, int player) { (void)path; (void)player; }
 void rui_psx_binds_save(const char* path) { (void)path; }
+int rui_psx_binds_load_profile(const char* path, int player, const char* src) { (void)path; (void)player; (void)src; return 0; }
 void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int scancode) { (void)path; (void)player; (void)b; (void)slot; (void)scancode; }
 int rui_psx_pad_binds_deadzone(const char* path, const char* guid) { (void)path; (void)guid; return 0; }
 void rui_psx_pad_binds_delete(const char* path, const char* guid) { (void)path; (void)guid; }

@@ -225,7 +225,59 @@ static void test_genesis_custom_mode_list(void) {
     free(m);
 }
 
+
+/* Dino uses existing PSX title metadata; the public module ABI stays frozen. */
+static void test_dino_default_and_analog_note(void) {
+    RecompLauncherCGameInfo game = {0};
+    RecompLauncherCSettings io = {0};
+    launcher_profile_apply_psx(&game);
+    game.name = "Dino Crisis";
+    game.pad_mode_selectable = 1;
+    io.player_src[0] = SRC_GAMEPAD;
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(*m));
+    if (!m) { ++fails; return; }
+    launcher_model_init(m, &io, &game, NULL);
+    expect_mode(m, 0, PSX_DIGITAL, "Dino unset gamepad defaults to D-Pad");
+    expect(!strcmp(launcher_model_analog_note(m),
+                   "this game does not use the analog stick"), "exact approved Dino Analog note");
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 7, "Gamepad", kFixtureGuid);
+    expect_mode(m, 0, PSX_DIGITAL, "Dino gamepad assignment keeps D-Pad default");
+    launcher_model_set_pad_mode(m, 0, PSX_ANALOG);
+    expect_mode(m, 0, PSX_ANALOG, "Dino explicit Analog remains selectable");
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 8, "Other pad", kFixtureGuid);
+    expect_mode(m, 0, PSX_ANALOG, "Dino reassignment preserves explicit Analog");
+    launcher_model_set_source(m, 0, SRC_KEYBOARD, 0, NULL, NULL);
+    expect_mode(m, 0, PSX_ANALOG, "Dino keyboard selection preserves saved Analog");
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 8, "Gamepad", kFixtureGuid);
+    expect_mode(m, 0, PSX_ANALOG, "Dino gamepad return preserves explicit Analog");
+    io = m->s;
+    launcher_model_init(m, &io, &game, NULL);
+    expect_mode(m, 0, PSX_ANALOG, "Dino saved Analog survives launcher reload");
+    launcher_model_set_pad_mode(m, 0, PSX_DIGITAL);
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 7, "Gamepad", kFixtureGuid);
+    expect_mode(m, 0, PSX_DIGITAL, "Dino explicit D-Pad survives reassignment");
+    io = m->s;
+    io.player_src[0] = SRC_KEYBOARD;
+    io.pad_mode[0] = PSX_ANALOG;
+    launcher_model_init(m, &io, &game, NULL);
+    expect_mode(m, 0, PSX_ANALOG, "Dino keeps saved Analog while keyboard drives the seat");
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 7, "Gamepad", kFixtureGuid);
+    expect_mode(m, 0, PSX_ANALOG, "Dino keyboard-to-gamepad restores saved Analog");
+    game.name = "Unchanged other title";
+    io.pad_mode[0] = PSX_DIGITAL;
+    launcher_model_init(m, &io, &game, NULL);
+    expect(launcher_model_analog_note(m) == NULL, "other title has no Dino Analog note");
+    launcher_model_set_source(m, 0, SRC_GAMEPAD, 7, "Gamepad", kFixtureGuid);
+    expect_mode(m, 0, PSX_ANALOG, "other PSX gamepad keeps historical Analog default");
+    launcher_profile_apply_genesis(&game);
+    game.name = "Dino Crisis";
+    launcher_model_init(m, &io, &game, NULL);
+    expect(launcher_model_analog_note(m) == NULL, "same name on another console gets no Dino note");
+    free(m);
+}
+
 int main(void) {
+    test_dino_default_and_analog_note();
     test_locked_analog_keyboard_seat();
     test_locked_analog_poisoned_settings();
     test_locked_digital_still_digital();

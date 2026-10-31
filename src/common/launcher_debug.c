@@ -25,15 +25,28 @@ static int   g_cmd_count = 0;
 static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
+static SDL_Keycode g_key_release = SDLK_UNKNOWN;
+static bool  g_ps1b482_input_trace = false;
 
 bool launcher_debug_active(void) { return g_active; }
 
 void launcher_debug_init(void) {
+    // A launcher module can be entered again after a title soft-returns.  Each
+    // LNG_SCRIPT value is a new program; retaining the prior cursor makes an
+    // equally sized rematch script look exhausted and requests QUIT at once.
+    g_cmd_count = 0;
+    g_cmd_index = 0;
+    g_wait_frames = 0;
+    g_key_release = SDLK_UNKNOWN;
+    g_active = false;
+
     const char* s = SDL_getenv("LNG_SCRIPT");
     if (!s || !s[0]) return;
 
+    const char* trace = SDL_getenv("PS1B482_SETTINGS_ACTIONS_TRACE");
+    g_ps1b482_input_trace = trace && trace[0] && strcmp(trace, "0") != 0;
+
     snprintf(g_script, sizeof(g_script), "%s", s);
-    g_cmd_count = 0;
     char* tok = strtok(g_script, ";");
     while (tok && g_cmd_count < LNG_MAX_CMDS) {
         while (*tok == ' ') ++tok;          // trim leading spaces
@@ -82,14 +95,17 @@ bool launcher_capture_png(const char* path, int w, int h) {
 // that sample SDL_GetMouseState see it) and push button events (so backends
 // that consume the event queue see it). Covers both ImGui and Clay.
 static void synth_click(LauncherPlatform* p, float x, float y) {
+    // A hidden window (LNG_TEST_HIDDEN) gets the click as events only. The warp
+    // moves the desktop's real pointer, also for a window that nobody sees.
+    const bool warp = !(SDL_GetWindowFlags(p->window) & SDL_WINDOW_HIDDEN);
 #if defined(LNG_SDL3)
-    SDL_WarpMouseInWindow(p->window, x, y);
+    if (warp) SDL_WarpMouseInWindow(p->window, x, y);
 #else
     // SDL2 stores mouse coordinates as integers. Make its existing truncation
     // behavior explicit while preserving SDL3's subpixel coordinates.
     const int event_x = (int)x;
     const int event_y = (int)y;
-    SDL_WarpMouseInWindow(p->window, event_x, event_y);
+    if (warp) SDL_WarpMouseInWindow(p->window, event_x, event_y);
 #endif
 
     SDL_Event e;
@@ -126,7 +142,7 @@ static void synth_click(LauncherPlatform* p, float x, float y) {
     SDL_PushEvent(&e);
 }
 
-static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
+static void push_key(LauncherPlatform* p, SDL_Keycode key, bool down) {
     SDL_Scancode sc = SDL_GetScancodeFromKey(key
 #if defined(LNG_SDL3)
         , NULL
@@ -134,27 +150,32 @@ static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
         );
     SDL_Event e;
     SDL_zero(e);
-    e.type = SDL_EVENT_KEY_DOWN;
+    e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    e.key.windowID = SDL_GetWindowID(p->window);
 #if defined(LNG_SDL3)
     /* ImGui's SDL3 backend drops key events for no known window. */
     e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
     e.key.key = key;
     e.key.scancode = sc;
-    e.key.down = true;
+    e.key.down = down;
 #else
     e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
     e.key.keysym.sym = key;
     e.key.keysym.scancode = sc;
-    e.key.state = SDL_PRESSED;
+    e.key.state = down ? SDL_PRESSED : SDL_RELEASED;
 #endif
-    SDL_PushEvent(&e);
-    e.type = SDL_EVENT_KEY_UP;
-#if defined(LNG_SDL3)
-    e.key.down = false;
-#else
-    e.key.state = SDL_RELEASED;
-#endif
-    SDL_PushEvent(&e);
+    const int pushed = SDL_PushEvent(&e);
+    if (g_ps1b482_input_trace) {
+        fprintf(stderr,
+                "[ps1b482-trace] push key=%d scancode=%d down=%d window=%u result=%d\n",
+                (int)key, (int)sc, down ? 1 : 0,
+                (unsigned int)e.key.windowID, pushed);
+    }
+}
+
+static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
+    push_key(p, key, true);
+    g_key_release = key;
 }
 
 static void synth_pad_button(int button) {
@@ -175,6 +196,15 @@ static void synth_pad_axis(int axis, int value) {
 
 static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
     if (!g_active) return false;
+
+    // Give ImGui one complete frame with the key down before its matching key
+    // up. SDL3 also filters keyboard events by the owning window ID, so both
+    // halves use this launcher's actual window rather than the zeroed default.
+    if (g_key_release != SDLK_UNKNOWN) {
+        push_key(p, g_key_release, false);
+        g_key_release = SDLK_UNKNOWN;
+        return;
+    }
 
     // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
     // otherwise a script that clicks PLAY and then ends would overwrite LAUNCH
@@ -221,6 +251,18 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         if (pl < 0) pl = 0;
         if (pl > LNG_MAX_PLAYERS - 1) pl = LNG_MAX_PLAYERS - 1;
         m->cfg_player = pl;
+    } else if (strncmp(c, "tab:", 4) == 0) {
+        // Open a player's tab on the dashboard (0-based), as a click on it does.
+        launcher_model_set_player_tab(m, atoi(c + 4));
+    } else if (strncmp(c, "start:", 6) == 0) {
+        // Choose a "Start from" entry by its place in the list; -1 is Power on.
+        launcher_model_select_start(m, atoi(c + 6));
+    } else if (strncmp(c, "disc:", 5) == 0) {
+        // Choose the disc to boot of a multi-disc title (0-based).
+        launcher_model_select_disc(m, atoi(c + 5));
+    } else if (strncmp(c, "cardtab:", 8) == 0) {
+        // Open a memory card's tab on the dashboard (0-based).
+        launcher_model_set_card_tab(m, atoi(c + 8));
     } else if (strncmp(c, "capbtn:", 7) == 0) {
         launcher_model_begin_capture(m, atoi(c + 7));   // rebind a player button (generic spec index)
     } else if (strncmp(c, "cappad:", 7) == 0) {
@@ -282,3 +324,4 @@ void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
 bool launcher_debug_step_pending(LauncherPlatform* p) {
     return launcher_debug_step_impl(p, NULL);
 }
+
