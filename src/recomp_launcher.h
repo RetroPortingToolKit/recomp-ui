@@ -1225,12 +1225,21 @@ typedef struct RecompLauncherCModProvider {
      * "Show in Quick Mods" switch. Appended for ABI stability. */
     int (*feature_set_quick)(void* ctx, const char* package_id,
                              const char* feature_id, int quick);
+    /* Optional cooperative preboot preparation. report returns zero after
+     * cancellation; the provider must check it between bounded work units and
+     * before publishing its selection. Text is copied by the launcher and is
+     * borrowed only for the callback. fraction < 0 requests an indefinite bar.
+     * Appended for statically paired source compatibility. No binary ABI claim. */
+    int (*commit_with_progress)(void* ctx, const char* image_path,
+        int (*report)(void* report_ctx, float fraction, const char* text),
+        void* report_ctx);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_QUICK_MODS 1
 /* RecompLauncherCModFeature carries forces_vsync_off. */
 #define RECOMP_LAUNCHER_HAS_MOD_VSYNC_OFF 1
 #define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
 #define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
+#define RECOMP_LAUNCHER_HAS_MOD_PREPARATION_PROGRESS 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
