@@ -363,6 +363,12 @@ typedef struct {
     // _invert_x / _invert_y / _bind[]), like audio_device. False => none of
     // the mouse surface composes and behavior is unchanged for every game.
     bool has_mouse_controls;
+    // GameInfo.mouse_source_label / mouse_source_only: a host-emulated mouse
+    // device (psxrecomp's PlayStation Mouse). The entry takes that name, and
+    // the MOUSE card and mouse-aim defaults do not apply. NULL / false keep
+    // "Keyboard + Mouse" and the Snap surface.
+    const char* mouse_source_label;
+    bool mouse_source_only;
     bool has_gyro_controls;
     bool has_sharp_filter;
     bool has_affine_filter;
@@ -1300,6 +1306,9 @@ void launcher_model_cancel_hk_capture(LauncherModel* m);
 const char* launcher_model_scale_label(const LauncherModel* m);        // "3x"
 const char* launcher_model_freq_label(const LauncherModel* m);         // "44100 Hz"
 const char* launcher_model_player_src_label(const LauncherModel* m, int player);
+// Name of player 1's mouse source entry: GameInfo.mouse_source_label, else
+// "Keyboard + Mouse".
+const char* launcher_model_mouse_source_label(const LauncherModel* m);
 const char* launcher_button_name(LngButton b);
 const char* launcher_hotkey_name(LngHotkey h);
 const char* launcher_view_name(LngView v);

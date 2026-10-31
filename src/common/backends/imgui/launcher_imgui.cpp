@@ -3365,8 +3365,8 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
 // by side. Same module, composed per the game's declared player count.
 // Input-source Selectables shared by the player card (##src) and the Controller
 // config (##csrc) combos. When the game sets has_mouse_controls, player 0's
-// keyboard entry splits into "Keyboard + Mouse" (mouse-aim on) and "Keyboard"
-// (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
+// keyboard entry splits into "Keyboard + Mouse" (mouse-aim on; or the host's
+// mouse_source_label, e.g. "PlayStation Mouse") and "Keyboard" (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
 // identical to before for every non-mouse game.
 void draw_source_selectables(LauncherModel* m, int p) {
     const SystemProfile* src_prof = (const SystemProfile*)m->profile;
@@ -3382,7 +3382,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
     if (m->has_mouse_controls && p == 0) {
         const bool kbm = m->s.player_src[p] == 1 && m->s.mouse_enabled;
         const bool kb  = m->s.player_src[p] == 1 && !m->s.mouse_enabled;
-        if (ImGui::Selectable(ui_text("Keyboard + Mouse"), kbm))
+        if (ImGui::Selectable(ui_text(launcher_model_mouse_source_label(m)), kbm))
             launcher_model_set_mouse_source(m, 1);
         if (ImGui::Selectable(ui_text("Keyboard"), kb))
             launcher_model_set_mouse_source(m, 0);
@@ -5958,7 +5958,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
     // three rebindable mouse buttons, each mapping to an N64 action. Placed
     // after the source/deadzone card and before the bindings card. Entirely
     // absent for every non-mouse game (has_mouse_controls == 0).
-    if (m->has_mouse_controls && m->s.player_src[p] == 1) {
+    if (m->has_mouse_controls && !m->mouse_source_only && m->s.player_src[p] == 1) {
         if (begin_panel("cfg_mouse", 0)) {
             eyebrow("MOUSE");
 

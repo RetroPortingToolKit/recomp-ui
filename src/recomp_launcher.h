@@ -2451,9 +2451,26 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+
+    /* ---- Host-emulated mouse device (with has_mouse_controls) -------------
+     * mouse_source_label: name of player 1's mouse source entry (the
+     * keyboard-family source with Settings.mouse_enabled = 1). NULL keeps
+     * "Keyboard + Mouse" (Snap).
+     * mouse_source_only: nonzero when the mouse is a device the host emulates
+     * by itself (psxrecomp: the PlayStation Mouse in console port 1) rather
+     * than mouse-aim folded onto the pad. The launcher then offers only the
+     * source entry: no MOUSE card (sensitivity / invert / button binds) and no
+     * mouse-aim defaults; the host seeds Settings.mouse_enabled itself.
+     * Both zero keep the existing mouse-controls behaviour. Appended for ABI
+     * stability; see RECOMP_LAUNCHER_HAS_MOUSE_SOURCE. */
+    const char*        mouse_source_label;
+    int                mouse_source_only;
 } RecompLauncherCGameInfo;
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
+/* RecompLauncherCGameInfo carries has_mouse_controls, mouse_source_label and
+ * mouse_source_only; RecompLauncherCSettings carries mouse_enabled. */
+#define RECOMP_LAUNCHER_HAS_MOUSE_SOURCE 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */

@@ -586,6 +586,8 @@ void launcher_model_init(LauncherModel* m,
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
+        m->mouse_source_label   = game->mouse_source_label;
+        m->mouse_source_only    = game->mouse_source_only != 0;
         m->has_gyro_controls    = game->has_gyro_controls != 0;
         m->has_sharp_filter     = game->has_sharp_filter != 0;
         m->has_affine_filter    = game->has_affine_filter != 0;
@@ -899,7 +901,11 @@ void launcher_model_init(LauncherModel* m,
     // seeds real defaults from its config; a zero sensitivity is the tell of a
     // fresh/zero-initialized struct (e.g. a demo harness) — seed the full Snap
     // default set in that case, otherwise just clamp the sensitivity.
-    if (m->has_mouse_controls) {
+    // A host-emulated mouse device has none of the mouse-aim settings: the
+    // host's mouse_enabled stands as given.
+    if (m->has_mouse_controls && m->mouse_source_only) {
+        m->s.mouse_enabled = m->s.mouse_enabled ? 1 : 0;
+    } else if (m->has_mouse_controls) {
         if (m->s.mouse_sensitivity <= 0.0f) {
             m->s.player_src[0]      = 1;      // Keyboard (+ mouse) by default
             m->s.mouse_enabled      = 1;
@@ -4826,6 +4832,11 @@ const char* launcher_model_freq_label(const LauncherModel* m) {
     return buf;
 }
 
+const char* launcher_model_mouse_source_label(const LauncherModel* m) {
+    return (m && m->mouse_source_label && m->mouse_source_label[0])
+        ? m->mouse_source_label : "Keyboard + Mouse";
+}
+
 const char* launcher_model_player_src_label(const LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     int src = clampi(m->s.player_src[player], 0, 2);
@@ -4841,7 +4852,7 @@ const char* launcher_model_player_src_label(const LauncherModel* m, int player) 
     // Mouse-capable games split the keyboard source (player 0 only): the label
     // reflects whether mouse-aim is on. Every non-mouse game keeps kSrcNames.
     if (src == 1 && m->has_mouse_controls && player == 0)
-        return m->s.mouse_enabled ? "Keyboard + Mouse" : "Keyboard";
+        return m->s.mouse_enabled ? launcher_model_mouse_source_label(m) : "Keyboard";
     return kSrcNames[src];
 }
 

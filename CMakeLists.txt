@@ -482,6 +482,23 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-pad-mode
         COMMAND $<TARGET_FILE:recomp-ui-launcher-pad-mode-test>)
 
+    # Player 1's mouse source entry: Snap's "Keyboard + Mouse" unchanged, a
+    # host-emulated mouse device (mouse_source_label / mouse_source_only).
+    add_executable(recomp-ui-launcher-mouse-source-test
+        tests/launcher_mouse_source_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-mouse-source-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-mouse-source-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-mouse-source
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-mouse-source-test>)
+
     # Genesis seat ceiling: four logical players for a four-player title,
     # two for every two-port title, never more than the bind store routes.
     add_executable(recomp-ui-genesis-seats-test
