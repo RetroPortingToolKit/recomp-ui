@@ -33,6 +33,15 @@ static const char* error(void* ctx) {
     ++p.error_reads;
     return p.error.c_str();
 }
+static int cooperative(void* ctx,const char*,LauncherModCommitJob::Progress report,void* progress_ctx) {
+    auto& p=*static_cast<Provider*>(ctx);
+    if(!report(progress_ctx,0.25f,"Extracting local recordings"))return 0;
+    std::unique_lock<std::mutex> lock(p.mutex);
+    p.entered=true;p.changed.notify_all();
+    p.changed.wait(lock,[&]{return p.release;});
+    const bool proceed=report(progress_ctx,1.0f,"Ready")!=0;
+    p.returned=true;return proceed?1:0;
+}
 static int failures;
 static void check(bool ok, const char* what) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", what); ++failures; }
@@ -98,5 +107,22 @@ int main() {
     }
     check(lifetime.returned, "destruction joins before borrowed provider context dies");
     check(!job.queue(nullptr, error, &p, "disc"), "missing callback rejected");
+    Provider cancellable;
+    check(job.queue(commit,error,&cancellable,"disc",cooperative),"cooperative job accepted");
+    job.start();
+    {
+        std::unique_lock<std::mutex> lock(cancellable.mutex);
+        check(cancellable.changed.wait_for(lock,std::chrono::seconds(5),[&]{return cancellable.entered;}),
+              "cooperative provider reports progress");
+    }
+    const auto status=job.status();
+    check(status.fraction==0.25f && std::string(status.text.data())=="Extracting local recordings",
+          "worker progress is copied for UI without provider access");
+    job.request_cancel();release(cancellable);
+    check(finish(job) && !job.result() && job.cancelled(),"cancellation reaches provider and joins before return");
+    Provider pre_cancelled;pre_cancelled.release=true;
+    check(job.queue(commit,error,&pre_cancelled,"disc",cooperative),"cancel flag resets when requeued");
+    job.request_cancel();job.start();
+    check(finish(job) && !job.result(),"queued cancellation prevents first work unit");
     return failures ? 1 : 0;
 }

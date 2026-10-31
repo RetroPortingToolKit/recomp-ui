@@ -62,6 +62,10 @@ public:
     Completion finish(bool close_requested) {
         if (!job.finish()) return Completion::None;
         if (close_requested) return Completion::Closed;
+        if (job.cancelled()) {
+            copy_error("Preparation canceled.");
+            return Completion::Failed;
+        }
         if (!job.result()) return Completion::Failed;
         return launch_ ? Completion::Launch : Completion::Prepared;
     }
@@ -110,7 +114,8 @@ private:
     Request queue(const RecompLauncherCModProvider* provider, const char* image,
                   bool launch) {
         launch_ = launch;
-        return job.queue(provider->commit, provider->last_error, provider->ctx, image)
+        return job.queue(provider->commit, provider->last_error, provider->ctx, image,
+                         provider->commit_with_progress)
             ? Request::Queued : Request::Failed;
     }
     void copy_error(const char* text) {
