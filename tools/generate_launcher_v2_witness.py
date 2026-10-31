@@ -81,7 +81,7 @@ def main():
         # parameter types cannot be inferred from a pointer-sized member.
         for header in (args.header, args.boundary_header):
             clean = re.sub(r"/\*.*?\*/|//[^\n]*", "", header.read_text(encoding="utf-8"), flags=re.S)
-            for match in re.finditer(r"typedef\s+\w+\s*\([^;]*\*[^;]+;", clean):
+            for match in re.finditer(r"typedef\s+[^{};]+?\([^;]*\*[^;]+;", clean):
                 signature = " ".join(match.group(0).split()).replace('"', '\\"')
                 boundary.append(f'RL_WITNESS_SIGNATURE("{signature}")')
         args.boundary_output.parent.mkdir(parents=True, exist_ok=True)

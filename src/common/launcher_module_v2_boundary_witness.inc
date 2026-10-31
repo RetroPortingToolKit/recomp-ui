@@ -105,4 +105,5 @@ RL_WITNESS_FIELD(RecompLauncherV2Module, psx_menu, "RecompLauncherV2MenuFn psx_m
 RL_WITNESS_FIELD(RecompLauncherV2Module, build_identity, "char build_identity[65];")
 RL_WITNESS_SIGNATURE("typedef void (*RecompLauncherCPrepareProgressFn)(void* ctx, float pct, const char* message);")
 RL_WITNESS_SIGNATURE("typedef uint32_t (RECOMP_LAUNCHER_V2_CALL *RecompLauncherV2RunFn)( const RecompLauncherV2Run*, RecompLauncherV2Result*, char* diagnostic, uint32_t diagnostic_capacity);")
+RL_WITNESS_SIGNATURE("typedef const struct PsxMenuProvider* (RECOMP_LAUNCHER_V2_CALL *RecompLauncherV2MenuFn)(void);")
 RL_WITNESS_SIGNATURE("typedef uint32_t (RECOMP_LAUNCHER_V2_CALL *RecompLauncherV2QueryFn)( const RecompLauncherV2Query*, RecompLauncherV2Module*, char* diagnostic, uint32_t diagnostic_capacity);")

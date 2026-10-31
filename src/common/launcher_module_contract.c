@@ -74,6 +74,9 @@ RecompLauncherV2Layout launcher_v2_layout(void) {
 #include "launcher_module_v2_records_witness.inc"
 #if LAUNCHER_V2_HAS_PSX_MENU
 #include "launcher_module_psx_menu_witness.inc"
+#ifdef RECOMP_LAUNCHER_MENU_CONTRACT_SHA
+    hash = hash_bytes(hash, RECOMP_LAUNCHER_MENU_CONTRACT_SHA);
+#endif
 #endif
     result.records = hash;
     /* Group identifiers include their nested records, not just pointer sizes. */
