@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "recomp_runtime_ui.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -307,6 +310,9 @@ void footer_case(ImVec2 display, uint32_t flags) {
 } // namespace
 
 int main() {
+    int assertions_enabled = 0;
+    assert(++assertions_enabled);
+    if (!assertions_enabled) return 1;
     footer_case(ImVec2(640, 480), 0);
     footer_case(ImVec2(1280, 720), 0);
     footer_case(ImVec2(1200, 900), RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY);
@@ -316,5 +322,6 @@ int main() {
     render_case(0, ImVec2(1280.0f, 720.0f), 779.0f, 671.0f, 781.0f);
     render_case(RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY,
                 ImVec2(3088.0f, 1440.0f), 3000.0f, 1300.0f, 3020.0f);
+    std::puts("runtime UI: assertions enabled; three footer layouts/clicks, confirmation cadence, nested mouse, toast and render cases passed");
     return 0;
 }
