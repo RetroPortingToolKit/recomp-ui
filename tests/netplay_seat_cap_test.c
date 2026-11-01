@@ -32,12 +32,13 @@ static void expect_int(int got, int want, const char* what) {
 /* recomp_netplay_host's answer shape: online = hooks.netplay_max_players
  * (0 when unset), LAN = 2. */
 static int g_online_cap;
+static int g_lan_cap=2;
 static int g_calls;
 static int g_delay_sync_from;
 static int fake_create_max_slots(void* ctx, int lan_only) {
     (void)ctx;
     ++g_calls;
-    return lan_only ? 2 : g_online_cap;
+    return lan_only ? g_lan_cap : g_online_cap;
 }
 static int fake_default_rollback(void* ctx, int max_slots) {
     (void)ctx;
@@ -120,6 +121,15 @@ static void case_gba_four_link(void) {
     s = seats_for(SYS_GBA, 0, 1, 2);
     expect_int(s.rollback, 1, "gba cap 2: rollback initially");
     g_delay_sync_from = 0;
+}
+
+static void case_four_seat_lan(void) {
+    g_lan_cap=4;
+    Seats s=seats_for(SYS_N64,4,1,4);
+    expect_int(s.online,4,"four-seat title: online offers four");
+    expect_int(s.lan,4,"four-seat title: LAN and Direct IP offer four");
+    expect_int(s.visible,4,"four local controller cards remain available");
+    g_lan_cap=2;
 }
 
 static void case_backend_bounds(void) {
@@ -268,6 +278,7 @@ int main(void) {
     case_gba_legacy();
     case_gba_backend_two();
     case_gba_four_link();
+    case_four_seat_lan();
     case_backend_bounds();
     case_n64();
     case_snes_engine_wide_ceiling();
