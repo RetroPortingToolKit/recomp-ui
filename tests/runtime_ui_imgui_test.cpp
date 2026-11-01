@@ -11,7 +11,16 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+
+/* Headless checks must never open the Windows CRT assertion dialog. */
+static void fixture_fail(const char *condition, int line) {
+    std::fprintf(stderr, "FAIL runtime UI line %d: %s\n", line, condition);
+    std::exit(1);
+}
+#undef assert
+#define assert(condition) ((condition) ? (void)0 : fixture_fail(#condition, __LINE__))
 
 namespace {
 
