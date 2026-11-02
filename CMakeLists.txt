@@ -527,7 +527,7 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-pad-mode
         COMMAND $<TARGET_FILE:recomp-ui-launcher-pad-mode-test>)
 
-    # Genesis seat ceiling: four logical players for a four-player title,
+    # Genesis seat ceiling: six logical players for party titles,
     # two for every two-port title, never more than the bind store routes.
     add_executable(recomp-ui-genesis-seats-test
         tests/genesis_seats_test.c
@@ -818,6 +818,20 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-nes-host-bindings
         COMMAND $<TARGET_FILE:recomp-ui-nes-host-bindings-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/nes-host-bindings")
+
+    # Exercise the same public bind bridge the Genesis Controller page uses.
+    get_target_property(_rui_bind_sources recomp-ui-nes-host-bindings-test SOURCES)
+    list(REMOVE_ITEM _rui_bind_sources tests/nes_host_bindings_test.c)
+    add_executable(recomp-ui-genesis-bindings-test
+        tests/genesis_bindings_test.c ${_rui_bind_sources})
+    target_include_directories(recomp-ui-genesis-bindings-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-genesis-bindings-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-genesis-bindings-test PRIVATE ${RUI_SDL_DEFS})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/genesis-bindings")
+    add_test(NAME recomp-ui-genesis-bindings
+        COMMAND $<TARGET_FILE:recomp-ui-genesis-bindings-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/genesis-bindings")
 
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp

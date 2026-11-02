@@ -4615,7 +4615,7 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
 
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
     if (!m->pad_mode_supported || !m->pad_mode_selectable) return;   // gated/locked
-    player = clampi(player, 0, 1);
+    player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const ControllerSpec* spec = prof ? &prof->controller : NULL;
     if (spec && spec->modes && spec->mode_count > 0) {
@@ -4635,7 +4635,7 @@ int launcher_model_active_button_count(const LauncherModel* m, int player) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     int bc = prof ? prof->controller.button_count : LNG_BTN_COUNT;
     if (prof && prof->controller.modes && prof->controller.mode_count > 0) {
-        player = clampi(player, 0, 1);
+        player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
         for (int i = 0; i < prof->controller.mode_count; ++i)
             if (prof->controller.modes[i].mode == m->s.pad_mode[player]) {
                 bc = prof->controller.modes[i].button_count;

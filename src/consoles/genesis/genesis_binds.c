@@ -124,7 +124,7 @@ static void gen_load_ini(const char* path) {
     FILE* f = fopen(path, "rb");
     if (!f) return;
     char line[512];
-    int player = -1;   // -1 not an input section, 0 p1, 1 p2
+    int player = -1;   // -1 not an input section; otherwise a zero-based seat
     while (fgets(line, sizeof(line), f)) {
         char* s = gen_trim(line);
         if (!*s || *s == ';' || *s == '#') continue;
@@ -134,10 +134,10 @@ static void gen_load_ini(const char* path) {
             *end = '\0';
             const char* name = s + 1;
             player = -1;
-            if      (!strcmp(name, "input.p1")) player = 0;
-            else if (!strcmp(name, "input.p2")) player = 1;
-            else if (!strcmp(name, "input.p3")) player = 2;
-            else if (!strcmp(name, "input.p4")) player = 3;
+            for (int seat=0;seat<RUI_GEN_MAX_PLAYERS;++seat) {
+                char section[16]; snprintf(section,sizeof section,"input.p%d",seat+1);
+                if (!strcmp(name,section)) { player=seat; break; }
+            }
             continue;
         }
         if (player < 0) continue;
