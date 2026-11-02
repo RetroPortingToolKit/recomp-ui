@@ -4548,7 +4548,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
             launcher_model_cycle_rewind_interval(m);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
-                "Frames between rewind snapshots (1 / 4 / 8 / 12 / 15).\n"
+                "Frames between rewind snapshots (1 / 4 / 8 / 12 / 15 / 30).\n"
                 "Smaller intervals give finer control when choosing a moment.\n"
                 "Takes effect on the next launch.");
         }
