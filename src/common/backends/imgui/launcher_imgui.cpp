@@ -2228,6 +2228,20 @@ static void experimental_tag(const LauncherTheme& th) {
     ImGui::TextColored(col(th.warn), "EXPERIMENTAL");
 }
 
+static void window_scale_combo(LauncherModel* m) {
+    // Match the 1x..6x selector used by the newer shared launcher consumers.
+    static const char* labels[] = {"1x", "2x", "3x", "4x", "5x", "6x"};
+    ImGui::SetNextItemWidth(px(120));
+    if (ImGui::BeginCombo("##window_scale", launcher_model_scale_label(m))) {
+        for (int i = 0; i < 6; ++i) {
+            bool selected = m->s.window_scale == i + 1;
+            if (ImGui::Selectable(labels[i], selected)) m->s.window_scale = i + 1;
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+}
+
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
@@ -2247,8 +2261,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         cw += px(18.0f);
         row_label("Window scale", th, cw);
         ImGui::PushID("window_scale");
-        if (ImGui::Button(launcher_model_scale_label(m), ImVec2(px(120), px(30))))
-            launcher_model_cycle_scale(m);
+        window_scale_combo(m);
         ImGui::PopID();
         // Universal fullscreen row (every console; tri-state cycle restoring
         // the legacy launcher's Off/Borderless/Exclusive vocabulary). Sits
@@ -2347,8 +2360,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     } else {
         row_label("Window scale", th);
         ImGui::PushID("window_scale");
-        if (ImGui::Button(launcher_model_scale_label(m), ImVec2(px(120), px(30))))
-            launcher_model_cycle_scale(m);
+        window_scale_combo(m);
         ImGui::PopID();
     }
 
