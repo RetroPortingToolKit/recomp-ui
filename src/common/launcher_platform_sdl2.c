@@ -90,6 +90,8 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     }
     Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
                           SDL_WINDOW_ALLOW_HIGHDPI;
+    const bool test_hidden = getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN");
+    if (test_hidden) window_flags |= SDL_WINDOW_HIDDEN;
 #if defined(__ANDROID__)
     window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_BORDERLESS;
 #endif
@@ -115,7 +117,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     SDL_GL_MakeCurrent(p->window, p->gl);
     SDL_GL_SetSwapInterval(1);
 
-    SDL_RaiseWindow(p->window);   // foreground + keyboard focus (gamepad/kbd nav)
+    if (!test_hidden) SDL_RaiseWindow(p->window); // normal interactive navigation
 
     launcher_platform_refresh_metrics(p);
     launcher_boot_timing_mark("rui:platform_open:window+gl_ready");

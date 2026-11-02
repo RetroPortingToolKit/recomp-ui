@@ -4,6 +4,7 @@
 #include "launcher_boot_timing.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 static bool s_quit_sdl = true;
 
@@ -34,8 +35,9 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     // backbuffer on fractional-scale displays (esp. Wayland) instead of a
     // logical-size buffer the compositor blurs up. RESIZABLE lets us exercise
     // the live-resize requirement.
-    const SDL_WindowFlags flags =
+    SDL_WindowFlags flags =
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    if (getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN")) flags |= SDL_WINDOW_HIDDEN;
 
     p->window = SDL_CreateWindow(title ? title : "Launcher",
                                  logical_w, logical_h, flags);
