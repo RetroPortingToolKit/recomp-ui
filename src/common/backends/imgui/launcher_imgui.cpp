@@ -7359,7 +7359,7 @@ static bool draw_account_section(LauncherModel* m, const LauncherTheme& th) {
         ImGui::PushTextWrapPos(px(360));
         ImGui::TextColored(col(th.text_muted),
                            "Sign in with Discord so your name is yours across "
-                           "sessions. Optional — you can play as a guest.");
+                           "sessions. Online play requires sign-in; LAN does not.");
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Sign in with Discord", ImVec2(px(200), 0)) &&
             np->account_login_begin) {
@@ -11093,8 +11093,8 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
     const bool hold_online = awaiting && !stalled;
 
     const char* online_body =
-        !offered ? "Find players on the lobby server. This server does not "
-                   "offer sign-in, so you will play as a guest."
+        !offered ? "Online play requires Discord sign-in. "
+                   "Sign-in is currently unavailable."
         : hold_online ? "Checking your saved sign-in\u2026"
         : "Find players on the lobby server. Sign in with Discord "
           "so your name is yours across sessions.";
@@ -11104,11 +11104,11 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
                                          online_body, card_w, true);
     ImGui::EndDisabled();
     if (online_hit) {
-        /* Skip the sign-in page when there is nothing to sign in to, or when
-         * this machine is already signed in -- which is the normal case after
+        /* Skip the sign-in page only when this machine is already signed in,
+         * which is the normal case after
          * the first time, because the stored device key is redeemed silently
          * at startup. */
-        if (!offered || np_account_signed_in(m)) {
+        if (np_account_signed_in(m)) {
             np_enter_netplay(m, 2);
         } else {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY_SIGNIN);
@@ -11129,8 +11129,8 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
         ImGui::TextColored(col(th.good), "%s", disp);
     } else if (awaiting) {
         ImGui::TextColored(col(th.text_muted),
-                           stalled ? "Still checking your saved sign-in \u2014 you can "
-                                     "continue as a guest."
+                           stalled ? "Still checking your saved sign-in. "
+                                     "Online play requires sign-in."
                                    : "Checking your saved sign-in\u2026");
     } else if (offered && acct == RECOMP_LAUNCHER_ACCOUNT_FAILED) {
         const char* err = npa->account_error ? npa->account_error(npa->ctx) : "";
@@ -11226,10 +11226,7 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
     }
 
     ImGui::Dummy(ImVec2(0, px(20)));
-    /* No "continue as guest". Online play means signing in, when this server
-     * offers sign-in at all -- a server with no Discord configured never
-     * reaches this page, because the chooser sends it straight through. Back
-     * is the way out, and it leads to LAN, which needs no account. */
+    /* Online always requires sign-in. Back leads to the mode chooser. */
     if (ImGui::Button("Back", ImVec2(px(120), px(34))))
         launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
 }
@@ -11237,6 +11234,10 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
 void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     const auto* np = np_cb(m);
     if (!np) return;
+    if (m->netplay_mode == 2 && !np_account_signed_in(m)) {
+        launcher_model_set_view(m, LNG_VIEW_NETPLAY_SIGNIN);
+        return;
+    }
     draw_netplay_view(m);
     static bool network_settings_loaded = false;
     if (!network_settings_loaded) {
