@@ -11092,15 +11092,17 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
     else if (quiet_signin_since <= 0.0) quiet_signin_since = now_t;
     const bool stalled = awaiting && (now_t - quiet_signin_since > 5.0);
     const bool hold_online = awaiting && !stalled;
+    const bool online_available = npa && npa->connect;
 
     const char* online_body =
-        !offered ? "Find players on the lobby server. This server does not "
+        !online_available ? "Online play is not available in this build."
+        : !offered ? "Find players on the lobby server. This server does not "
                    "offer sign-in, so you will play as a guest."
         : hold_online ? "Checking your saved sign-in\u2026"
         : "Find players on the lobby server. Sign in with Discord "
           "so your name is yours across sessions.";
 
-    ImGui::BeginDisabled(hold_online);
+    ImGui::BeginDisabled(hold_online || !online_available);
     const bool online_hit = np_mode_card(th, "online", "Online Netplay",
                                          online_body, card_w, true);
     ImGui::EndDisabled();
@@ -11153,6 +11155,13 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
     /* Same reason as the chooser, plus this page needs the backend live to
      * notice the sign-in completing. */
     if (np && np->pump) np->pump(np->ctx);
+    /* Availability is settled lazily by /auth/discord/start. An unconfigured
+     * server can answer 503 after the chooser already opened this page.
+     * Apply the same guest path the chooser uses once that answer arrives. */
+    if (np && np->account_available && !np->account_available(np->ctx)) {
+        np_enter_netplay(m, 2);
+        return;
+    }
     const int st = (np && np->account_state) ? np->account_state(np->ctx)
                                              : RECOMP_LAUNCHER_ACCOUNT_GUEST;
     const float wrap = px(640);
@@ -11174,9 +11183,9 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
                        "other that uses it.");
     ImGui::Spacing();
     ImGui::TextColored(col(th.text_muted),
-                       "Online play on this server needs an account. LAN and "
-                       "Direct IP do not — go back and pick those to play "
-                       "without signing in.");
+                       "Online play requires an account when this server offers "
+                       "sign-in. If sign-in is unavailable, you will continue "
+                       "as a guest. LAN and Direct IP need no account.");
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, px(16)));
 
