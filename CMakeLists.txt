@@ -1,9 +1,9 @@
-# recomp-ui — console-agnostic Dear ImGui pre-boot launcher, shared across
+# recomp-ui â€” console-agnostic Dear ImGui pre-boot launcher, shared across
 # recomp ecosystems (SNES, NES, N64, PSX, ...).
 #
 # This top-level CMakeLists.txt builds ONLY a standalone self-test exe
 # (recomp-ui-launcher, from src/proto_main.c) so the repo can verify itself
-# in isolation. Real consumers do NOT build this project directly — they
+# in isolation. Real consumers do NOT build this project directly â€” they
 # `include(recomp_ui.cmake)` from their own CMake project and call
 # `recomp_target_launcher_ui(<their_target>)` (see recomp_ui.cmake and
 # README.md).
@@ -118,7 +118,6 @@ if(BUILD_TESTING)
         src/common/crc32.c src/common/sha1.c src/common/sha256.c
         src/common/ips_patch.c src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-mod-import-test PRIVATE src src/common src/consoles/psx)
-    find_package(Threads REQUIRED)
     target_link_libraries(recomp-ui-mod-import-test PRIVATE Threads::Threads)
     add_test(NAME recomp-ui-mod-import COMMAND $<TARGET_FILE:recomp-ui-mod-import-test>)
     add_executable(recomp-ui-ips-patch-test

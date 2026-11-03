@@ -9,6 +9,12 @@ Set `RecompLauncherCModResource.import_on_select` and provide
 package/feature/resource IDs, selected resource path, and a snapshot of the
 selected primary game image. It also receives a progress sink and error buffer.
 
+The picker queues the job; the backend starts it only after that frame's
+provider reads finish. Hosts driving the model directly must call
+`launcher_model_start_pending_mod_import` at the same boundary, then poll
+`launcher_model_poll_prepare_disc` until the busy flag clears. While busy,
+the backend renders only progress and defers close/quit until completion.
+
 The callback runs on the worker thread. Return 1 after adopting a complete,
 validated resource installation; return 0 and an actionable error on failure.
 Keep the previous resource selection intact until all replacement resources

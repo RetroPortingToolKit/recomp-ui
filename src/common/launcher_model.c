@@ -3321,6 +3321,7 @@ typedef struct {
     int  kind;          /* PREP_JOB_* */
     int  download;      /* toolchain: non-zero => allow network fetch */
     int  result;        /* 0 fail, 1 ok */
+    int  import_queued; /* UI-thread only: start after provider reads finish */
     volatile int done;
     volatile int progress_dirty;
 } PrepJob;
@@ -3737,6 +3738,13 @@ void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id
     m->setup_error[0] = 0;
     safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title), "Importing game content");
     safe_copy(m->setup_status, sizeof(m->setup_status), "Checking your files and preparing content...");
+    g_prep_job.import_queued = 1;
+}
+
+void launcher_model_start_pending_mod_import(LauncherModel* m) {
+    if (!m || !m->setup_preparing || g_prep_job.m != m ||
+        !g_prep_job.import_queued) return;
+    g_prep_job.import_queued = 0;
     if (!prep_spawn_thread(m))
         safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
 }

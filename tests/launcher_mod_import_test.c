@@ -37,7 +37,9 @@ int main(void)
     for(success=1;success>=0;success--) {
         prep_lock();entered=released=0;prep_unlock();
         launcher_model_import_mod_resource(m,"game.cd","campaign","disc","owned & disc.sgcd");
-        CHECK(m->setup_preparing);
+        CHECK(m->setup_preparing && g_prep_job.import_queued && !entered);
+        launcher_model_start_pending_mod_import(m);
+        launcher_model_start_pending_mod_import(m); /* exactly one worker */
         launcher_model_import_mod_resource(m,"game.cd","campaign","disc","owned & disc.sgcd");
         for(int n=0;n<5000;n++){
             prep_lock();int ready=entered;prep_unlock();if(ready)break;pause_thread();

@@ -15040,7 +15040,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     bool first_present_marked = false;
 
     while ((m->action == LNG_ACTION_NONE && !p->should_quit) ||
-           launch_commit.job.pending()) {
+           launch_commit.job.pending() || m->setup_preparing) {
         /* finish() joins before model/provider access, returning the borrowed
          * ctx to the UI. A queued close wins even when commit succeeded. */
         const auto completion = launch_commit.finish(launch_commit.close_requested || p->should_quit);
@@ -15062,6 +15062,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * RESUME in session -- the same as a player's close box. */
         if (smoke_frames > 0 && ++frame > smoke_frames) {
             if (launch_commit.job.pending()) launch_commit.close_requested = true;
+            else if (m->setup_preparing) p->should_quit = true;
             else { p->should_quit = true; break; }
         }
 
@@ -15213,6 +15214,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (launch_commit.job.pending() && (launch_commit.close_requested || p->should_quit))
             launch_commit.job.request_cancel();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
+        else if (m->setup_preparing) draw_setup_wizard_modal(m, *th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
 
@@ -15251,9 +15253,14 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         if (launch_commit.job.pending()) {
             if (launcher_debug_step_pending(p)) launch_commit.close_requested = true;
+        } else if (m->setup_preparing) {
+            if (launcher_debug_step_pending(p)) p->should_quit = true;
         } else {
             launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
         }
+        // Native pickers can return during draw_ui; start only after its
+        // remaining reads and debug commands have released the provider.
+        launcher_model_start_pending_mod_import(m);
         launcher_platform_present(p);
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");
