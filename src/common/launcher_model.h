@@ -234,6 +234,7 @@ typedef struct {
     // (re-run on every disc/card change) instead of the placeholder synthesis.
     int (*disc_verify_cb)(const char* disc_path, RecompLauncherCDiscVerify* out);
     int (*import_sbi_cb)(const char*, const char*, char*, size_t, char*, size_t);
+    const RecompCardManager* card_manager;
     int (*memcard_inspect_cb)(const char* card_path, RecompLauncherCMemcard* out);
     int (*bios_verify_cb)(const char* bios_path, RecompLauncherCBiosVerify* out);
     /* GameInfo.bios_verify_for_rom: preferred over bios_verify_cb, and also
