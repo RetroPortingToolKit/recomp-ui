@@ -11155,6 +11155,13 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
     /* Same reason as the chooser, plus this page needs the backend live to
      * notice the sign-in completing. */
     if (np && np->pump) np->pump(np->ctx);
+    /* Availability is settled lazily by /auth/discord/start. An unconfigured
+     * server can answer 503 after the chooser already opened this page.
+     * Apply the same guest path the chooser uses once that answer arrives. */
+    if (np && np->account_available && !np->account_available(np->ctx)) {
+        np_enter_netplay(m, 2);
+        return;
+    }
     const int st = (np && np->account_state) ? np->account_state(np->ctx)
                                              : RECOMP_LAUNCHER_ACCOUNT_GUEST;
     const float wrap = px(640);
@@ -11176,9 +11183,9 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
                        "other that uses it.");
     ImGui::Spacing();
     ImGui::TextColored(col(th.text_muted),
-                       "Online play on this server needs an account. LAN and "
-                       "Direct IP do not — go back and pick those to play "
-                       "without signing in.");
+                       "Online play requires an account when this server offers "
+                       "sign-in. If sign-in is unavailable, you will continue "
+                       "as a guest. LAN and Direct IP need no account.");
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, px(16)));
 
