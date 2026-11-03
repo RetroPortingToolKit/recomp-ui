@@ -11625,11 +11625,20 @@ static void draw_linkified_mod_author(
  * keeps its typing state. Commit happens when the field deactivates after
  * an edit; the caller pushes the committed text through set_option, whose
  * rejection reverts the row to the model value on the next frame. */
+static void mod_option_control(const char* label) {
+    const float start = ImGui::GetCursorPosX();
+    const float available = ImGui::GetContentRegionAvail().x;
+    const bool inline_control = available >= px(490) &&
+                                ImGui::CalcTextSize(label).x <= px(240);
+    ImGui::TextWrapped("%s", label);
+    if (inline_control) ImGui::SameLine(start + px(260));
+    ImGui::SetNextItemWidth(std::max(1.0f,
+        std::min(px(230), ImGui::GetContentRegionAvail().x)));
+}
+
 static bool draw_mod_text_option(const RecompLauncherCModOption& option,
                                  char* next, size_t next_size) {
-    ImGui::TextUnformatted(option.label);
-    ImGui::SameLine(px(260));
-    ImGui::SetNextItemWidth(px(230));
+    mod_option_control(option.label);
     static char edit[RECOMP_LAUNCHER_MOD_VALUE_MAX];
     static ImGuiID owner = 0;
     const ImGuiID id = ImGui::GetID("##text");
@@ -11659,9 +11668,7 @@ static void mod_option_tooltip(const RecompLauncherCModOption& option) {
 
 static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
                                     char* next, size_t next_size) {
-    ImGui::TextUnformatted(option.label);
-    ImGui::SameLine(px(260));
-    ImGui::SetNextItemWidth(px(230));
+    mod_option_control(option.label);
 
     errno = 0;
     char* end = nullptr;
@@ -11895,9 +11902,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                         changed = true;
                     }
                 } else if (option.type == RECOMP_MOD_OPTION_CHOICE) {
-                    ImGui::TextUnformatted(option.label);
-                    ImGui::SameLine(px(260));
-                    ImGui::SetNextItemWidth(px(230));
+                    mod_option_control(option.label);
                     char preview[128];
                     std::snprintf(preview, sizeof(preview), "%s", option.value);
                     for (int c = 0; c < option.choice_count; ++c) {
@@ -12000,9 +12005,7 @@ static void draw_mod_feature_option(LauncherModel* m,
             changed = true;
         }
     } else if (option.type == RECOMP_MOD_OPTION_CHOICE) {
-        ImGui::TextUnformatted(option.label);
-        ImGui::SameLine(px(260));
-        ImGui::SetNextItemWidth(px(230));
+        mod_option_control(option.label);
         char preview[128];
         std::snprintf(preview, sizeof(preview), "%s", option.value);
         for (int choice_index = 0; choice_index < option.choice_count;
