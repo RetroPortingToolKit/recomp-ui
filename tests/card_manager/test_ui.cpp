@@ -2,6 +2,7 @@
 #define CARD_MANAGER_TEST
 #include "card_manager_support.hpp"
 #include "imgui.h"
+#include <cmath>
 #include <iostream>
 #include <fstream>
 struct LauncherModel {struct {char memcard_path[2][4096]{};}s;const RecompCardManager* card_manager=nullptr;bool in_session=false;};
