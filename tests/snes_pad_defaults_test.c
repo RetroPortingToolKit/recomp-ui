@@ -26,11 +26,6 @@
 /* Generated stubs. launcher_binds.c reaches every console's bridge; this
  * test drives only the SNES paths, so the rest resolve to empty bodies. */
 
-SDL_Scancode recompui_keybinds_get_button(int player, int button) { (void)player; (void)button; return 0; }
-void recompui_keybinds_init(const char *exe_path) { (void)exe_path; }
-void recompui_keybinds_reset_player(int player) { (void)player; }
-void recompui_keybinds_save(void) { }
-void recompui_keybinds_set_button(int player, int button, SDL_Scancode sc) { (void)player; (void)button; (void)sc; }
 int rui_gb_binds_get(const char* path, int b) { (void)path; (void)b; return 0; }
 int rui_gb_binds_get_slot(const char* path, int b, int slot) { (void)path; (void)b; (void)slot; return 0; }
 void rui_gb_binds_init(const char* path) { (void)path; }
@@ -177,6 +172,56 @@ int main(int argc, char** argv) {
     expect(m.s.deadzone[0] == 0, "set_deadzone clamps below 0");
     launcher_model_set_deadzone(&m, 0, 7);
     expect(m.s.deadzone[0] == 7, "and takes any whole percent between");
+
+    /* A title opts into four seats; legacy/two-player titles stay at two. */
+    static RecompLauncherCGameInfo game;
+    static RecompLauncherCSettings io;
+    launcher_profile_apply_snes(&game);
+    for(int count=0;count<=5;++count) {
+        game.num_players=count;
+        launcher_model_init(&m,&io,&game,NULL);
+        expect(launcher_model_visible_player_count(&m)==(count==0?2:count>4?4:count),
+               "SNES controller cards follow the game capability, bounded at four");
+    }
+    make_model(&m);m.player_count=4;
+    LauncherPad four[4]={0};
+    for(int p=0;p<4;++p) {
+        snprintf(four[p].guid,sizeof(four[p].guid),"four-seat-pad-%d",p);
+        snprintf(four[p].name,sizeof(four[p].name),"Pad %d",p+1);four[p].id=p+20;
+        m.s.player_src[p]=2;
+    }
+    launcher_binds_hydrate_snes_pad_names(&m,four,4);
+    for(int p=0;p<4;++p)expect(!strcmp(m.s.player_gamepad_guid[p],four[p].guid),
+                              "each of four seats hydrates its own available gamepad");
+    char exe[1024];snprintf(exe,sizeof(exe),"%s/bind-test.exe",argc>1?argv[1]:".");
+    recompui_keybinds_init(exe);
+    const SDL_Scancode scans[4]={SDL_SCANCODE_F,SDL_SCANCODE_G,SDL_SCANCODE_H,SDL_SCANCODE_J};
+    for(int p=0;p<4;++p) {
+        launcher_binds_set_button(&m,p+1,0,scans[p]); /* D-pad Up */
+        launcher_binds_set_pad_button(&m,p+1,4,LNG_PADBIND_BUTTON,p,0);
+    }
+    recompui_keybinds_init(exe);launcher_binds_refresh(&m);
+    for(int p=0;p<4;++p) {
+        uint8_t held[512]={0};held[scans[p]]=1;
+        expect(recompui_keybinds_read_player(held,p+1)==0x80,"four independent saved keyboard layouts read back");
+        for(int other=0;other<4;++other)if(other!=p)
+            expect(!(recompui_keybinds_read_player(held,other+1)&0x80),"a seat's rebind never aliases another keyboard");
+        char controls[12][48];snes_gamepad_read_controls(p,controls);
+        expect(!strcmp(controls[4],(const char*[]){"A","B","X","Y"}[p]),
+               "Controls, ControlsP2, ControlsP3 and ControlsP4 stay independent");
+    }
+    launcher_binds_save_snes_gamepad(&m,3);
+    launcher_binds_rename_snes_gamepad(&m,3,"Third pad");
+    expect(launcher_binds_snes_profile_exists(&m,3),"P3 profile can be saved");
+    launcher_binds_reset_player(&m,3);
+    launcher_binds_apply_snes_pad_profile(&m,3);
+    expect(!strcmp(m.player_pad_name[2],"Third pad"),"P3 saved name and mapping restore");
+    char restored[12][48];snes_gamepad_read_controls(2,restored);
+    expect(!strcmp(restored[4],"X"),"P3 profile restore targets ControlsP3");
+    snes_gamepad_read_controls(3,restored);
+    expect(!strcmp(restored[4],"Y"),"P3 reset leaves P4 unchanged");
+    expect(!recompui_keybinds_read_player((uint8_t[512]){0},5),"invalid seat is rejected");
+    char keys_path[1024];snprintf(keys_path,sizeof(keys_path),"%s/keybinds.ini",argc>1?argv[1]:".");remove(keys_path);
 
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }

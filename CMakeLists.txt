@@ -495,6 +495,7 @@ if(BUILD_TESTING)
     # Includes launcher_binds.c and links the model for the real set_source.
     add_executable(recomp-ui-snes-pad-defaults-test
         tests/snes_pad_defaults_test.c
+        src/common/keybinds.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c

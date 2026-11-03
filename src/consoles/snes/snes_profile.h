@@ -47,6 +47,8 @@ static const char* const kSnesRomPatterns[] = { "*.sfc", "*.smc", "*.fig", "*.sw
 #define LNG_SNES_ROM_PATTERN_COUNT \
     ((int)(sizeof(kSnesRomPatterns) / sizeof(kSnesRomPatterns[0])))
 
+#define LNG_SNES_MAX_PLAYERS 4
+
 // ---- SystemProfile row ----------------------------------------------------------
 static const SystemProfile kSystemProfileSnes = {
     /* id       */ "snes",
@@ -56,7 +58,7 @@ static const SystemProfile kSystemProfileSnes = {
     /* controller */ {
         kSnesPadButtons, LNG_SNES_PAD_BUTTON_COUNT,
         "pad.tga", NULL, NULL,
-        /* max_players */ 2, /* has_pad_mode */ 0,
+        /* max_players */ LNG_SNES_MAX_PLAYERS, /* has_pad_mode */ 0,
         /* binds_per_input */ 1, /* modes */ NULL, /* mode_count */ 0,
         /* has_pad_binds */ 1,
         /* pad_bind_order */ kSnesGamepadBindOrder,

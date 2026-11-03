@@ -32,8 +32,8 @@
 
 /* One literal for the default layout, shared by the boot state and the
  * launcher's Reset-to-Defaults (recompui_keybinds_reset_player). */
-#define KEYBINDS_DEFAULTS { \
-    .p1 = { \
+/* Sources gate keyboard ownership; each seat can then rebind independently. */
+#define PLAYER_DEFAULTS { \
         .a      = SDL_SCANCODE_X, \
         .b      = SDL_SCANCODE_Z, \
         .x      = SDL_SCANCODE_S, \
@@ -50,37 +50,9 @@
         .r2     = SDL_SCANCODE_E, \
         .l3     = SDL_SCANCODE_UNKNOWN, \
         .r3     = SDL_SCANCODE_UNKNOWN, \
-    }, \
-    /* Player 2 gets the SAME defaults as player 1.
-     *
-     * It was unbound because the host applied every slot's keyboard bits each
-     * frame, so a key bound in slot 2 drove player 2 even when player 2 was a
-     * gamepad -- an empty map standing in for a gate that did not exist. The
-     * host now reads the keyboard only for slots whose source IS the keyboard,
-     * so identical defaults are safe, and choosing Keyboard for slot 2 gives a
-     * playable controller instead of twelve buttons to bind by hand.
-     *
-     * Two slots both on Keyboard do share these keys; rebinding one is the
-     * answer, and it beats shipping slot 2 unusable. */ \
-    .p2 = { \
-        .a      = SDL_SCANCODE_X, \
-        .b      = SDL_SCANCODE_Z, \
-        .x      = SDL_SCANCODE_S, \
-        .y      = SDL_SCANCODE_A, \
-        .l      = RECOMP_DEFAULT_KEY_L, \
-        .r      = RECOMP_DEFAULT_KEY_R, \
-        .start  = SDL_SCANCODE_RETURN, \
-        .select = SDL_SCANCODE_RSHIFT, \
-        .up     = SDL_SCANCODE_UP, \
-        .down   = SDL_SCANCODE_DOWN, \
-        .left   = SDL_SCANCODE_LEFT, \
-        .right  = SDL_SCANCODE_RIGHT, \
-        .l2     = SDL_SCANCODE_Q, \
-        .r2     = SDL_SCANCODE_E, \
-        .l3     = SDL_SCANCODE_UNKNOWN, \
-        .r3     = SDL_SCANCODE_UNKNOWN, \
-    }, \
-}
+    }
+#define KEYBINDS_DEFAULTS { .p1=PLAYER_DEFAULTS, .p2=PLAYER_DEFAULTS, \
+    .p3=PLAYER_DEFAULTS, .p4=PLAYER_DEFAULTS }
 
 static KeyBinds s_binds = KEYBINDS_DEFAULTS;
 static const KeyBinds s_default_binds = KEYBINDS_DEFAULTS;
@@ -194,12 +166,14 @@ static void write_defaults(const char *path) {
         "# l2/r2/l3/r3 are only used by systems with a deeper button set than\n"
         "# SNES (e.g. PSX L2/R2 shoulders, L3/R3 stick clicks); harmless if unused.\n"
         "#\n"
-        "# Both players default to the same keys. Only a player whose Input\n"
+        "# All players default to the same keys. Only a player whose Input\n"
         "# source is Keyboard reads them, so this is not a conflict unless you\n"
-        "# put BOTH players on the keyboard -- rebind one if you do.\n"
+        "# put multiple players on the keyboard -- rebind one if you do.\n"
         "\n");
     write_player_section(f, "player1", &s_binds.p1);
     write_player_section(f, "player2", &s_binds.p2);
+    write_player_section(f, "player3", &s_binds.p3);
+    write_player_section(f, "player4", &s_binds.p4);
     fclose(f);
     printf("[Keybinds] Wrote %s\n", path);
 }
@@ -221,6 +195,8 @@ static void load_ini(const char *path) {
             current = NULL;
             if (!strcmp(section, "player1"))      current = &s_binds.p1;
             else if (!strcmp(section, "player2")) current = &s_binds.p2;
+            else if (!strcmp(section, "player3")) current = &s_binds.p3;
+            else if (!strcmp(section, "player4")) current = &s_binds.p4;
             continue;
         }
 
@@ -248,6 +224,7 @@ static void load_ini(const char *path) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void recompui_keybinds_init(const char *exe_path) {
+    s_binds=s_default_binds;
     derive_ini_path(exe_path);
     FILE *test = fopen(s_ini_path, "r");
     if (test) {
@@ -274,21 +251,25 @@ const char *recompui_keybinds_button_name(int button) {
 }
 
 static PlayerBinds *player_binds(int player) {
-    return (player == 2) ? &s_binds.p2 : &s_binds.p1;
+    switch(player) {
+    case 1:return &s_binds.p1;case 2:return &s_binds.p2;
+    case 3:return &s_binds.p3;case 4:return &s_binds.p4;
+    default:return NULL;
+    }
 }
 
 SDL_Scancode recompui_keybinds_get_button(int player, int button) {
-    if (button < 0 || button >= recompui_keybinds_button_count()) return SDL_SCANCODE_UNKNOWN;
+    if (!player_binds(player) || button < 0 || button >= recompui_keybinds_button_count()) return SDL_SCANCODE_UNKNOWN;
     return *(SDL_Scancode *)((char *)player_binds(player) + s_buttons[button].offset);
 }
 
 void recompui_keybinds_set_button(int player, int button, SDL_Scancode sc) {
-    if (button < 0 || button >= recompui_keybinds_button_count()) return;
+    if (!player_binds(player) || button < 0 || button >= recompui_keybinds_button_count()) return;
     *(SDL_Scancode *)((char *)player_binds(player) + s_buttons[button].offset) = sc;
 }
 
 void recompui_keybinds_reset_player(int player) {
-    *player_binds(player) = (player == 2) ? s_default_binds.p2 : s_default_binds.p1;
+    if(player_binds(player))*player_binds(player)=s_default_binds.p1;
 }
 
 void recompui_keybinds_save(void) {
@@ -300,8 +281,8 @@ void recompui_keybinds_save(void) {
 /* SNES joypad bitmask layout — matches $4218/$4219 (low/high byte) packing.
  * Returns 0 if either `keys` is NULL or player is out of range. */
 uint16_t recompui_keybinds_read_player(const uint8_t *keys, int player) {
-    if (!keys) return 0;
-    const PlayerBinds *pb = (player == 2) ? &s_binds.p2 : &s_binds.p1;
+    const PlayerBinds *pb=player_binds(player);
+    if(!keys || !pb)return 0;
     uint16_t b = 0;
     if (pb->r      != SDL_SCANCODE_UNKNOWN && keys[pb->r])      b |= 0x0001;
     if (pb->l      != SDL_SCANCODE_UNKNOWN && keys[pb->l])      b |= 0x0002;
