@@ -6901,10 +6901,20 @@ static void pick_mod_feature_resource(
     const std::string feat_id = feature_id;
     const std::string res_id = resource.id;
     const std::string res_label = resource.label;
+    const bool import_resource = resource.import_on_select &&
+                                 mods->feature_resource_import;
     auto apply_resource = [m, mods, pkg_id, feat_id, res_id, res_label,
-                           on_done](const char* path) {
+                           import_resource, on_done](const char* path) {
         bool stored = false;
         if (path) {
+            if (import_resource) {
+                launcher_model_import_mod_resource(m, pkg_id.c_str(),
+                    feat_id.c_str(), res_id.c_str(), path);
+                // Completion is reported by the worker poll. Do not prompt the
+                // next resource or query the provider while it owns the job.
+                if (on_done) on_done(path, false);
+                return;
+            }
             if (!mods->feature_resource_set_path(mods->ctx, pkg_id.c_str(),
                                                  feat_id.c_str(),
                                                  res_id.c_str(), path)) {
@@ -11702,6 +11712,7 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
 }
 
 static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->package_count || !mods->package_get) return;
     const bool feature_provider =
@@ -12205,6 +12216,7 @@ static void draw_mod_catalog_diagnostics(LauncherModel* m,
 }
 
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
         !mods->feature_option_get || !mods->feature_enable ||
@@ -13364,9 +13376,11 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
 }
 
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
-    if (!m->setup_wizard_supported) return;
+    /* Cartridge titles can import mods without a first-run disc wizard. */
+    if (!m->setup_wizard_supported && !m->setup_preparing) return;
     if (!m->setup_wizard_open && !m->setup_preparing) return;
     launcher_model_poll_prepare_disc(m);
+    if (!m->setup_wizard_open && !m->setup_preparing) return;
 
     /* While a prepare/rebuild/toolchain job runs, show only the progress window.
      * Skipping BeginPopupModal on "First-run setup" lets ImGui dismiss it. */
@@ -15026,7 +15040,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     bool first_present_marked = false;
 
     while ((m->action == LNG_ACTION_NONE && !p->should_quit) ||
-           launch_commit.job.pending()) {
+           launch_commit.job.pending() || m->setup_preparing) {
         /* finish() joins before model/provider access, returning the borrowed
          * ctx to the UI. A queued close wins even when commit succeeded. */
         const auto completion = launch_commit.finish(launch_commit.close_requested || p->should_quit);
@@ -15048,6 +15062,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * RESUME in session -- the same as a player's close box. */
         if (smoke_frames > 0 && ++frame > smoke_frames) {
             if (launch_commit.job.pending()) launch_commit.close_requested = true;
+            else if (m->setup_preparing) p->should_quit = true;
             else { p->should_quit = true; break; }
         }
 
@@ -15199,6 +15214,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (launch_commit.job.pending() && (launch_commit.close_requested || p->should_quit))
             launch_commit.job.request_cancel();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
+        else if (m->setup_preparing) draw_setup_wizard_modal(m, *th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
         ImGui::Render();
 
@@ -15237,9 +15253,14 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         if (launch_commit.job.pending()) {
             if (launcher_debug_step_pending(p)) launch_commit.close_requested = true;
+        } else if (m->setup_preparing) {
+            if (launcher_debug_step_pending(p)) p->should_quit = true;
         } else {
             launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
         }
+        // Native pickers can return during draw_ui; start only after its
+        // remaining reads and debug commands have released the provider.
+        launcher_model_start_pending_mod_import(m);
         launcher_platform_present(p);
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");
@@ -15279,9 +15300,13 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         (void)mod_commit_launch(m);
         m->action = LNG_ACTION_LAUNCH;
     }
-    if (p->should_quit && m->action == LNG_ACTION_NONE) m->action = LNG_ACTION_QUIT;
+    /* Background setup/import callbacks retain the model until they finish.
+     * Keep a close request pending rather than freeing their live context. */
+    if (p->should_quit && !m->setup_preparing && m->action == LNG_ACTION_NONE)
+        m->action = LNG_ACTION_QUIT;
     // Persist selected gamepads (defaults if never remapped) so PLAY remembers
     // the pad in input.ini / settings even without an explicit Save click.
+    if (m->setup_preparing) m->action = LNG_ACTION_NONE;
     if (m->action == LNG_ACTION_LAUNCH || m->action == LNG_ACTION_RELAUNCH)
         launcher_binds_prepare_psx_launch(m, g_pads, g_pad_count);
     return m->action;

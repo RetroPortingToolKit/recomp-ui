@@ -5,6 +5,11 @@
 #include <string.h>
 
 static int mutations, failures;
+void launcher_model_import_mod_resource(LauncherModel* m, const char* pkg,
+    const char* feature, const char* resource, const char* path) {
+    (void)m; (void)pkg; (void)feature; (void)resource; (void)path; ++mutations;
+}
+
 void launcher_model_set_view(LauncherModel* m, LngView view) { ++mutations; m->view = view; }
 void launcher_model_begin_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; }
 void launcher_model_begin_pad_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; m->capture_pad = true; }
