@@ -14,10 +14,12 @@
 #include "recomp_launcher.h"
 #include "recomp_ui_psx_menu.h"
 #include "psx_menu_provider_internal.h"
+#include "consoles/psx/psx_controls_page.h"
 #include "common/recomp_runtime_ui_internal.h"
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace rui_psx {
 namespace {
@@ -188,18 +190,23 @@ int p_attach(void *, void *, void *, const PsxMenuHost *host) {
 int p_event(void *, const void *ev) { return sdl_event(ev); }
 int p_is_open(void *) {
     std::lock_guard<std::mutex> lk(lock());
-    return g_ui && recomp_runtime_ui_is_open(g_ui);
+    return g_ui && (recomp_runtime_ui_is_open(g_ui) || controls::is_open());
 }
 void p_set_open(void *, int open) {
     std::lock_guard<std::mutex> lk(lock());
     if (!g_ui) return;
-    if (open) recomp_runtime_ui_open(g_ui);
-    else recomp_runtime_ui_close(g_ui);
+    if (open) {
+        if (!controls::is_open()) recomp_runtime_ui_open(g_ui);
+        return;
+    }
+    recomp_runtime_ui_close(g_ui);
+    controls::close();
 }
 void p_draw(void *, int w, int h) { draw(w, h); }
 void p_detach(void *) {
     release_gl();
     std::lock_guard<std::mutex> lk(lock());
+    controls::close();
     if (g_ui) {
         recomp_runtime_ui_close(g_ui);   // drops a held pause
         recomp_runtime_ui_destroy(g_ui);
@@ -220,6 +227,10 @@ std::mutex &lock() {
     return m;
 }
 RecompRuntimeUi *model() { return g_ui; }
+const char *assets_dir() { return g_host && g_host->assets_dir ? g_host->assets_dir : ""; }
+void controls_bindings_changed() {
+    if (g_host && g_host->reload_bindings) g_host->reload_bindings();
+}
 void input(int in) {
     if (!g_ui) return;
     if (in == RECOMP_RUNTIME_UI_INPUT_TOGGLE) {
@@ -236,6 +247,39 @@ extern "C" const PsxMenuProvider *recomp_ui_psx_menu_provider(void) { return &ru
 extern "C" void recomp_ui_psx_menu_input(int in) {
     std::lock_guard<std::mutex> lk(rui_psx::lock());
     rui_psx::input(in);
+}
+
+extern "C" void recomp_ui_psx_controls_set_actions(const RecompUiPsxControlAction *actions, int count) {
+    std::lock_guard<std::mutex> lk(rui_psx::lock());
+    rui_psx::controls::set_actions(actions, count);
+}
+
+extern "C" int recomp_ui_psx_controls_open(void) {
+    using namespace rui_psx;
+    std::lock_guard<std::mutex> lk(lock());
+    if (!g_host || !g_ui || controls::is_open()) return 0;
+    // The host's assets folder sits next to keybinds.ini and input.ini.
+    std::string dir = assets_dir();
+    const size_t cut = dir.find_last_of("/\\");
+    dir = cut == std::string::npos ? std::string() : dir.substr(0, cut + 1);
+    if (!controls::open(dir)) return 0;
+    recomp_runtime_ui_close(g_ui);
+    return 1;
+}
+
+extern "C" void recomp_ui_psx_controls_set_skin(const RecompUiPsxControlsSkin *skin) {
+    std::lock_guard<std::mutex> lk(rui_psx::lock());
+    rui_psx::controls::set_skin(skin);
+}
+
+extern "C" int recomp_ui_psx_controls_take_cue(void) {
+    std::lock_guard<std::mutex> lk(rui_psx::lock());
+    return rui_psx::controls::take_cue();
+}
+
+extern "C" int recomp_ui_psx_controls_is_open(void) {
+    std::lock_guard<std::mutex> lk(rui_psx::lock());
+    return rui_psx::controls::is_open() ? 1 : 0;
 }
 
 #endif  // RUI_PSX_HAS_MENU_HOST

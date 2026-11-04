@@ -256,6 +256,23 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME recomp-ui-psx-menu-provider
                  COMMAND $<TARGET_FILE:recomp-ui-psx-menu-provider-test>)
+
+        # The provider's Controls page model against scratch keybinds.ini /
+        # input.ini (host_keymap.h from the runtime; the test fakes its match).
+        add_executable(recomp-ui-psx-controls-page-test
+            tests/psx_controls_page_test.cpp
+            src/consoles/psx/psx_controls_page.cpp
+            src/consoles/psx/psx_binds.c
+            src/consoles/psx/psx_pad_binds.c
+            src/common/pad_binds.c)
+        target_include_directories(recomp-ui-psx-controls-page-test PRIVATE
+            src src/common "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
+        set_target_properties(recomp-ui-psx-controls-page-test PROPERTIES CXX_STANDARD 17)
+        target_link_libraries(recomp-ui-psx-controls-page-test PRIVATE ${RUI_SDL_TARGET})
+        target_compile_definitions(recomp-ui-psx-controls-page-test PRIVATE ${RUI_SDL_DEFS})
+        add_test(NAME recomp-ui-psx-controls-page
+                 COMMAND $<TARGET_FILE:recomp-ui-psx-controls-page-test>
+                         "${CMAKE_CURRENT_BINARY_DIR}/psx_controls_page_scratch")
     else()
         message(STATUS "recomp-ui: psx menu provider test skipped "
                        "(no psxrecomp at RECOMP_UI_PSXRECOMP_ROOT)")

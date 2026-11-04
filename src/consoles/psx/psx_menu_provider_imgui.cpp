@@ -9,6 +9,7 @@
 
 #if defined(RUI_PSX_HAS_MENU_HOST)
 #include "psx_menu_provider_internal.h"
+#include "consoles/psx/psx_controls_page.h"
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -21,6 +22,7 @@
 
 #include <cfloat>
 #include <cstdint>
+#include <string>
 
 namespace rui_psx {
 namespace {
@@ -29,6 +31,7 @@ ImGuiContext *g_ctx = nullptr;   // GL thread
 bool g_gl_ready = false;
 uint64_t g_last_ns = 0;
 unsigned g_pad_held = 0;         // main thread
+controls::Fonts g_page_fonts{};  // Controls page fonts (GL thread)
 
 #if defined(LNG_SDL3)
 constexpr unsigned kBack = 1u << SDL_GAMEPAD_BUTTON_BACK;
@@ -47,6 +50,26 @@ int key_input(int key) {
     }
 }
 
+// The runtime menu keeps ImGui's default font (added first); the Controls page
+// uses Lato from the title's assets, falling back to the default when absent.
+void load_fonts() {
+    ImGuiIO &io = ImGui::GetIO();
+    io.Fonts->AddFontDefault();
+    const std::string dir = std::string(assets_dir()) + "/fonts/";
+    const std::string bold = dir + "LatoLatin-Bold.ttf";
+    controls::Fonts &f = g_page_fonts;
+    f.smooth = io.Fonts->AddFontFromFileTTF(bold.c_str(), 48.0f);
+    // Pixel fonts: one atlas texel per PS pixel, read back by the page.
+    ImFontConfig px;
+    px.OversampleH = px.OversampleV = 1;
+    px.PixelSnapH = true;
+    f.pixel = io.Fonts->AddFontFromFileTTF(bold.c_str(), 13.0f, &px);
+    f.pixel_title = io.Fonts->AddFontFromFileTTF(bold.c_str(), 14.0f, &px);
+    if (!f.smooth) f.smooth = io.Fonts->Fonts[0];
+    if (!f.pixel) f.pixel = f.smooth;
+    if (!f.pixel_title) f.pixel_title = f.pixel;
+}
+
 }  // namespace
 
 int sdl_event(const void *p) {
@@ -55,6 +78,12 @@ int sdl_event(const void *p) {
     std::lock_guard<std::mutex> lk(lock());
     RecompRuntimeUi *ui = model();
     if (!ui) return 0;
+    if (controls::is_open()) {
+        bool changed = false;
+        const int consumed = controls::event(p, &changed);
+        if (changed) controls_bindings_changed();
+        return consumed;
+    }
     const bool open = recomp_runtime_ui_is_open(ui) != 0;
 #if defined(LNG_SDL3)
     if (e.type == SDL_EVENT_KEY_DOWN) {
@@ -111,12 +140,14 @@ int sdl_event(const void *p) {
 void draw(int w, int h) {
     std::lock_guard<std::mutex> lk(lock());
     RecompRuntimeUi *ui = model();
-    if (!ui || !recomp_runtime_ui_is_open(ui) || w <= 0 || h <= 0) return;
+    const bool page = controls::is_open();
+    if (!ui || !(page || recomp_runtime_ui_is_open(ui)) || w <= 0 || h <= 0) return;
     ImGuiContext *prev = ImGui::GetCurrentContext();
     if (!g_ctx) {
         g_ctx = ImGui::CreateContext();
         ImGui::SetCurrentContext(g_ctx);
         ImGui::GetIO().IniFilename = nullptr;
+        load_fonts();
     }
     ImGui::SetCurrentContext(g_ctx);
     if (!g_gl_ready) g_gl_ready = ImGui_ImplOpenGL3_Init(nullptr);
@@ -134,7 +165,8 @@ void draw(int w, int h) {
     g_last_ns = now;
     ImGui_ImplOpenGL3_NewFrame();
     ImGui::NewFrame();
-    recomp_runtime_ui_render_imgui(ui);
+    if (page) controls::draw(g_page_fonts, (float)w, (float)h);
+    else recomp_runtime_ui_render_imgui(ui);
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     ImGui::SetCurrentContext(prev);
@@ -149,6 +181,8 @@ void release_gl() {
     ImGui::DestroyContext(g_ctx);
     ImGui::SetCurrentContext(prev == g_ctx ? nullptr : prev);
     g_ctx = nullptr;
+    g_page_fonts = controls::Fonts{};
+    controls::release_gl();
     g_gl_ready = false;
     g_last_ns = 0;
 }

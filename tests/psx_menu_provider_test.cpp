@@ -9,6 +9,7 @@
 #include "recomp_runtime_ui.h"
 #include "recomp_ui_psx_menu.h"
 #include "../src/consoles/psx/psx_menu_provider_internal.h"
+#include "../src/consoles/psx/psx_controls_page.h"
 #include "common/recomp_runtime_ui_internal.h"
 
 #include <cstdio>
@@ -19,6 +20,15 @@ namespace rui_psx {
 int sdl_event(const void *) { return 0; }
 void draw(int, int) {}
 void release_gl() {}
+// The Controls page has its own test (psx_controls_page_test.cpp).
+namespace controls {
+void set_actions(const RecompUiPsxControlAction *, int) {}
+bool open(const std::string &) { return false; }
+void close() {}
+bool is_open() { return false; }
+int take_cue() { return RECOMP_UI_PSX_CUE_NONE; }
+void set_skin(const RecompUiPsxControlsSkin *) {}
+}  // namespace controls
 }
 
 static int g_fail = 0;

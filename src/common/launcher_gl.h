@@ -30,6 +30,11 @@ LauncherTexture launcher_texture_load(const char* path);
 // art asset-agnostic instead of hand-editing each game's images.
 LauncherTexture launcher_texture_load_colorkey(const char* path, int tolerance);
 
+// Upload a tightly-packed RGBA8 buffer as a nearest-filtered, clamped texture
+// (pixel art drawn at whole multiples). id==0 on failure. Requires a current
+// GL context.
+LauncherTexture launcher_texture_from_rgba_nearest(const unsigned char* rgba, int w, int h);
+
 void launcher_texture_free(LauncherTexture* t);
 
 // Decode an image file to a tightly-packed RGBA8 buffer, WITHOUT touching GL.

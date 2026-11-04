@@ -78,6 +78,26 @@ static LauncherTexture load_impl(const char* path, int colorkey_tol) {
     return t;
 }
 
+LauncherTexture launcher_texture_from_rgba_nearest(const unsigned char* rgba, int w, int h) {
+    LauncherTexture t = { 0, 0, 0 };
+    GLint limit = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &limit);
+    if (!rgba || w <= 0 || h <= 0 || w > limit || h > limit) return t;
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    t.id = (unsigned int)tex;
+    t.w = w; t.h = h;
+    return t;
+}
+
 LauncherTexture launcher_texture_load(const char* path) {
     return load_impl(path, -1);
 }

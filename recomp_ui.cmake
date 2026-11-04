@@ -231,6 +231,8 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/consoles/psx/psx_pad_binds.c    # PSX button table over common/pad_binds.c
         ${RUI_SRC}/consoles/psx/psx_menu_provider.cpp       # psxrecomp in-game menu provider (psx_menu_host.h)
         ${RUI_SRC}/consoles/psx/psx_menu_provider_imgui.cpp # its SDL input + ImGui presentation
+        ${RUI_SRC}/consoles/psx/psx_controls_page.cpp       # its Controls page: model + input
+        ${RUI_SRC}/consoles/psx/psx_controls_page_imgui.cpp # its Controls page: drawing
         ${RUI_SRC}/consoles/snes/snes_pad_binds.c  # SNES button table over common/pad_binds.c
         ${RUI_SRC}/consoles/n64/n64_binds.c        # N64-native input.cfg bridge (keyboard table + mirror)
         ${RUI_SRC}/consoles/n64/n64_pad_binds.c    # N64 button table over common/pad_binds.c
