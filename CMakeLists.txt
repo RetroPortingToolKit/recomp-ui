@@ -70,6 +70,9 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(recomp-ui-launcher-audio-buffer-test tests/launcher_audio_buffer_test.c)
+    target_include_directories(recomp-ui-launcher-audio-buffer-test PRIVATE src/common)
+    add_test(NAME recomp-ui-launcher-audio-buffer COMMAND recomp-ui-launcher-audio-buffer-test)
     find_package(Threads REQUIRED)
     add_executable(recomp-ui-launcher-mod-commit-job-test
         tests/launcher_mod_commit_job_test.cpp)

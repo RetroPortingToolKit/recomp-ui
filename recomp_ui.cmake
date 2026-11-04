@@ -323,7 +323,7 @@ function(recomp_target_launcher_ui TGT)
     # build without either simply keeps the outline emoji glyphs — no option to
     # remember, no missing-dependency failure.
     if(WIN32)
-        target_link_libraries(${TGT} PRIVATE d2d1 dwrite windowscodecs ole32)
+        target_link_libraries(${TGT} PRIVATE d2d1 dwrite windowscodecs ole32 comdlg32)
     elseif(NOT ANDROID)
         find_package(Freetype QUIET)
         if(TARGET Freetype::Freetype)
