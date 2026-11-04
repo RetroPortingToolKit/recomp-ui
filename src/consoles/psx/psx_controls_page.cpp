@@ -341,6 +341,11 @@ bool open(const std::string &exe_dir) {
 }
 
 void close() { g_page = kClosed; }
+std::string key_label(const std::string &exe_dir, const char *button) {
+    const int b = button_index(button);
+    if (b < 0) return "";
+    return upper(key_name(rui_psx_binds_get((exe_dir + "keybinds.ini").c_str(), 0, b)));
+}
 int take_cue() {
     if (g_cues.empty()) return RECOMP_UI_PSX_CUE_NONE;
     const int c = g_cues.front();

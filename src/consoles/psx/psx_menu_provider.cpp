@@ -228,6 +228,12 @@ std::mutex &lock() {
 }
 RecompRuntimeUi *model() { return g_ui; }
 const char *assets_dir() { return g_host && g_host->assets_dir ? g_host->assets_dir : ""; }
+// The host's assets folder sits next to keybinds.ini and input.ini.
+std::string exe_dir() {
+    std::string dir = assets_dir();
+    const size_t cut = dir.find_last_of("/\\");
+    return cut == std::string::npos ? std::string() : dir.substr(0, cut + 1);
+}
 void controls_bindings_changed() {
     if (g_host && g_host->reload_bindings) g_host->reload_bindings();
 }
@@ -258,11 +264,7 @@ extern "C" int recomp_ui_psx_controls_open(void) {
     using namespace rui_psx;
     std::lock_guard<std::mutex> lk(lock());
     if (!g_host || !g_ui || controls::is_open()) return 0;
-    // The host's assets folder sits next to keybinds.ini and input.ini.
-    std::string dir = assets_dir();
-    const size_t cut = dir.find_last_of("/\\");
-    dir = cut == std::string::npos ? std::string() : dir.substr(0, cut + 1);
-    if (!controls::open(dir)) return 0;
+    if (!controls::open(exe_dir())) return 0;
     recomp_runtime_ui_close(g_ui);
     return 1;
 }
@@ -275,6 +277,14 @@ extern "C" void recomp_ui_psx_controls_set_skin(const RecompUiPsxControlsSkin *s
 extern "C" int recomp_ui_psx_controls_take_cue(void) {
     std::lock_guard<std::mutex> lk(rui_psx::lock());
     return rui_psx::controls::take_cue();
+}
+
+extern "C" int recomp_ui_psx_key_label(const char *button, char *out, int n) {
+    if (!out || n < 1) return 0;
+    std::lock_guard<std::mutex> lk(rui_psx::lock());
+    const std::string label = rui_psx::controls::key_label(rui_psx::exe_dir(), button);
+    std::snprintf(out, (size_t)n, "%s", label.c_str());
+    return label.empty() ? 0 : 1;
 }
 
 extern "C" int recomp_ui_psx_controls_is_open(void) {

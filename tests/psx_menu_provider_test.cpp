@@ -28,6 +28,7 @@ void close() {}
 bool is_open() { return false; }
 int take_cue() { return RECOMP_UI_PSX_CUE_NONE; }
 void set_skin(const RecompUiPsxControlsSkin *) {}
+std::string key_label(const std::string &, const char *) { return ""; }
 }  // namespace controls
 }
 

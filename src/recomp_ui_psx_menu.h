@@ -99,6 +99,12 @@ void recomp_ui_psx_controls_set_actions(const RecompUiPsxControlAction *actions,
 int  recomp_ui_psx_controls_open(void);
 int  recomp_ui_psx_controls_is_open(void);
 
+/* Player 1's keyboard key for a keybinds.ini button name ("cross", "start"),
+ * upper case ("W", "ENTER", "LEFT SHIFT"), so a title can name it in its own
+ * prompts. 0 (and "") when the menu is not attached or the name is unknown.
+ * Reads keybinds.ini: cache it. Any thread. */
+int  recomp_ui_psx_key_label(const char *button, char *out, int n);
+
 #ifdef __cplusplus
 }
 #endif

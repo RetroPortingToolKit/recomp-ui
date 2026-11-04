@@ -48,6 +48,8 @@ bool is_open();
 int event(const void *sdl_event, bool *bindings_changed);
 const View &view();
 int take_cue();  // RECOMP_UI_PSX_CUE_*, oldest first
+// Player 1's keyboard key for a keybinds.ini button name, upper case; "" if unknown.
+std::string key_label(const std::string &exe_dir, const char *button);
 // Presentation side (psx_controls_page_imgui.cpp).
 void set_skin(const RecompUiPsxControlsSkin *skin);  // copied
 void release_gl();  // GL context going away
