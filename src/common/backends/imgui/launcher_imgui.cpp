@@ -2318,7 +2318,8 @@ void draw_artwork_gallery(LauncherModel* m,float height,float width) {
         g_artwork.catalog=launcher_artwork::scan(artwork_home(m),serial);
         size_t pixels=0;
         for(const auto& path:g_artwork.catalog.images) {
-            auto t=launcher_texture_load(path.u8string().c_str());
+            // The C texture API takes UTF-8 bytes; C++20 u8string uses char8_t.
+            auto t=launcher_texture_load(reinterpret_cast<const char*>(path.u8string().c_str()));
             if(t.id) {
                 const size_t count=size_t(t.w)*t.h;
                 if(pixels+count>32*1024*1024)launcher_texture_free(&t);
@@ -9055,7 +9056,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const bool pressed =
                     ImGui::Button("##kick", ImVec2(kick_btn, kick_btn));
                 {
-                    const char* boot = u8"\U0001F97E";
+                    const char* boot = reinterpret_cast<const char*>(u8"\U0001F97E");
                     const ImVec2 rmin = ImGui::GetItemRectMin();
                     const ImVec2 rmax = ImGui::GetItemRectMax();
                     const ImVec2 ts = ImGui::CalcTextSize(boot);
@@ -9076,7 +9077,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const ImVec2 rmax = ImGui::GetItemRectMax();
                 dl->AddRect(rmin, rmax, ImGui::GetColorU32(ImGuiCol_Border),
                             ImGui::GetStyle().FrameRounding);
-                const char* boot = u8"\U0001F97E";
+                const char* boot = reinterpret_cast<const char*>(u8"\U0001F97E");
                 const ImVec2 ts = ImGui::CalcTextSize(boot);
                 dl->AddText(ImVec2((rmin.x + rmax.x - ts.x) * 0.5f,
                                    (rmin.y + rmax.y - ts.y) * 0.5f),
