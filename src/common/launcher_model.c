@@ -439,6 +439,12 @@ static void lm_user_dir_from_config(const char* cfg, char* out, size_t cap) {
     }
 }
 
+static int lm_setup_needs_toolchain_page(const LauncherModel* m) {
+    return m && m->prepare_required_before_continue &&
+           (!m->setup_tc_ready ||
+            (m->setup_tc_update_available && !m->setup_tc_update_skipped));
+}
+
 void launcher_model_init(LauncherModel* m,
                          const RecompLauncherCSettings* io,
                          const RecompLauncherCGameInfo* game,
@@ -1212,10 +1218,7 @@ void launcher_model_init(LauncherModel* m,
             }
         }
         if (m->setup_wizard_open) {
-            const int need_tc_page =
-                !m->setup_tc_ready ||
-                (m->setup_tc_update_available && !m->setup_tc_update_skipped);
-            m->setup_page = need_tc_page ? 0 : 1;
+            m->setup_page = lm_setup_needs_toolchain_page(m) ? 0 : 1;
         } else {
             m->setup_page = 1;
         }

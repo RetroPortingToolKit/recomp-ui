@@ -71,6 +71,28 @@ static LauncherModel* make_model(void) {
     return m;
 }
 
+static void test_built_launcher_skips_toolchain_page(void) {
+    LauncherModel* m = make_model();
+    if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return; }
+
+    m->setup_needs_toolchain = true;
+    m->setup_tc_ready = true;
+    m->setup_tc_update_available = true;
+    m->prepare_required_before_continue = false;
+
+    expect(!lm_setup_needs_toolchain_page(m),
+           "a completed build does not prompt for a toolchain update");
+
+    m->setup_tc_ready = false;
+    expect(!lm_setup_needs_toolchain_page(m),
+           "a completed build can confirm media without build tools installed");
+
+    m->prepare_required_before_continue = true;
+    expect(lm_setup_needs_toolchain_page(m),
+           "a setup host still prompts when generation needs build tools");
+    free(m);
+}
+
 static void test_nothing_to_confirm_persists_nothing(void) {
     LauncherModel* m = make_model();
     if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return; }
@@ -171,6 +193,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "FAIL: cannot chdir to %s\n", dir);
         return 1;
     }
+    test_built_launcher_skips_toolchain_page();
     test_nothing_to_confirm_persists_nothing();
     test_confirm_records_the_pick(dir);
     test_confirm_flushes_a_roster_through_discs_cb(dir);
