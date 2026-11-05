@@ -166,7 +166,7 @@ offers it through `PsxMenuHost`; the provider only shows values the host
 reports and sends edits back to it, so recomp-ui and any other provider behave
 the same.
 
-- Rows: Display > Fullscreen; Graphics > Render thread (restart-only: a quick
+- Rows: Display > Fullscreen; Graphics > Renderer, Render thread and Present thread (restart-only: a quick
   relaunch when the menu closes); System > Resume, Pause in menu, Return to
   launcher, Quit; Disc > Selected disc, Insert disc and resume (multi-disc
   titles, through the runtime's tray policy). Linear, FMV and texture
