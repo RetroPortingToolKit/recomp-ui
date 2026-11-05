@@ -70,6 +70,12 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    # Assertion-based checks must execute in Release builds too.
+    if(MSVC)
+        add_compile_options(/UNDEBUG)
+    else()
+        add_compile_options(-UNDEBUG)
+    endif()
     add_executable(recomp-ui-launcher-audio-buffer-test tests/launcher_audio_buffer_test.c)
     target_include_directories(recomp-ui-launcher-audio-buffer-test PRIVATE src/common)
     add_test(NAME recomp-ui-launcher-audio-buffer COMMAND recomp-ui-launcher-audio-buffer-test)
