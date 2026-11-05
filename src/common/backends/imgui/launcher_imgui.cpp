@@ -5172,10 +5172,26 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
             const bool cap = m->hk_capturing && m->capture_hk == (LngHotkey)h;
             const char* lbl = cap ? ui_text("[ press... ]")
                             : m->hotkeys[h][0] ? m->hotkeys[h] : ui_text("(unbound)");
+            int duplicate = -1;
+            if (!cap && m->hotkeys[h][0] && std::strcmp(m->hotkeys[h], "(unbound)")) {
+                for (int other = 0; other < LNG_HK_COUNT; ++other) {
+                    if (other != h && (mask & (1u << other)) &&
+                        !std::strcmp(m->hotkeys[h], m->hotkeys[other])) {
+                        duplicate = other;
+                        break;
+                    }
+                }
+            }
+            if (duplicate >= 0) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
             if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
             if (ImGui::Button(lbl, ImVec2(px(130), 0)))
                 launcher_model_begin_hk_capture(m, (LngHotkey)h);
             if (cap) ImGui::PopStyleColor();
+            if (duplicate >= 0) {
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Also assigned to %s", ui_text(launcher_hotkey_name((LngHotkey)duplicate)));
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();

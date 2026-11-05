@@ -53,7 +53,8 @@ static const char* kHotkeyNames[] = {
     "Window bigger", "Window smaller", "Volume up", "Volume down",
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
-    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle"
+    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
+    "Quick save", "Quick load"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
