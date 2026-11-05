@@ -4082,10 +4082,11 @@ static const struct { int v; const char* label; } kVsyncChoices[] = {
     { RECOMP_LAUNCHER_VSYNC_OFF,      "Off" },
     { RECOMP_LAUNCHER_VSYNC_ON,       "On" },
     { RECOMP_LAUNCHER_VSYNC_ADAPTIVE, "Adaptive" },
+    { RECOMP_LAUNCHER_VSYNC_VRR,      "VRR" },
 };
 /* The VSync dropdown's width: its widest choice. */
-static float vsync_combo_w(const LauncherTheme& th) {
-    const int n = (int)(sizeof kVsyncChoices / sizeof kVsyncChoices[0]);
+static float vsync_combo_w(const LauncherModel* m, const LauncherTheme& th) {
+    const int n = m->has_vsync_vrr ? 4 : 3;
     return settings_fit_w("VSync", th, settings_widest_text(n,
         [](int i) { return kVsyncChoices[i].label; }), true);
 }
@@ -4093,7 +4094,7 @@ static float vsync_combo_w(const LauncherTheme& th) {
 bool draw_vsync_overridden_row(LauncherModel* m, const LauncherTheme& th) {
     const char* by = launcher_model_vsync_forced_off_by(m);
     if (!by) return false;
-    const float w = vsync_combo_w(th);
+    const float w = vsync_combo_w(m, th);
     row_label_right("VSync", th, w);
     ImGui::BeginDisabled();
     ImGui::SetNextItemWidth(w);
@@ -4106,6 +4107,36 @@ bool draw_vsync_overridden_row(LauncherModel* m, const LauncherTheme& th) {
     return true;
 }
 
+void draw_render_pipeline_controls(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_render_pipeline_offered(m)) return;
+    row_label_right("Render thread", th, ImGui::GetFrameHeight());
+    bool rt = m->s.render_thread != 0;
+    if (ImGui::Checkbox("##render_thread", &rt))
+        m->s.render_thread = rt ? 1 : 0;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
+                          "Turn off if you see stutter or glitches. Applies at next launch.");
+    const bool kids = launcher_model_render_pipeline_children_enabled(m);
+    ImGui::BeginDisabled(!kids);
+    row_label_right("Present thread", th, ImGui::GetFrameHeight());
+    bool pt = m->s.present_thread != 0;
+    if (ImGui::Checkbox("##present_thread", &pt))
+        m->s.present_thread = pt ? 1 : 0;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
+                          "Needs Render thread. Applies at next launch.");
+    if (!m->frame_generation_hidden) {
+        row_label_right("Smooth motion", th, ImGui::GetFrameHeight());
+        bool fg = m->s.frame_generation != 0;
+        if (ImGui::Checkbox("##frame_generation", &fg))
+            m->s.frame_generation = fg ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
+                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
+    }
+    ImGui::EndDisabled();
+}
+
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
@@ -4116,32 +4147,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // grid flush on both sides.
         const float cb = ImGui::GetFrameHeight();   // a checkbox is square
         row_window_scale(m, th);
-        if (launcher_model_render_pipeline_offered(m)) {
-        row_label_right("Render thread", th, px(SETTINGS_CTRL_W));
-        bool rt = m->s.render_thread != 0;
-        if (ImGui::Checkbox("##render_thread", &rt))
-            m->s.render_thread = rt ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
-                              "Turn off if you see stutter or glitches. Applies at next launch.");
-        const bool kids = launcher_model_render_pipeline_children_enabled(m);
-        ImGui::BeginDisabled(!kids);
-        row_label_right("Present thread", th, px(SETTINGS_CTRL_W));
-        bool pt = m->s.present_thread != 0;
-        if (ImGui::Checkbox("##present_thread", &pt))
-            m->s.present_thread = pt ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
-                              "Needs Render thread. Applies at next launch.");
-        row_label_right("Smooth motion", th, px(SETTINGS_CTRL_W));
-        bool fg = m->s.frame_generation != 0;
-        if (ImGui::Checkbox("##frame_generation", &fg))
-            m->s.frame_generation = fg ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
-                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
-        ImGui::EndDisabled();
-    }
+        draw_render_pipeline_controls(m, th);
 
     // Universal fullscreen row (every console; Off/Borderless/Exclusive,
         // the legacy launcher's vocabulary). Sits right under Window scale,
@@ -4305,6 +4311,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         if (note && *note)
             ImGui::TextColored(col(th.text_muted), "%s", ui_text(note));
     }
+
+    draw_render_pipeline_controls(m, th);
 
     if (launcher_model_internal_resolution_offered(m)) {
         /* The host's own resolution vocabulary (PSX: Native / 720p / 1080p /
@@ -4504,18 +4512,19 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // VSync sits with frame interpolation because both decide how a finished
     // frame reaches the panel, not how it is drawn.
     if (m->has_vsync && !draw_vsync_overridden_row(m, th)) {
-        const float vw = vsync_combo_w(th);
+        const float vw = vsync_combo_w(m, th);
         row_label_right("VSync", th, vw);
         ImGui::SetNextItemWidth(vw);
         if (ImGui::BeginCombo("##vsync_mode",
                               ui_text(launcher_model_vsync_label(m)))) {
             for (const auto& o : kVsyncChoices)
-                if (ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
+                if ((o.v != RECOMP_LAUNCHER_VSYNC_VRR || m->has_vsync_vrr) && ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
                     launcher_model_set_vsync(m, o.v);
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
+                "VRR: software-paced presentation for variable-refresh displays.\n"
                 "On: the swap waits for the panel — no tearing.\n"
                 "Off: swap immediately — lowest display latency, may tear.\n"
                 "Adaptive: vsync while the game keeps up, immediate when it "

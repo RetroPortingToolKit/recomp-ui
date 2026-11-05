@@ -436,6 +436,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_spu_hq           = game->has_spu_hq != 0;
         m->has_rewind_depth     = game->has_rewind_depth != 0;
         m->has_vsync            = game->has_vsync != 0;
+        m->has_vsync_vrr        = game->has_vsync_vrr != 0;
         m->has_skip_fmv         = game->has_skip_fmv != 0;
         m->has_turbo_loads      = game->has_turbo_loads != 0;
         // game->has_fullscreen_toggle is deliberately NOT read: the Fullscreen
@@ -584,6 +585,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
         m->has_render_pipeline         = game->has_render_pipeline != 0;
+        m->frame_generation_hidden     = game->frame_generation_hidden != 0;
         m->linear_filter_hidden        = game->linear_filter_hidden != 0;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
@@ -883,7 +885,7 @@ void launcher_model_init(LauncherModel* m,
         if (!ok) m->s.frame_interp_fps = 0;
     }
     if (m->has_vsync &&
-        (m->s.vsync < 1 || m->s.vsync > RECOMP_LAUNCHER_VSYNC_COUNT)) {
+        (m->s.vsync < 1 || m->s.vsync > (m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE))) {
         // 0 = a host that predates the field, or a fresh config. Tear-free is
         // the safe default; a player who wants the latency picks Off.
         m->s.vsync = RECOMP_LAUNCHER_VSYNC_ON;
@@ -2153,7 +2155,8 @@ void launcher_model_set_vsync(LauncherModel* m, int value) {
     if (!m || !m->has_vsync) return;
     if (value != RECOMP_LAUNCHER_VSYNC_OFF &&
         value != RECOMP_LAUNCHER_VSYNC_ON &&
-        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE)
+        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE &&
+        !(value == RECOMP_LAUNCHER_VSYNC_VRR && m->has_vsync_vrr))
         return;
     m->s.vsync = value;
 }
@@ -2498,16 +2501,18 @@ const char* launcher_model_rewind_interval_label(const LauncherModel* m) {
 // settings file carries it) cannot lose it just by opening this panel.
 void launcher_model_cycle_vsync(LauncherModel* m) {
     if (!m || !m->has_vsync) return;
+    const int count = m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE;
     int cur = m->s.vsync;
-    if (cur < 1 || cur > RECOMP_LAUNCHER_VSYNC_COUNT)
+    if (cur < 1 || cur > count)
         cur = RECOMP_LAUNCHER_VSYNC_ON;
-    m->s.vsync = (cur % RECOMP_LAUNCHER_VSYNC_COUNT) + 1;
+    m->s.vsync = (cur % count) + 1;
 }
 
 const char* launcher_model_vsync_label(const LauncherModel* m) {
     switch (m ? m->s.vsync : RECOMP_LAUNCHER_VSYNC_ON) {
         case RECOMP_LAUNCHER_VSYNC_OFF:      return "Off";
         case RECOMP_LAUNCHER_VSYNC_ADAPTIVE: return "Adaptive";
+        case RECOMP_LAUNCHER_VSYNC_VRR:      return "VRR";
         default:                             return "On";
     }
 }

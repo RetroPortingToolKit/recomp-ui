@@ -45,6 +45,15 @@ int main(void) {
     static RecompLauncherCModProvider provider;
     memset(&m, 0, sizeof m);
     m.has_vsync = true;
+    launcher_model_set_vsync(&m, RECOMP_LAUNCHER_VSYNC_VRR);
+    ok(m.s.vsync != RECOMP_LAUNCHER_VSYNC_VRR, "older hosts do not offer VRR");
+    m.has_vsync_vrr = true;
+    launcher_model_set_vsync(&m, RECOMP_LAUNCHER_VSYNC_VRR);
+    ok(m.s.vsync == RECOMP_LAUNCHER_VSYNC_VRR && !strcmp(launcher_model_vsync_label(&m), "VRR"),
+       "VRR has a distinct selectable value and label");
+    launcher_model_cycle_vsync(&m);
+    ok(m.s.vsync == RECOMP_LAUNCHER_VSYNC_ON, "VRR cycles back to On");
+
     m.s.vsync = RECOMP_LAUNCHER_VSYNC_ON;
 
     ok(launcher_model_vsync_forced_off_by(&m) == NULL, "no mod provider: the row is the player's");

@@ -354,6 +354,7 @@ typedef struct {
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
     bool               has_render_pipeline;   // GameInfo.has_render_pipeline
+    bool               frame_generation_hidden;
     // GameInfo.linear_filter_hidden: no legacy "Linear filtering" row.
     bool               linear_filter_hidden;
 
@@ -477,6 +478,7 @@ typedef struct {
     bool     has_spu_hq;
     bool     has_rewind_depth;
     bool     has_vsync;
+    bool     has_vsync_vrr;
     bool     has_skip_fmv;
     bool     has_turbo_loads;
     // (GameInfo.has_geometry_precision is not read: psxrecomp's PGXP
