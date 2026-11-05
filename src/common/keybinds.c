@@ -164,6 +164,16 @@ static void derive_ini_path(const char *exe_path) {
     strcpy(s_ini_path, "keybinds.ini");
 }
 
+/* Sections [player3].. that the file named; kept on rewrite even when empty. */
+static unsigned s_extra_named;
+
+static int player_has_binding(const PlayerBinds *pb) {
+    const SDL_Scancode *sc = (const SDL_Scancode *)pb;
+    for (size_t i = 0; i < sizeof(*pb) / sizeof(*sc); ++i)
+        if (sc[i] != SDL_SCANCODE_UNKNOWN) return 1;
+    return 0;
+}
+
 static void write_player_section(FILE *f, const char *section, const PlayerBinds *pb) {
     fprintf(f, "[%s]\n", section);
     for (const ButtonDef *bd = s_buttons; bd->name; bd++) {
@@ -192,6 +202,13 @@ static void write_defaults(const char *path) {
         "\n");
     write_player_section(f, "player1", &s_binds.p1);
     write_player_section(f, "player2", &s_binds.p2);
+    for (int i = 0; i < KEYBINDS_MAX_PLAYERS - 2; ++i) {
+        if (!(s_extra_named & (1u << i)) && !player_has_binding(&s_binds.extra[i]))
+            continue;
+        char section[16];
+        snprintf(section, sizeof(section), "player%d", i + 3);
+        write_player_section(f, section, &s_binds.extra[i]);
+    }
     fclose(f);
     printf("[Keybinds] Wrote %s\n", path);
 }
@@ -213,6 +230,12 @@ static void load_ini(const char *path) {
             current = NULL;
             if (!strcmp(section, "player1"))      current = &s_binds.p1;
             else if (!strcmp(section, "player2")) current = &s_binds.p2;
+            else if (!strncmp(section, "player", 6) && section[6] >= '3' &&
+                     section[6] <= '0' + KEYBINDS_MAX_PLAYERS && !section[7]) {
+                int extra = section[6] - '3';
+                current = &s_binds.extra[extra];
+                s_extra_named |= 1u << extra;
+            }
             continue;
         }
 
@@ -241,6 +264,7 @@ static void load_ini(const char *path) {
 
 void recompui_keybinds_init(const char *exe_path) {
     derive_ini_path(exe_path);
+    s_extra_named = 0;
     FILE *test = fopen(s_ini_path, "r");
     if (test) {
         fclose(test);
@@ -266,7 +290,13 @@ const char *recompui_keybinds_button_name(int button) {
 }
 
 static PlayerBinds *player_binds(int player) {
+    if (player >= 3 && player <= KEYBINDS_MAX_PLAYERS) return &s_binds.extra[player - 3];
     return (player == 2) ? &s_binds.p2 : &s_binds.p1;
+}
+
+static const PlayerBinds *default_binds(int player) {
+    if (player >= 3 && player <= KEYBINDS_MAX_PLAYERS) return &s_default_binds.extra[player - 3];
+    return (player == 2) ? &s_default_binds.p2 : &s_default_binds.p1;
 }
 
 SDL_Scancode recompui_keybinds_get_button(int player, int button) {
@@ -280,7 +310,7 @@ void recompui_keybinds_set_button(int player, int button, SDL_Scancode sc) {
 }
 
 void recompui_keybinds_reset_player(int player) {
-    *player_binds(player) = (player == 2) ? s_default_binds.p2 : s_default_binds.p1;
+    *player_binds(player) = *default_binds(player);
 }
 
 void recompui_keybinds_save(void) {
@@ -293,7 +323,7 @@ void recompui_keybinds_save(void) {
  * Returns 0 if either `keys` is NULL or player is out of range. */
 uint16_t recompui_keybinds_read_player(const uint8_t *keys, int player) {
     if (!keys) return 0;
-    const PlayerBinds *pb = (player == 2) ? &s_binds.p2 : &s_binds.p1;
+    const PlayerBinds *pb = player_binds(player);
     uint16_t b = 0;
     if (pb->r      != SDL_SCANCODE_UNKNOWN && keys[pb->r])      b |= 0x0001;
     if (pb->l      != SDL_SCANCODE_UNKNOWN && keys[pb->l])      b |= 0x0002;
