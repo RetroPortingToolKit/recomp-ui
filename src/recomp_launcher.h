@@ -971,6 +971,7 @@ typedef enum RecompLauncherCModOptionType {
      * games whose providers supply a TEXT option ever render one. */
     RECOMP_MOD_OPTION_TEXT = 3,
 } RecompLauncherCModOptionType;
+#define RECOMP_LAUNCHER_HAS_MOD_OPTION_TEXT 1
 
 typedef struct RecompLauncherCModPackage {
     char id[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -1631,7 +1632,8 @@ struct RecompLauncherCSettings {
 #define RECOMP_LAUNCHER_VSYNC_ON       1
 #define RECOMP_LAUNCHER_VSYNC_OFF      2
 #define RECOMP_LAUNCHER_VSYNC_ADAPTIVE 3
-#define RECOMP_LAUNCHER_VSYNC_COUNT    3
+#define RECOMP_LAUNCHER_VSYNC_VRR      4
+#define RECOMP_LAUNCHER_VSYNC_COUNT    4
 
 /* Values for RecompLauncherSettings.fmv_filter (1-based; 0 = unset). */
 #define RECOMP_LAUNCHER_FMV_FILTER_NEAREST  1
@@ -2468,7 +2470,13 @@ typedef struct RecompLauncherCGameInfo {
     int                linear_filter_hidden;
     /* Optional two-card editor, borrowed for the launcher session. */
     const RecompCardManager* card_manager;
+    /* Additional VSync choice supported by the host. Zero keeps On/Off/Adaptive. */
+    int                has_vsync_vrr;
+    /* Keep failed or mod-owned frame generation out of the pipeline settings. */
+    int                frame_generation_hidden;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
+#define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1

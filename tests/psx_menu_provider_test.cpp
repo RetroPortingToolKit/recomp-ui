@@ -45,7 +45,12 @@ static int h_disc_count(void) { return g_discs; }
 static int h_disc_mounted(void) { return g_mounted; }
 static const char *h_disc_path(int) { return "disc.cue"; }
 static int h_disc_insert(int n) { if (g_netplay) return 3; g_inserted = n; return 0; }
-static void h_game_info(RecompLauncherCGameInfo *gi) { (void)gi; }
+static void h_game_info(RecompLauncherCGameInfo *gi) {
+    static const char* const names[] = {"Software", "OpenGL", "Vulkan"};
+    gi->renderer_labels = names;
+    gi->num_renderers = 3;
+    gi->has_vsync_vrr = 1;
+}
 
 static PsxMenuHost make_host(int default_selection) {
     PsxMenuHost h{};
@@ -100,6 +105,8 @@ int main() {
     CHECK(!p->is_open(p->ctx));
 
     // Open: the menu reads the host's values and pauses through it.
+    g_now.renderer = 1;
+    g_now.vsync = 1;
     g_now.render_thread = 1;
     in(T);
     CHECK(p->is_open(p->ctx) && g_paused == 1);
@@ -134,6 +141,32 @@ int main() {
     in(T);
     CHECK(g_exit == -1);
     g_netplay = 0;
+
+    // Every offered API is selectable, including Vulkan; it takes a restart.
+    in(T);
+    CHECK(go("Graphics", "graphics.renderer"));
+    in(R);
+    CHECK(g_applied.renderer == 2);
+    in(T);
+    CHECK(g_exit == PSX_MENU_EXIT_RELAUNCH);
+    g_exit = -1;
+
+    // VRR is its own value and applies without restarting the game.
+    in(T);
+    CHECK(go("Graphics", "graphics.vsync"));
+    in(R); in(R);  // On -> Adaptive -> VRR
+    CHECK(g_applied.vsync == 2);
+    in(T);
+    CHECK(g_exit == -1);
+
+    // The presentation thread is independently configurable under OpenGL.
+    in(T);
+    CHECK(go("Graphics", "graphics.present_thread"));
+    in(R);
+    CHECK(g_applied.present_thread == 1);
+    in(T);
+    CHECK(g_exit == PSX_MENU_EXIT_RELAUNCH);
+    g_exit = -1;
 
     // Disc: select disc 2 and insert through the host's tray.
     g_mounted = 1;
