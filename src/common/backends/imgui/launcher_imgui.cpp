@@ -11872,11 +11872,26 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
     }
 
     const int64_t step = option.step > 0 ? option.step : 1;
-    const bool edited = option.slider
-        ? ImGui::SliderScalar("##integer", ImGuiDataType_S64, &edit.value,
-                              &option.min_value, &option.max_value, "%lld")
-        : ImGui::InputScalar("##integer", ImGuiDataType_S64, &edit.value,
-                             &step, nullptr, nullptr, ImGuiInputTextFlags_None);
+    bool edited;
+    if (option.slider && option.display_divisor > 1) {
+        const double divisor = static_cast<double>(option.display_divisor);
+        double shown = static_cast<double>(edit.value) / divisor;
+        const double lo = static_cast<double>(option.min_value) / divisor;
+        const double hi = static_cast<double>(option.max_value) / divisor;
+        int decimals = 0;
+        for (int64_t n = option.display_divisor; n > 1; n /= 10) ++decimals;
+        char format[16];
+        std::snprintf(format, sizeof(format), "%%.%df", decimals);
+        edited = ImGui::SliderScalar("##integer", ImGuiDataType_Double, &shown,
+                                     &lo, &hi, format, ImGuiSliderFlags_AlwaysClamp);
+        if (edited) edit.value = static_cast<int64_t>(std::llround(shown * divisor));
+    } else {
+        edited = option.slider
+            ? ImGui::SliderScalar("##integer", ImGuiDataType_S64, &edit.value,
+                                  &option.min_value, &option.max_value, "%lld")
+            : ImGui::InputScalar("##integer", ImGuiDataType_S64, &edit.value,
+                                 &step, nullptr, nullptr, ImGuiInputTextFlags_None);
+    }
     const bool commit = ImGui::IsItemDeactivatedAfterEdit() ||
                         (edited && !ImGui::IsItemActive());
     if (!commit) return false;
