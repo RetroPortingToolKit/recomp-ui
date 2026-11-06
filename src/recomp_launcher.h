@@ -52,7 +52,7 @@ extern "C" {
 /* Host may #ifdef this when reading Settings.virtual_stylus. */
 #define RECOMP_LAUNCHER_HAS_VIRTUAL_STYLUS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
-#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
+#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 16
 
 /* Portable encoding used by host-owned controller bindings. Button and axis
  * numbers are SDL's standard game-controller indices; zero remains unbound. */
