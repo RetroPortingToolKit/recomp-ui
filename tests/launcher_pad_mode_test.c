@@ -1,29 +1,5 @@
-/* Per-seat pad_mode resolution in launcher_model_init(), and the interaction
- * between a LOCKED mode and the keyboard-has-no-sticks presentation default.
- *
- * Regression it exists for: a PSX title whose game.toml declares
- * `default_mode = "analog"` + `lock_mode = true` (Ape Escape) booted its pad
- * DIGITAL on a fresh install. The lock IS honoured -- the !pad_mode_selectable
- * branch of the gate assigns locked_pad_mode -- but the keyboard coercion that
- * followed it in the same loop body had no selectable gate, and a release
- * install defaults Player 1's device to Keyboard. So pad_mode[0] came out 2
- * (D-Pad) on every first run of an Analog-locked title.
- *
- * That would be cosmetic if anything could undo it. Nothing can: lock_mode
- * hides the selector, and both launcher_model_set_pad_mode() and
- * apply_default_pad_mode_for_source() deliberately refuse to touch a locked
- * mode. The value stayed 2 after the player assigned a real DualShock, the
- * host read it back into player_mode[], and sio.c answered with the 4-byte
- * digital pad response: right stick dead, left stick folded onto the D-pad.
- *
- * The coercion is a PRESENTATION default only -- psxrecomp's
- * effective_player_mode() already reports DIGITAL for any keyboard seat
- * regardless of the seat's stored mode -- so gating it on pad_mode_selectable
- * costs nothing and keeps the locked mode intact for the pad that arrives later.
- *
- * Includes the model translation unit (as launcher_discs_test.c does) so the
- * static pad-mode helpers are reachable.
- */
+/* Controller selection: automatic local mode, legacy-setting migration,
+ * explicit title locks, and independent console mode vocabularies. */
 #include "launcher_model.c"
 
 #include <stdio.h>
@@ -156,37 +132,31 @@ static void test_locked_digital_still_digital(void) {
     free(m);
 }
 
-/* ---- unlocked behaviour must be exactly what it was ---------------------- */
-static void test_unlocked_keyboard_presents_dpad(void) {
+/* Automatic controller selection. */
+static void test_auto_keyboard(void) {
     LauncherModel* m = psx_session(0, PSX_ANALOG, SRC_KEYBOARD, PSX_ANALOG);
     if (!m) return;
     expect(m->pad_mode_selectable != 0, "no lock: the selector is live");
-    expect_mode(m, 0, PSX_DIGITAL,
-                "unlocked keyboard seat still presents D-Pad");
-    /* Analog is genuinely unavailable while the keyboard drives the seat. */
+    expect_mode(m, 0, PSX_ANALOG,
+                "unlocked keyboard seat presents Auto");
     launcher_model_set_pad_mode(m, 0, PSX_ANALOG);
-    expect_mode(m, 0, PSX_DIGITAL,
-                "unlocked keyboard seat refuses an Analog pick");
+    expect_mode(m, 0, PSX_ANALOG,
+                "unlocked keyboard seat accepts Auto");
     free(m);
 }
 
-static void test_unlocked_keyboard_to_pad_self_corrects(void) {
-    /* Why the unlocked case was never as bad: assigning a pad goes through
-     * launcher_model_set_source -> apply_default_pad_mode_for_source, which
-     * is NOT gated off for an unlocked title and seeds Analog for a gamepad
-     * seat. So the unlocked equivalent of the bug repairs itself the moment
-     * the device is picked -- which is exactly the repair a locked title
-     * cannot perform. */
+static void test_auto_source_changes(void) {
+    /* Input-source changes do not choose the live controller mode. */
     LauncherModel* m = psx_session(0, PSX_ANALOG, SRC_KEYBOARD, PSX_ANALOG);
     if (!m) return;
-    expect_mode(m, 0, PSX_DIGITAL, "starts on D-Pad for the keyboard seat");
+    expect_mode(m, 0, PSX_ANALOG, "starts on Auto for the keyboard seat");
     launcher_model_set_source(m, 0, SRC_GAMEPAD, 7, "DualShock", kFixtureGuid);
     expect_mode(m, 0, PSX_ANALOG,
-                "assigning a gamepad re-defaults an unlocked seat to Analog");
+                "assigning a gamepad keeps Auto");
     /* And back: the presentation default follows the source both ways. */
     launcher_model_set_source(m, 0, SRC_KEYBOARD, 0, NULL, NULL);
-    expect_mode(m, 0, PSX_DIGITAL,
-                "switching back to keyboard re-presents D-Pad");
+    expect_mode(m, 0, PSX_ANALOG,
+                "switching back to keyboard preserves Auto");
     free(m);
 }
 
@@ -197,6 +167,15 @@ static void test_unlocked_hybrid_migrates(void) {
     LauncherModel* m = psx_session(0, PSX_ANALOG, SRC_GAMEPAD, 0);
     if (!m) return;
     expect_mode(m, 0, PSX_ANALOG, "stale Hybrid migrates to Analog");
+    free(m);
+}
+
+static void test_legacy_digital_migrates_to_auto(void) {
+    LauncherModel* m = psx_session(0, PSX_ANALOG, SRC_GAMEPAD, PSX_DIGITAL);
+    if (!m) return;
+    expect_mode(m, 0, PSX_ANALOG, "saved D-Pad setting migrates to Auto");
+    launcher_model_set_source(m, 0, SRC_KEYBOARD, 0, NULL, NULL);
+    expect_mode(m, 0, PSX_ANALOG, "migrated Auto survives keyboard reassignment");
     free(m);
 }
 
@@ -229,9 +208,10 @@ int main(void) {
     test_locked_analog_keyboard_seat();
     test_locked_analog_poisoned_settings();
     test_locked_digital_still_digital();
-    test_unlocked_keyboard_presents_dpad();
-    test_unlocked_keyboard_to_pad_self_corrects();
+    test_auto_keyboard();
+    test_auto_source_changes();
     test_unlocked_hybrid_migrates();
+    test_legacy_digital_migrates_to_auto();
     test_genesis_custom_mode_list();
     if (fails) { fprintf(stderr, "\n%d FAILED\n", fails); return 1; }
     printf("\nall passed\n");
