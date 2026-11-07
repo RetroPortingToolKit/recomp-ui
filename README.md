@@ -705,6 +705,8 @@ optional native bind bridge) registered in `src/launcher_system.h`, a theme in
 `src/common/launcher_theme.h`, per-console art under `assets/consoles/<id>/`,
 and its `.c` files + assets wired into `recomp_ui.cmake`.
 
+PSX controller selection is described in [PSX controller selection](docs/PSX_CONTROLLER_MODE.md).
+
 ## License
 
 recomp-ui is licensed under the [MIT License](LICENSE). Copyright (c) 2026

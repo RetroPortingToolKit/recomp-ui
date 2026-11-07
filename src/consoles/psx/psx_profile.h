@@ -81,6 +81,11 @@ static const char* const kPsxDiscPatterns[] = {
     ((int)(sizeof(kPsxDiscPatterns) / sizeof(kPsxDiscPatterns[0])))
 
 // ---- SystemProfile row ----------------------------------------------------------
+static const PadModeDef kPsxPadModes[] = {
+    { 1, "Auto", LNG_PSX_PAD_BUTTON_COUNT },
+    { RECOMP_LAUNCHER_PAD_MODE_NEGCON, "NeGcon", LNG_PSX_PAD_BUTTON_COUNT },
+};
+
 static const SystemProfile kSystemProfilePsx = {
     /* id       */ "psx",
     /* platform */ "PLAYSTATION",
@@ -93,7 +98,7 @@ static const SystemProfile kSystemProfilePsx = {
         /* has_pad_mode */ 1,
         /* binds_per_input */ 2,  // primary + alternate; either asserts the
                                   // input, and either may be a mouse button
-        /* modes */ NULL, /* mode_count */ 0, /* has_pad_binds */ 0,
+        /* modes */ kPsxPadModes, /* mode_count */ 2, /* has_pad_binds */ 0,
         /* pad_bind_order */ NULL, /* pad_bind_cols */ 0, /* pad_bind_rows */ 0,
         /* has_pak */ 0,
         /* player_tabs */ 1,      // the memory cards sit under the controller

@@ -1,13 +1,5 @@
-/* The "NeGcon" pad type (pad_mode 3, RECOMP_LAUNCHER_PAD_MODE_NEGCON).
- *
- * psxrecomp can present a Namco neGcon in a controller port, driven by the
- * seat's pad or keyboard (PS1B-304). The launcher offers it as a third pad
- * type next to Analog and D-Pad, but only for the PSX profile. Unlike Analog,
- * a keyboard may drive it (stick binds twist it), and it is the device in the
- * port, so changing the seat's input source must not reset it.
- *
- * Includes the model translation unit, as launcher_pad_mode_test.c does.
- */
+/* Auto and NeGcon selection, source reassignment, legacy preferences,
+ * title locks, and other console profiles. */
 #include "launcher_model.c"
 
 #include <stdio.h>
@@ -56,8 +48,8 @@ static void test_psx_offers_negcon(void) {
     expect(launcher_model_negcon_mode_available(m), "PSX offers the neGcon pad type");
     launcher_model_set_pad_mode(m, 0, PSX_NEGCON);
     expect(m->s.pad_mode[0] == PSX_NEGCON, "a gamepad seat can pick neGcon");
-    launcher_model_set_pad_mode(m, 0, PSX_DIGITAL);
-    expect(m->s.pad_mode[0] == PSX_DIGITAL, "and go back to D-Pad");
+    launcher_model_set_pad_mode(m, 0, PSX_ANALOG);
+    expect(m->s.pad_mode[0] == PSX_ANALOG, "and go back to Auto");
     free(m);
 }
 
@@ -65,7 +57,7 @@ static void test_keyboard_can_drive_negcon(void) {
     LauncherModel* m = session(1, 0, SRC_KEYBOARD, PSX_DIGITAL);
     if (!m) return;
     launcher_model_set_pad_mode(m, 0, PSX_ANALOG);
-    expect(m->s.pad_mode[0] == PSX_DIGITAL, "a keyboard still cannot pick Analog");
+    expect(m->s.pad_mode[0] == PSX_ANALOG, "a keyboard can pick Auto");
     launcher_model_set_pad_mode(m, 0, PSX_NEGCON);
     expect(m->s.pad_mode[0] == PSX_NEGCON, "a keyboard can pick neGcon");
     free(m);
@@ -78,8 +70,8 @@ static void test_keyboard_can_drive_negcon(void) {
 
     m = session(1, 0, SRC_KEYBOARD, PSX_ANALOG);
     if (!m) return;
-    expect(m->s.pad_mode[0] == PSX_DIGITAL,
-           "a keyboard Analog seat is still presented as D-Pad");
+    expect(m->s.pad_mode[0] == PSX_ANALOG,
+           "a keyboard Auto seat keeps Auto");
     free(m);
 }
 
@@ -93,7 +85,7 @@ static void test_source_change_keeps_negcon(void) {
     expect(m->s.pad_mode[0] == PSX_NEGCON, "switching to a pad keeps neGcon");
     launcher_model_set_pad_mode(m, 0, PSX_ANALOG);
     launcher_model_set_source(m, 0, SRC_KEYBOARD, 0, NULL, NULL);
-    expect(m->s.pad_mode[0] == PSX_DIGITAL, "an Analog seat still becomes D-Pad on the keyboard");
+    expect(m->s.pad_mode[0] == PSX_ANALOG, "Auto survives switching to keyboard");
     free(m);
 }
 

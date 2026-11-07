@@ -179,14 +179,14 @@ static void test_mouse_keeps_keyboard_in_port_2(void) {
     launcher_model_set_primary_source(m, RECOMP_LAUNCHER_SRC_MOUSE, 0, NULL, NULL);
     expect(m->s.player_src[0] == RECOMP_LAUNCHER_SRC_MOUSE, "PS1 Mouse goes to port 1");
     expect(m->s.player_src[1] == SRC_KEYBOARD, "the keyboard Player 1 had moves to port 2");
-    expect(m->s.pad_mode[1] == 2, "and stays digital");
+    expect(m->s.pad_mode[1] == 1, "and keeps automatic controller mode");
     expect(launcher_model_mouse_pair_port(m) == 1, "pair port reads 1");
     expect(launcher_model_mouse_pair_pad_seat(m) == 1, "pad seat reads 1");
 
     launcher_model_set_mouse_pair_port(m, 2);
     expect(m->s.player_src[0] == SRC_KEYBOARD && m->s.player_src[1] == RECOMP_LAUNCHER_SRC_MOUSE,
            "mouse in port 2 swaps the seats");
-    expect(m->s.pad_mode[0] == 2, "the pad type moves with the keyboard");
+    expect(m->s.pad_mode[0] == 1, "automatic mode moves with the keyboard");
     expect(launcher_model_mouse_pair_port(m) == 2 && launcher_model_mouse_pair_pad_seat(m) == 0,
            "pair port 2, pad seat 0");
     launcher_model_set_mouse_pair_port(m, 2);

@@ -3772,6 +3772,11 @@ static int pad_mode_options(const LauncherModel* m, PadModeOpt* segs) {
     // 3-Button/6-Button) drives the segments from that list; otherwise the
     // legacy PSX-shaped Analog/D-Pad set.
     const SystemProfile* prof = (const SystemProfile*)m->profile;
+    if (prof && prof->id && !strcmp(prof->id, "psx") && !m->pad_mode_selectable) {
+        const int mode = m->locked_pad_mode;
+        segs[n++] = { mode, mode == 2 ? "D-Pad" : mode == 1 ? "Analog" : "NeGcon" };
+        return n;
+    }
     if (prof && prof->controller.modes && prof->controller.mode_count > 0) {
         int mc = prof->controller.mode_count;
         if (mc > kPadModeOptMax) mc = kPadModeOptMax;

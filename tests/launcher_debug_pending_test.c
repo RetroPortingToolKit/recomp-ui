@@ -9,6 +9,10 @@ void launcher_model_set_view(LauncherModel* m, LngView view) { ++mutations; m->v
 void launcher_model_begin_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; }
 void launcher_model_begin_pad_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; m->capture_pad = true; }
 void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey hotkey) { (void)m; (void)hotkey; ++mutations; }
+void launcher_model_set_player_tab(LauncherModel* m, int player) { (void)m; (void)player; ++mutations; }
+void launcher_model_select_start(LauncherModel* m, int idx) { (void)m; (void)idx; ++mutations; }
+void launcher_model_select_disc(LauncherModel* m, int idx) { (void)m; (void)idx; ++mutations; }
+void launcher_model_set_card_tab(LauncherModel* m, int slot) { (void)m; (void)slot; ++mutations; }
 void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }

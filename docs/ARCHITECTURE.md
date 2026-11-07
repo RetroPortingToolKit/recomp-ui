@@ -45,9 +45,10 @@ labels. That file also tracks, per console, the rows still waiting to move.
   a **Configure** action that opens the controller-binds page.
 - **Spec (per system):** pad **image(s)** (SNES pad / DualShock / N64 trident /
   Genesis 6-button), the **base button set** for rebinding, `max_players`
-  (2 or 4), optional **pad-mode** selector. Two selector shapes: PSX's
+  (2 or 4), optional **pad-mode** selector. Two selector shapes: legacy
   analog/digital (swaps the image, gated by `allow_hybrid`), or a **custom mode
-  list** (`ControllerSpec.modes`, e.g. Genesis **3-Button / 6-Button**) where
+  list** (`ControllerSpec.modes`, e.g. PSX **Auto / NeGcon** or Genesis
+  **3-Button / 6-Button**) where
   the selected mode's `button_count` also sets how many rebind rows show
   (3-Button hides X/Y/Z/Mode). Optional `player_tabs` (PSX, whose dashboard
   also carries the memory cards) gives the tabbed dashboard: from two players

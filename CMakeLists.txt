@@ -58,7 +58,8 @@ endif()
 
 set(RECOMP_UI_PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../psxrecomp" CACHE PATH "PS1 menu-provider host contract")
 if(EXISTS "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include/psx_menu_host.h")
-    include_directories("${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
+    include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/common"
+                        "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
 endif()
 
 add_executable(recomp-ui-launcher src/proto_main.c)
@@ -1002,6 +1003,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-netplay-handoff-test
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
+        src/consoles/psx/psx_start_from.cpp
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
