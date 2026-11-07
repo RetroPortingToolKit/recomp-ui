@@ -1,5 +1,7 @@
 # recomp-ui
 
+PSX controller startup uses [automatic controller mode](docs/PSX_CONTROLLER_MODE.md).
+
 > ℹ️ **Note from mstan:** This repo and I are now part of [RetroPortingToolkit](https://retroportingtoolkit.com/). I remain a primary maintainer of recomp-ui alongside the team. [More info](https://1379.tech/forming-a-collective-retro-porting-toolkit/).
 
 A shared, **console-agnostic launcher and in-game settings UI** for static-
