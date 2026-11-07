@@ -81,6 +81,10 @@ static const char* const kPsxDiscPatterns[] = {
     ((int)(sizeof(kPsxDiscPatterns) / sizeof(kPsxDiscPatterns[0])))
 
 // ---- SystemProfile row ----------------------------------------------------------
+static const PadModeDef kPsxPadModes[] = {
+    { 1, "Auto", LNG_PSX_PAD_BUTTON_COUNT },
+};
+
 static const SystemProfile kSystemProfilePsx = {
     /* id       */ "psx",
     /* platform */ "PLAYSTATION",
@@ -93,6 +97,7 @@ static const SystemProfile kSystemProfilePsx = {
         /* has_pad_mode */ 1,
         /* binds_per_input */ 2,  // primary + alternate; either asserts the
                                   // input, and either may be a mouse button
+        /* modes */ kPsxPadModes, /* mode_count */ 1,
     },
     // MEMCARD is PSX's real target shape (2 slots): the standalone "save" panel
     // (see kPanelsDashboardPsx above) renders a dual-slot picker + 15-block

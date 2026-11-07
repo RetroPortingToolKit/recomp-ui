@@ -1,3 +1,4 @@
+#include "launcher_mod_integer.h"
 // launcher_imgui.cpp — Dear ImGui (MIT) backend for the next-gen launcher.
 //
 // Draws the shared LauncherModel with Dear ImGui + SDL3 + OpenGL3, at parity
@@ -11727,6 +11728,119 @@ static void mod_option_tooltip(const RecompLauncherCModOption& option) {
     ImGui::EndTooltip();
 }
 
+struct ModBindingCapture {
+    ImGuiID owner = 0;
+    int slot = 0, last_frame = 0;
+    bool wheel = false;
+    std::string pending;
+};
+static ModBindingCapture s_mod_binding_capture;
+
+static bool capture_mod_binding(const SDL_Event& event) {
+    auto& capture = s_mod_binding_capture;
+    if (!capture.owner) return false;
+    if (event.type == SDL_EVENT_KEY_DOWN && !LNG_EVKEYREPEAT(event)) {
+        if (LNG_EVKEY(event) == SDLK_ESCAPE) { capture = {}; return true; }
+#if defined(LNG_SDL3)
+        const int sc = (int)event.key.scancode;
+#else
+        const int sc = (int)event.key.keysym.scancode;
+#endif
+        if (sc > 0 && sc < 512) capture.pending = "key:" + std::to_string(sc);
+        return true;
+    }
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+        if (event.button.button >= 1 && event.button.button <= 5)
+            capture.pending = "mouse:" + std::to_string(event.button.button);
+        return true;
+    }
+    if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+        if (capture.wheel && event.wheel.y != 0) {
+            double y = event.wheel.y;
+            if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) y = -y;
+            capture.pending = y > 0 ? "wheel:up" : "wheel:down";
+        }
+        return true;
+    }
+    return event.type == SDL_EVENT_KEY_UP || event.type == SDL_EVENT_MOUSE_BUTTON_UP;
+}
+
+static std::string mod_binding_label(const std::string& token) {
+    if (token == "none" || token.empty()) return "Add...";
+    if (token == "wheel:up") return "Wheel up";
+    if (token == "wheel:down") return "Wheel down";
+    if (token.compare(0, 6, "mouse:") == 0) {
+        const int button = std::atoi(token.c_str() + 6);
+        const char* names[] = {"", "Left mouse", "Middle mouse", "Right mouse", "Mouse X1", "Mouse X2"};
+        if (button >= 1 && button <= 5) return names[button];
+    }
+    if (token.compare(0, 4, "key:") == 0) {
+        const int sc = std::atoi(token.c_str() + 4);
+        if (sc > 0 && sc < 512) return SDL_GetScancodeName((SDL_Scancode)sc);
+    }
+    return token;
+}
+
+static bool draw_mod_binding_option(const RecompLauncherCModOption& option,
+                                    char* next, size_t next_size) {
+    auto& capture = s_mod_binding_capture;
+    const int frame = ImGui::GetFrameCount();
+    if (capture.owner && (frame - capture.last_frame > 1 || !SDL_GetKeyboardFocus())) capture = {};
+    const ImGuiID id = ImGui::GetID("##binding");
+    std::string tokens[3] = {"none", "none", "none"};
+    const std::string value = option.value;
+    size_t start = 0;
+    for (int i = 0; i < 3; ++i) {
+        const auto end = value.find(',', start);
+        tokens[i] = value.substr(start, end == std::string::npos ? end : end - start);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    bool changed = false;
+    if (capture.owner == id) {
+        capture.last_frame = frame;
+        if (!capture.pending.empty()) {
+            tokens[capture.slot] = capture.pending;
+            capture = {};
+            changed = true;
+        }
+    }
+    ImGui::TextUnformatted(option.label);
+    ImGui::SameLine(px(260));
+    for (int i = 0; i < 3; ++i) {
+        ImGui::PushID(i);
+        if (i) ImGui::SameLine();
+        const bool waiting = capture.owner == id && capture.slot == i;
+        const std::string label = waiting ? "Press..." : mod_binding_label(tokens[i]);
+        if (ImGui::Button(label.c_str(), ImVec2(px(120), 0))) {
+            capture = {}; capture.owner = id; capture.slot = i;
+            capture.wheel = option.allow_wheel != 0; capture.last_frame = frame;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s\nClick to rebind; right-click to clear. Escape cancels.%s",
+                label.c_str(), option.allow_wheel ? " Wheel input is allowed." : "");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !waiting) {
+                tokens[i] = "none"; changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset")) {
+        capture = {};
+        std::snprintf(next, next_size, "%s", option.default_value);
+        return true;
+    }
+    if (changed) {
+        int last = 2;
+        while (last > 0 && tokens[last] == "none") --last;
+        std::string saved = tokens[0];
+        for (int i = 1; i <= last; ++i) saved += "," + tokens[i];
+        std::snprintf(next, next_size, "%s", saved.c_str());
+    }
+    return changed;
+}
+
 static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
                                     char* next, size_t next_size, bool audio_buffer = false) {
     ImGui::TextUnformatted(option.label);
@@ -11759,9 +11873,9 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
     }
 
     const int64_t step = option.step > 0 ? option.step : 1;
-    const bool edited = ImGui::InputScalar(
-        "##integer", ImGuiDataType_S64, &edit.value, &step, nullptr, nullptr,
-        ImGuiInputTextFlags_None);
+    const bool edited = rui_mod_integer_control(
+        &edit.value, option.min_value, option.max_value, step,
+        option.slider != 0, option.display_divisor);
     const bool commit = ImGui::IsItemDeactivatedAfterEdit() ||
                         (edited && !ImGui::IsItemActive());
     if (!commit) return false;
@@ -12005,6 +12119,8 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                         }
                         ImGui::EndCombo();
                     }
+                } else if (option.type == RECOMP_MOD_OPTION_BINDING) {
+                    changed = draw_mod_binding_option(option, next, sizeof(next));
                 } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
                     changed = draw_mod_text_option(
                         option, next, sizeof(next));
@@ -12116,6 +12232,8 @@ static void draw_mod_feature_option(LauncherModel* m,
             }
             ImGui::EndCombo();
         }
+    } else if (option.type == RECOMP_MOD_OPTION_BINDING) {
+        changed = draw_mod_binding_option(option, next, sizeof(next));
     } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
         changed = draw_mod_text_option(option, next, sizeof(next));
     } else {
@@ -14990,6 +15108,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     launcher_boot_timing_mark("rui:backend_run:begin");
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    s_mod_binding_capture = {};
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     /* Gamepad nav is enabled only once a real pad event has arrived -- see the
@@ -15185,6 +15304,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 LNG_ImplSDL_ProcessEvent(&ev);
                 continue;
             }
+            if (capture_mod_binding(ev)) continue;
             if (try_capture(m, ev)) continue;
             /* Arm gamepad navigation on the first REAL pad input.
              *
