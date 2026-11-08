@@ -28,6 +28,7 @@
 #include "launcher_sdlcompat.h"   // pulls the right SDL header + event shim
 
 #include "imgui.h"
+#include "consoles/ps2/ps2_background.hpp"
 #include "launcher_nav.h"
 #if defined(LNG_SDL3)
   #include "imgui_impl_sdl3.h"
@@ -1598,6 +1599,10 @@ ImU32 imcol(const LngColor& c, float a = 1.0f) {
 void draw_crt_background(ImVec2 origin, ImVec2 size) {
     const LauncherTheme& th = *g_th;
     ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    if (th.background_style == 1) {
+        draw_ps2_startup_background(bg, origin, size, (float)ImGui::GetTime());
+        return;
+    }
     ImU32 ink = imcol(th.background), lift = imcol(th.background2);
     float midY = origin.y + size.y * 0.42f;
     // top: ink -> lift, bottom: lift -> ink  (soft horizontal glow band)
@@ -1609,20 +1614,6 @@ void draw_crt_background(ImVec2 origin, ImVec2 size) {
     bg->AddRectFilledMultiColor(origin, ImVec2(origin.x + size.x, origin.y + px(90)),
                                 imcol(th.accent, 0.10f), imcol(th.accent, 0.10f),
                                 imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));
-    if(g_th->background_style==1) {
-        const float time=(float)ImGui::GetTime();
-        for(int i=0;i<24;++i) {
-            const float depth=0.24f+(float)((i*7)%19)/24.0f;
-            const float w=size.x*(0.018f+depth*.026f);
-            const float x=origin.x+size.x*((i*.6180339f+(float)std::sin(time*.025f+i)*.018f)-(int)(i*.6180339f));
-            const float base=origin.y+size.y*(.72f+depth*.2f);
-            const float h=size.y*(.08f+(float)((i*11)%17)*.016f)*(0.7f+depth);
-            const ImVec2 a(x,base-h),b(x+w,base),c(x+w+w*.35f,base-w*.28f),d(x+w*.35f,base-h-w*.28f);
-            bg->AddRectFilled(a,b,IM_COL32(45,92,171,(int)(12+depth*23)));
-            bg->AddQuadFilled(ImVec2(x+w,base-h),b,c,ImVec2(x+w+w*.35f,base-h-w*.28f),IM_COL32(32,58,123,24));
-            bg->AddQuadFilled(a,ImVec2(x+w,base-h),ImVec2(x+w+w*.35f,base-h-w*.28f),d,IM_COL32(92,153,220,30));
-        }
-    }
     // scanlines over everything, very subtle — only for CRT-style themes (the PSX
     // theme sets scanlines = 0 for a flat, disc-era look).
     if (th.scanlines) {
@@ -1798,9 +1789,13 @@ void end_panel() { ImGui::EndChild(); }
 bool begin_container(const char* id, ImVec2 size, ImGuiChildFlags flags = ImGuiChildFlags_None,
                      ImGuiWindowFlags wflags = 0) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
-    return ImGui::BeginChild(id, size, flags, wflags);
+    const bool visible = ImGui::BeginChild(id, size, flags, wflags);
+    // Only this layout container is transparent. Restore the card color before
+    // drawing descendants so their text remains readable over animated scenes.
+    ImGui::PopStyleColor();
+    return visible;
 }
-void end_container() { ImGui::EndChild(); ImGui::PopStyleColor(); }
+void end_container() { ImGui::EndChild(); }
 
 void state_mark(bool ok, const LauncherTheme& th);   // fwd
 void draw_save_row(LauncherModel* m, const LauncherTheme& th);   // fwd (Save module row-drawer)
@@ -2238,14 +2233,45 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         float art_h = ImGui::GetContentRegionAvail().y - reserve;
         if (art_h > px(368.0f)) art_h = px(368.0f);   // allow a larger hero box art (~15% bigger than before)
         if (art_h < px(248.0f)) art_h = px(248.0f);   // keep it big enough to balance the side column
-        hero_boxart_centered(g_boxart, art_h, availw);
+        if (linked_ps2 && !g_boxart.id) {
+            // A linked PS2 title without supplied box art still gets its own
+            // disc-shaped fallback, never another console's cartridge.
+            const float diameter = std::min(px(art_h), availw * 0.8f);
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            const ImVec2 center(pos.x + availw * 0.5f, pos.y + diameter * 0.5f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddCircleFilled(center, diameter * 0.48f, imcol(th.panel_hovered), 80);
+            dl->AddCircle(center, diameter * 0.48f, imcol(th.border), 80, px(2));
+            dl->AddCircle(center, diameter * 0.40f, imcol(th.accent_dim), 80, px(1));
+            dl->AddCircleFilled(center, diameter * 0.07f, imcol(th.panel), 32);
+            dl->AddCircle(center, diameter * 0.07f, imcol(th.border), 32, px(1));
+            ImGui::Dummy(ImVec2(availw, diameter));
+        } else {
+            hero_boxart_centered(g_boxart, art_h, availw);
+        }
     }
     ImGui::Dummy(ImVec2(0, px(10)));
 
-    // Linked PS2 titles have no media picker or disc-verification surface.
-    // Their title already belongs to the header; implementation filenames do
-    // not supply useful game information here.
-    if (linked_ps2) { end_panel(); return; }
+    if (linked_ps2) {
+        // Same left-hand GAME card as the other console profiles. The host
+        // supplies facts for this linked title; it does not offer a ROM picker
+        // or invent a PS1 disc-verification result for the guest program.
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
+        ImGui::TextUnformatted(m->game_name ? m->game_name : "");
+        ImGui::PopTextWrapPos();
+        ImGui::Dummy(ImVec2(0, px(12)));
+        if (ImGui::BeginTable("ps2_game_facts", 3, ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("k", ImGuiTableColumnFlags_WidthFixed, px(84));
+            ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, px(1));
+            kv_row("Platform", m->platform ? m->platform : "PLAYSTATION 2", th, false, false);
+            if (m->region && m->region[0]) kv_row("Region", m->region, th, false, false);
+            if (m->rom_present) kv_row("Game ID", m->rom_file, th, false, false);
+            ImGui::EndTable();
+        }
+        end_panel();
+        return;
+    }
 
     // Region + verification state, centered under the art.
     const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
@@ -13940,7 +13966,12 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         int bpp = 0;
         if (FILE* f = fopen(pad_path.c_str(), "rb")) {
             unsigned char hdr[18];
-            if (fread(hdr, 1, sizeof(hdr), f) == sizeof(hdr)) bpp = hdr[16];
+            if (fread(hdr, 1, sizeof(hdr), f) == sizeof(hdr)) {
+                bpp = hdr[16];
+                // PNG pads already carry real alpha. Color-keying their black
+                // shell against the first pixel would erase the controller.
+                if (!memcmp(hdr, "\x89PNG\r\n\x1a\n", 8)) bpp = 32;
+            }
             fclose(f);
         }
         g_pad = (bpp == 32)

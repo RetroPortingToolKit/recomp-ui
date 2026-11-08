@@ -3,7 +3,7 @@
 #ifndef RUI_CONSOLE_PS2_PROFILE_H
 #define RUI_CONSOLE_PS2_PROFILE_H
 #include "../psx/psx_profile.h"
-static const char* const kPanelsDashboardPs2[]={"controller",NULL};
+static const char* const kPanelsDashboardPs2[]={"game","controller",NULL};
 static const char* const kPanelsSettingsPs2[]={"video","audio",NULL};
 static const SystemProfile kSystemProfilePs2 = {
     /* id       */ "ps2",
@@ -12,7 +12,7 @@ static const SystemProfile kSystemProfilePs2 = {
     /* rom_noun */ "Disc",
     /* controller */ {
         kPsxPadButtons, LNG_PSX_PAD_BUTTON_COUNT,     // shared DualShock button vocabulary (Triangle/Circle/Cross/Square/L1-2/R1-2/L3/R3)
-        "pad.tga", "pad_analog.tga", "pad_digital.tga",
+        "pad_ps2.png", NULL, NULL,
         /* max_players */ 2,
         /* has_pad_mode */ 1,
         /* binds_per_input */ 1,  // primary + alternate; either asserts the

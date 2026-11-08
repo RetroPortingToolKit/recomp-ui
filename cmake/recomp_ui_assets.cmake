@@ -70,8 +70,7 @@ set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/brand_nds.tga")
 
 set(_RUI_CONSOLE_ASSETS_ps2
-    "${RUI_ASSETS}/consoles/psx/img/pad_analog.tga"
-    "${RUI_ASSETS}/consoles/psx/img/pad_digital.tga")
+    "${RUI_ASSETS}/consoles/ps2/img/pad_ps2.png")
 set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds ps2)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
