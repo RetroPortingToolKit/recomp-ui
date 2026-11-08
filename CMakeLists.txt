@@ -363,10 +363,9 @@ if(BUILD_TESTING)
         target_compile_definitions(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_DEFS})
         target_compile_options(recomp-ui-hotkey-store-test PRIVATE
             -UNDEBUG -ffunction-sections -fdata-sections)
-        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-            target_compile_options(recomp-ui-hotkey-store-test PRIVATE -flto)
-            target_link_options(recomp-ui-hotkey-store-test PRIVATE -flto)
-        endif()
+        # LTO drops unrelated console entry points before COFF symbol resolution.
+        target_compile_options(recomp-ui-hotkey-store-test PRIVATE -flto)
+        target_link_options(recomp-ui-hotkey-store-test PRIVATE -flto)
         target_link_libraries(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_TARGET})
         target_link_options(recomp-ui-hotkey-store-test PRIVATE
             $<IF:$<PLATFORM_ID:Darwin>,-Wl$<COMMA>-dead_strip,-Wl$<COMMA>--gc-sections>)
@@ -1122,5 +1121,6 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-launcher-player-tabs-strip
              COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-strip-test>)
 endif()
+
 
 
