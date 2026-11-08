@@ -103,6 +103,21 @@ int main(int argc, char** argv) {
     require(strcmp(launcher_model_rom_path(m), other) == 0,
             "disc hosts retain their existing persistence flow");
 
+    game.host_persists_paths = 1;
+    launcher_model_init(m, &settings, &game, rom);
+    launcher_model_commit(m, &settings);
+    f = fopen(cache, "rb");
+    require(f != NULL, "host-owned paths preserve an existing cache");
+    require(fgets(saved, sizeof(saved), f) != NULL, "existing cache remains readable");
+    fclose(f);
+    saved[strcspn(saved, "\r\n")] = '\0';
+    require(strcmp(saved, other) == 0, "host-owned paths do not overwrite a cache");
+    remove(cache);
+    launcher_model_commit(m, NULL);
+    f = fopen(cache, "rb");
+    require(f == NULL, "host-owned paths do not create a cache");
+    game.host_persists_paths = 0;
+
     require(chdir(argv[1]) == 0, "enter fixture directory");
     launcher_model_set_rom(m, "External ROM (USA).sfc");
     launcher_model_commit(m, &settings);

@@ -2346,7 +2346,7 @@ static void lm_write_sidecar_in_dir(const char* dir, const char* name,
 static void lm_persist_cart_rom(const LauncherModel* m) {
     char absolute[1024], path[1100], exe_dir[1024];
     const char* cache;
-    if (m->setup_wizard_supported || m->num_discs > 1 ||
+    if (m->host_persists_paths || m->setup_wizard_supported || m->num_discs > 1 ||
         (m->profile && m->profile->verify.mode == 1) ||
         !lm_path_readable(m->rom_full)) return;
     if ((m->has_expected_crc || m->num_known_sha256 || m->num_known_sha1) &&
