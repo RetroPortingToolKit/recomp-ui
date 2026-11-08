@@ -6948,13 +6948,15 @@ static void pick_mod_feature_resource(
     const std::string remaining = resource.file_patterns;
     size_t start = 0;
     while (start <= remaining.size()) {
-        const size_t comma = remaining.find(',', start);
+        // Providers use both manifest-style semicolons and ABI-style commas.
+        // Each glob must be separate for native and built-in picker filtering.
+        const size_t separator = remaining.find_first_of(",;", start);
         std::string pattern = remaining.substr(
-            start, comma == std::string::npos ? std::string::npos
-                                              : comma - start);
+            start, separator == std::string::npos ? std::string::npos
+                                                  : separator - start);
         if (!pattern.empty()) patterns.push_back(pattern);
-        if (comma == std::string::npos) break;
-        start = comma + 1;
+        if (separator == std::string::npos) break;
+        start = separator + 1;
     }
     /* The ids and label are copied into the closure: on the built-in-browser
      * path this runs many frames later, when the caller's RecompLauncherCMod*
