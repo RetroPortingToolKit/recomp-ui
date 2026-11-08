@@ -259,6 +259,13 @@ static void case_table_and_names(void)
     ck(cb_name_rejected(NULL, "fuck off") == 1, "a filtered name is refused");
     ck(cb_name_rejected(NULL, "Marisa") == 0, "an ordinary name is not");
     ck(cb_connecting(NULL) == 0, "not connecting while disconnected");
+    ck(cb->connect(cb->ctx) != 0,
+       "online connection requires a signed-in account");
+    ck(!rnet_lobby_connected() && !cb_connecting(NULL),
+       "unsigned online request opens no lobby connection");
+    ck(!strcmp(cb->last_error(cb->ctx), "login_required"),
+       "unsigned online request explains that sign-in is required");
+    cb->clear_last_error(cb->ctx);
     ck(cb_need_mods_can_transfer(NULL) == 0,
        "no pre-seat transfer is offered (the transfer needs a seat)");
 }

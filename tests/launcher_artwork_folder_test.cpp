@@ -22,7 +22,7 @@ int main(int argc,char** argv) {
     }
     // Unicode serial folders and more than 32 images (no old truncation).
     const auto many=home/"SLPS-01144";
-    for(int i=0;i<40;++i)std::ofstream(many/fs::u8path(std::to_string(i)+u8" 日本.png"))<<"fixture";
+    for(int i=0;i<40;++i)std::ofstream(many/fs::u8path(std::to_string(i)+utf8_bytes(fs::u8path(u8" 日本.png"))))<<"fixture";
     assert(scan(home,"SLPS-01144").images.size()==43);
     // A missing folder or an unsafe serial is simply empty.
     assert(scan(home,"SLUS-00000").images.empty());

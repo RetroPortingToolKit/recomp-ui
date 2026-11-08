@@ -2480,6 +2480,12 @@ typedef struct RecompLauncherCGameInfo {
     int                has_vsync_vrr;
     /* Keep failed or mod-owned frame generation out of the pipeline settings. */
     int                frame_generation_hidden;
+
+    /* Memory-card slots the game uses (SAVE_MEMCARD), capped by the console
+     * profile: 1 hides slot 2 for a title that only talks to port 1. 0 = unset
+     * (callers that predate the field) keeps the profile's count. Appended for
+     * ABI stability. */
+    int                memcard_slots;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
@@ -2491,6 +2497,7 @@ typedef struct RecompLauncherCGameInfo {
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
 #define RECOMP_LAUNCHER_HAS_FRACTIONAL_FAST_FORWARD 1
+#define RECOMP_LAUNCHER_HAS_MEMCARD_SLOTS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that
