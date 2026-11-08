@@ -2319,7 +2319,8 @@ void draw_artwork_gallery(LauncherModel* m,float height,float width) {
         g_artwork.catalog=launcher_artwork::scan(artwork_home(m),serial);
         size_t pixels=0;
         for(const auto& path:g_artwork.catalog.images) {
-            auto t=launcher_texture_load(path.u8string().c_str());
+            // The C texture API takes UTF-8 bytes; C++20 u8string uses char8_t.
+            auto t=launcher_texture_load(reinterpret_cast<const char*>(path.u8string().c_str()));
             if(t.id) {
                 const size_t count=size_t(t.w)*t.h;
                 if(pixels+count>32*1024*1024)launcher_texture_free(&t);
@@ -2928,7 +2929,8 @@ void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
         // No outer "MEMORY CARDS" card/eyebrow: the small per-slot cards ARE the
         // UI. Fixed width (same as player cards); wider windows add columns
         // instead of stretching the pair across the column.
-        const int slots = (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2;
+        const int slots = launcher_model_memcard_slot_count(
+            m, (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2);
         const float gap = px(th->spacing_sm);
         const float avail = ImGui::GetContentRegionAvail().x;
         const int cards=slots+(m->dashboard_quick_controls?1:0);
@@ -3500,16 +3502,43 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    for (int i = 0; i < g_pad_count; ++i)
-        push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+    // Live pads are listed per physical device: identical controllers (two
+    // DualSense, two of the same 8BitDo) share one GUID, and listing them once
+    // let only one player ever pick that model. PSX keeps its GUID registry.
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (psx) {
+            push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+            continue;
+        }
+        if (!g_pads[i].guid[0] || nopt >= kMaxOpts) continue;
+        int same = 0;
+        for (int j = 0; j < i; ++j)
+            if (std::strcmp(g_pads[j].guid, g_pads[i].guid) == 0) ++same;
+        std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", g_pads[i].guid);
+        const char* nm = (g_pads[i].name[0] && std::strcmp(g_pads[i].name, "Gamepad") != 0)
+                             ? g_pads[i].name : "Controller";
+        if (same) std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s (%d)", nm, same + 1);
+        else std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s", nm);
+        opts[nopt].id = g_pads[i].id;
+        opts[nopt].live = true;
+        ++nopt;
+    }
 
+    // A seat bound to a live device (player_gamepad_instance) claims that
+    // device; a seat with only a GUID claims the model, as before.
+    auto seat_has = [&](int o, const PadOpt& opt) -> bool {
+        if (m->s.player_src[o] != 2) return false;
+        if (!psx && opt.live && m->s.player_gamepad_instance[o])
+            return m->s.player_gamepad_instance[o] == opt.id + 1;
+        return m->s.player_gamepad_guid[o][0] &&
+               std::strcmp(m->s.player_gamepad_guid[o], opt.guid) == 0;
+    };
     const int claim_n = launcher_model_visible_player_count(m);
     for (int i = 0; i < nopt; ++i) {
         bool claimed = false;
         for (int o = 0; o < claim_n; ++o) {
             if (o == p) continue;
-            if (m->s.player_src[o] == 2 && m->s.player_gamepad_guid[o][0] &&
-                std::strcmp(m->s.player_gamepad_guid[o], opts[i].guid) == 0) {
+            if (seat_has(o, opts[i])) {
                 claimed = true;
                 break;
             }
@@ -3520,10 +3549,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
         else
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
-        const bool sel = m->s.player_src[p] == 2 &&
-                         m->s.player_gamepad_guid[p][0] &&
-                         std::strcmp(m->s.player_gamepad_guid[p],
-                                     opts[i].guid) == 0;
+        const bool sel = seat_has(p, opts[i]);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
@@ -5574,8 +5600,11 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     else         draw_assist_pad_unavailable_hint(m, th);
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
-                                        : "Reset Host Shortcuts"))
+                                        : "Reset Host Shortcuts")) {
         launcher_model_reset_assist_bindings(m);
+        for (int i = 0; i < m->assist_binding_count; ++i)
+            launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
+    }
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
 }
@@ -9056,7 +9085,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const bool pressed =
                     ImGui::Button("##kick", ImVec2(kick_btn, kick_btn));
                 {
-                    const char* boot = u8"\U0001F97E";
+                    const char* boot = reinterpret_cast<const char*>(u8"\U0001F97E");
                     const ImVec2 rmin = ImGui::GetItemRectMin();
                     const ImVec2 rmax = ImGui::GetItemRectMax();
                     const ImVec2 ts = ImGui::CalcTextSize(boot);
@@ -9077,7 +9106,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const ImVec2 rmax = ImGui::GetItemRectMax();
                 dl->AddRect(rmin, rmax, ImGui::GetColorU32(ImGuiCol_Border),
                             ImGui::GetStyle().FrameRounding);
-                const char* boot = u8"\U0001F97E";
+                const char* boot = reinterpret_cast<const char*>(u8"\U0001F97E");
                 const ImVec2 ts = ImGui::CalcTextSize(boot);
                 dl->AddText(ImVec2((rmin.x + rmax.x - ts.x) * 0.5f,
                                    (rmin.y + rmax.y - ts.y) * 0.5f),
@@ -11696,11 +11725,20 @@ static void draw_linkified_mod_author(
  * keeps its typing state. Commit happens when the field deactivates after
  * an edit; the caller pushes the committed text through set_option, whose
  * rejection reverts the row to the model value on the next frame. */
+static void mod_option_control(const char* label) {
+    const float start = ImGui::GetCursorPosX();
+    const float available = ImGui::GetContentRegionAvail().x;
+    const bool inline_control = available >= px(490) &&
+                                ImGui::CalcTextSize(label).x <= px(240);
+    ImGui::TextWrapped("%s", label);
+    if (inline_control) ImGui::SameLine(start + px(260));
+    ImGui::SetNextItemWidth(std::max(1.0f,
+        std::min(px(230), ImGui::GetContentRegionAvail().x)));
+}
+
 static bool draw_mod_text_option(const RecompLauncherCModOption& option,
                                  char* next, size_t next_size) {
-    ImGui::TextUnformatted(option.label);
-    ImGui::SameLine(px(260));
-    ImGui::SetNextItemWidth(px(230));
+    mod_option_control(option.label);
     static char edit[RECOMP_LAUNCHER_MOD_VALUE_MAX];
     static ImGuiID owner = 0;
     const ImGuiID id = ImGui::GetID("##text");
@@ -11843,9 +11881,7 @@ static bool draw_mod_binding_option(const RecompLauncherCModOption& option,
 
 static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
                                     char* next, size_t next_size, bool audio_buffer = false) {
-    ImGui::TextUnformatted(option.label);
-    ImGui::SameLine(px(260));
-    ImGui::SetNextItemWidth(px(230));
+    mod_option_control(option.label);
 
     errno = 0;
     char* end = nullptr;
@@ -12087,9 +12123,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                         changed = true;
                     }
                 } else if (option.type == RECOMP_MOD_OPTION_CHOICE) {
-                    ImGui::TextUnformatted(option.label);
-                    ImGui::SameLine(px(260));
-                    ImGui::SetNextItemWidth(px(230));
+                    mod_option_control(option.label);
                     char preview[128];
                     std::snprintf(preview, sizeof(preview), "%s", option.value);
                     for (int c = 0; c < option.choice_count; ++c) {
@@ -12194,9 +12228,7 @@ static void draw_mod_feature_option(LauncherModel* m,
             changed = true;
         }
     } else if (option.type == RECOMP_MOD_OPTION_CHOICE) {
-        ImGui::TextUnformatted(option.label);
-        ImGui::SameLine(px(260));
-        ImGui::SetNextItemWidth(px(230));
+        mod_option_control(option.label);
         char preview[128];
         std::snprintf(preview, sizeof(preview), "%s", option.value);
         for (int choice_index = 0; choice_index < option.choice_count;
@@ -14770,9 +14802,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                                               LNG_PADBIND_NONE, 0, 0);
         } else if (m->capturing) {
             const SystemProfile* prof = (const SystemProfile*)m->profile;
-            if (m->capture_assist || host_player_binds)
+            if (m->capture_assist || host_player_binds) {
                 launcher_model_set_captured_key(m, 0);
-            else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
+                if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, 0);
+            } else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
                      !strcmp(prof->id, "psx"))
                 launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                m->capture_slot, 0);
@@ -14803,7 +14836,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     // axis push (past a dead threshold) commits. PSX only accepts events from
     // the player's selected Input source device.
     if (m->capturing && m->capture_pad) {
-        if (m->settings_bindings && m->capture_assist) {
+        if (m->capture_assist) {
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int button = (int)LNG_EVGBTN(ev);
                 uint32_t mask = launcher_input_gamepad_button_mask(
@@ -15023,9 +15056,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // the legacy setter — capture_slot is always 0 for them.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const bool alt_slots = prof && prof->controller.binds_per_input >= 2;
-        if ((m->settings_bindings && m->capture_assist) || host_player_binds)
+        if (m->capture_assist || host_player_binds) {
             launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
-        else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
+            if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, (int)LNG_EVSCAN(ev));
+        } else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
             launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn, m->capture_slot,
                                      RUI_N64_FIELD_KEY, (int)LNG_EVSCAN(ev));
         else if (alt_slots)
@@ -15191,9 +15225,11 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         // NULL brand => the shared dots; a non-NULL EMPTY string => the profile
         // opts out of a corner emblem entirely (N64 leads with its wordmark).
         // Only load when there's an actual filename.
+        // A game's own mark (recomp_target_launcher_ui BRAND) wins over all of it.
+        g_brand = launcher_texture_load(asset("assets/img/brand_game.tga").c_str());
         const char* brand_file = bprof && bprof->brand
                                    ? bprof->brand : "brand_mark.tga";
-        if (brand_file && brand_file[0])
+        if (!g_brand.id && brand_file && brand_file[0])
             g_brand = launcher_texture_load(
                 asset((std::string("assets/img/") + brand_file).c_str()).c_str());
         // Optional platform wordmark: loads only if the profile names one AND

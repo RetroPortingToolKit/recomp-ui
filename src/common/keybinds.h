@@ -17,7 +17,7 @@ extern "C" {
  * Four more slots (l2, r2, l3, r3) are appended after those 12 for systems
  * with a deeper button set than SNES (PSX: L2/R2 shoulders, L3/R3 stick
  * clicks). They're purely additive: an old 12-field keybinds.ini simply
- * leaves them unbound (SDL_SCANCODE_UNKNOWN) until saved again. Two players.
+ * leaves them unbound (SDL_SCANCODE_UNKNOWN) until saved again. Up to eight players.
  * Each button maps to one SDL_Scancode.
  *
  * The button bitmask returned by recompui_keybinds_read_player() uses the same
@@ -48,9 +48,16 @@ typedef struct {
     SDL_Scancode l2, r2, l3, r3;   // deeper (PSX-style) shoulder/stick-click slots
 } PlayerBinds;
 
+/* Players 1 and 2 keep their historical fields. Players 3..8 exist for
+ * multitap titles (keybinds.ini [player3]..[player8]); they start unbound and
+ * their sections are written only once something names or binds them, so a
+ * two-player title's keybinds.ini is unchanged. */
+#define KEYBINDS_MAX_PLAYERS 8
+
 typedef struct {
     PlayerBinds p1;
     PlayerBinds p2;
+    PlayerBinds extra[KEYBINDS_MAX_PLAYERS - 2];   /* players 3..8 */
 } KeyBinds;
 
 /* Initialize keybinds from <exe_dir>/keybinds.ini. Generates a default
@@ -60,7 +67,7 @@ void recompui_keybinds_init(const char *exe_path);
 /* Get current keybind configuration (read-only view). */
 const KeyBinds *recompui_keybinds_get(void);
 
-/* Build a 12-bit SNES button bitmask for the given player (1 or 2)
+/* Build a 12-bit SNES button bitmask for the given player (1..KEYBINDS_MAX_PLAYERS)
  * from the SDL keyboard state. See header docstring for bit layout. */
 uint16_t recompui_keybinds_read_player(const uint8_t *keys, int player);
 
@@ -73,7 +80,7 @@ uint16_t recompui_keybinds_read_player(const uint8_t *keys, int player);
  * keycode names). */
 int          recompui_keybinds_button_count(void);
 const char  *recompui_keybinds_button_name(int button);              /* "a".."right" */
-SDL_Scancode recompui_keybinds_get_button(int player, int button);   /* player 1|2 */
+SDL_Scancode recompui_keybinds_get_button(int player, int button);   /* player 1..KEYBINDS_MAX_PLAYERS */
 void         recompui_keybinds_set_button(int player, int button, SDL_Scancode sc);
 /* Reset one player's bindings to the built-in defaults (P2 = all unbound). */
 void         recompui_keybinds_reset_player(int player);

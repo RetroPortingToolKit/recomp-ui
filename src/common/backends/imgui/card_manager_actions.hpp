@@ -26,7 +26,7 @@ inline void sync() {
 }
 inline void command(RecompCardOp op,int slot,size_t entry=0,int destination=0,const std::filesystem::path& path={},bool confirmed=false,uint64_t revision=UINT64_MAX) {
     if(!service)throw std::runtime_error("No card service");
-    std::string u8=path.u8string();char error[1024]{};
+    std::string u8=cardview::utf8_bytes(path);char error[1024]{};
     RecompCardCommand c{op,slot,destination,confirmed?1:0,entry,revision==UINT64_MAX?cards[slot].revision:revision,u8.c_str()};
     if(!api->command(service,&c,error,sizeof(error)))throw std::runtime_error(error);
     sync();

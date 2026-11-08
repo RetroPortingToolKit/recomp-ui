@@ -86,8 +86,8 @@ inline void pane(LauncherModel* m,int slot,ImVec2 size) {
     float reserve=action_rows(width,slot)*ImGui::GetFrameHeightWithSpacing()+2*ImGui::GetStyle().WindowPadding.y;
     ImGui::BeginChild("card_body",ImVec2(0,std::max(1.0f,ImGui::GetContentRegionAvail().y-reserve)));
     ImGui::Text("Memory Card %d%s",slot+1,v.dirty()?"  * Unsaved changes":"");
-    auto name=v.snapshot.path.filename().u8string();auto short_name=fit(name.empty()?"No card selected":name,ImGui::GetContentRegionAvail().x);
-    ImGui::TextUnformatted(short_name.c_str());if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",v.snapshot.path.u8string().c_str());
+    auto name=cardview::utf8_bytes(v.snapshot.path.filename());auto short_name=fit(name.empty()?"No card selected":name,ImGui::GetContentRegionAvail().x);
+    ImGui::TextUnformatted(short_name.c_str());if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",cardview::utf8_bytes(v.snapshot.path).c_str());
     toolbar(m,slot);
     if(!v.error.empty())ImGui::TextWrapped("Unavailable: %s",v.error.c_str());
     else if(v.loaded()) {
@@ -162,7 +162,7 @@ inline void draw_details() {
         const auto& v=cards[details_slot];
         if(selected(v)) {
             const auto& s=v.card.saves[v.selected];ImGui::TextWrapped("%s",title(s).c_str());ImGui::Separator();
-            ImGui::Text("Memory Card: %d",details_slot+1);ImGui::TextWrapped("Path: %s",v.snapshot.path.u8string().c_str());
+            ImGui::Text("Memory Card: %d",details_slot+1);ImGui::TextWrapped("Path: %s",cardview::utf8_bytes(v.snapshot.path).c_str());
             ImGui::Text("PS1 file: %s",s.name.c_str());ImGui::Text("Game ID: %s",s.game_id.c_str());ImGui::Text("Region: %s",s.region.c_str());
             ImGui::Text("Size: %zu bytes | %zu blocks | %zu icon frames",s.bytes,s.blocks.size(),s.icons.size());
             ImGui::Text("Structure: %s",v.card.editable()?"Valid chain and directory":"Card has errors / unsupported features");
@@ -181,7 +181,7 @@ inline void dialogs() {
         if(ImGui::BeginPopupModal("Save Card confirmation",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
             auto& p=save_prompt;const auto& d=cards[p.slot];
             ImGui::Text("Save Memory Card %d?",p.slot+1);
-            ImGui::TextWrapped("%s",(p.output.empty()?d.snapshot.path:p.output).u8string().c_str());
+            ImGui::TextWrapped("%s",cardview::utf8_bytes(p.output.empty()?d.snapshot.path:p.output).c_str());
             ImGui::TextWrapped("Write this complete card draft after validation and verified backups? Existing Save As targets are never overwritten.");
             if(ImGui::Button("Cancel"))p.active=false;
             ImGui::SameLine();if(ImGui::Button("Save"))confirm_save();
@@ -205,7 +205,7 @@ inline void dialogs() {
             if(guard.next==Next::none){guard.shown=false;ImGui::CloseCurrentPopup();}
             else {
                 int slot=guard.slot;ImGui::Text("Memory Card %d has unsaved changes.",slot+1);
-                ImGui::TextWrapped("%s",cards[slot].snapshot.path.u8string().c_str());
+                ImGui::TextWrapped("%s",cardview::utf8_bytes(cards[slot].snapshot.path).c_str());
                 ImGui::TextWrapped("Save the draft before closing or opening another card?");
                 if(ImGui::Button("Keep Editing")){guard.next=Next::none;guard.shown=false;ImGui::CloseCurrentPopup();}
                 ImGui::SameLine();if(ImGui::Button("Discard Changes"))discard_guard();
