@@ -19,6 +19,10 @@ struct Result {std::filesystem::path path;std::string error;};
 }
 #endif
 namespace cardview {
+inline std::string utf8_bytes(const std::filesystem::path& path) {
+    const auto text = path.u8string();
+    return std::string(reinterpret_cast<const char*>(text.data()), text.size());
+}
 struct Save {std::string name,title,region,game_id,raw_title;size_t bytes=0;std::vector<int> blocks;std::vector<std::array<uint32_t,256>> icons;};
 struct Card {std::vector<Save> saves;std::vector<std::string> errors,warnings;std::array<bool,15> occupied{};int free_blocks=0;bool valid_flag=false,editable_flag=false;bool valid()const{return valid_flag;}bool editable()const{return editable_flag;}};
 struct View {struct Snapshot {std::filesystem::path path;bool readonly=false;}snapshot;Card card;std::string error;int selected=-1;uint64_t revision=0;bool loaded_flag=false,dirty_flag=false,writable_flag=false;bool loaded()const{return loaded_flag;}bool dirty()const{return dirty_flag;}};
