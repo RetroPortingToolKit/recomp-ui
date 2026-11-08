@@ -99,6 +99,11 @@ static const char* ui_text(const char* en) {
     return launcher_i18n_text(en);
 }
 
+static bool is_ps2_host(const LauncherModel* m) {
+    const auto* profile=m?(const SystemProfile*)m->profile:nullptr;
+    return profile&&profile->id&&!strcmp(profile->id,"ps2");
+}
+
 struct ShaderPresetEntry {
     std::string label;
     std::string path;
@@ -2237,13 +2242,15 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
     }
     ImGui::Dummy(ImVec2(0, px(10)));
 
+    // Linked PS2 titles have no media picker or disc-verification surface.
+    // Their title already belongs to the header; implementation filenames do
+    // not supply useful game information here.
+    if (linked_ps2) { end_panel(); return; }
+
     // Region + verification state, centered under the art.
     const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
     if (disc_verdict) {
         draw_verdict_block(m, th, availw);
-    } else if (linked_ps2) {
-        ImGui::TextWrapped("%s", m->game_name);
-        ImGui::TextColored(col(th.text_muted), "%s", m->rom_present ? "Disc loaded" : "Disc unavailable");
     } else {
         const bool verified = launcher_model_rom_verified(m);
         char line[64];
@@ -2274,7 +2281,6 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::EndTable();
     }
     ImGui::Dummy(ImVec2(0, px(12)));
-    if (linked_ps2) { end_panel(); return; }
     // "Browse For Disc 2", not "Change Disc": on a multi-disc set the button
     // does not swap which disc the game is on — the Disc Selection dropdown
     // above does that — it re-points the SELECTED disc at a file on this
@@ -10795,6 +10801,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                   "%s %s", ui_text("Install"), archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
+    if (!is_ps2_host(m)) {
     if (ImGui::Button(install_label)) {
         ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
                      archive_description, [m, mods](const char* path) {
@@ -10807,6 +10814,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
         });
     }
     ImGui::SameLine();
+    }
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", "Search mods and options...",
                              m->mod_search, sizeof(m->mod_search));
@@ -11281,6 +11289,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                   "Install %s", archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
+    if (!is_ps2_host(m)) {
     if (ImGui::Button(install_label)) {
         ui_pick_file(m, "Install Mod Package", {archive_pattern},
                      archive_description, [m, mods](const char* path) {
@@ -11295,18 +11304,19 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         });
     }
     ImGui::SameLine();
+    }
     if (ImGui::Button(ui_text("Enable all")))
         set_all_mod_features(m, true);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", ui_text("Enable every installed mod feature"));
+        ImGui::SetTooltip("%s", ui_text(is_ps2_host(m)?"Enable every mod feature":"Enable every installed mod feature"));
     ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
         set_all_mod_features(m, false);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s", ui_text("Disable every installed mod feature"));
+        ImGui::SetTooltip("%s", ui_text(is_ps2_host(m)?"Disable every mod feature":"Disable every installed mod feature"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
-    ImGui::InputTextWithHint("##mod_search", ui_text("Search features, groups, packages..."),
+    ImGui::InputTextWithHint("##mod_search", ui_text(is_ps2_host(m)?"Search mods...":"Search features, groups, packages..."),
                              m->mod_search, sizeof(m->mod_search));
     if (m->mod_status[0]) {
         ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
@@ -11710,7 +11720,8 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
         mods->feature_set_option;
     if (!feature_provider) m->mod_show_packages = true;
 
-    if (feature_provider) {
+    if (feature_provider && is_ps2_host(m)) m->mod_show_packages=false;
+    if (feature_provider && !is_ps2_host(m)) {
         if (ImGui::RadioButton(ui_text("Features"), !m->mod_show_packages))
             m->mod_show_packages = false;
         ImGui::SameLine();
@@ -11796,7 +11807,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const float cta_y  = band_y + (band_h - play_h) * 0.5f;
 
     const ImVec2 win = ImGui::GetWindowPos();
-    if (m->view == LNG_VIEW_DASHBOARD) {
+    if (m->view == LNG_VIEW_DASHBOARD && !is_ps2_host(m)) {
         bool skip = m->s.skip_launcher != 0;
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
         if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
@@ -13285,7 +13296,26 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     // console that ships its OWN (typically wide) wordmark (SystemProfile.brand
     // — the NES pill, the Genesis logo) draws it larger, sized to a target
     // HEIGHT with proportional width so the logo reads clearly.
-    if (g_brand.id && g_brand.w > 0) {
+    if (is_ps2_host(m)) {
+        const float line_h=ImGui::GetTextLineHeight();
+        const float block_h=line_h*1.55f+ImGui::GetStyle().ItemSpacing.y+line_h;
+        ImGui::SetCursorPosY(hdr_top+(block_h-px(34.0f))*0.5f);
+        const ImVec2 origin=ImGui::GetCursorScreenPos();
+        ImDrawList* dl=ImGui::GetWindowDrawList();
+        const float heights[3]={20.0f,30.0f,24.0f};
+        for(int i=0;i<3;++i){
+            const float x=origin.x+px(2.0f+12.0f*i);
+            const float bottom=origin.y+px(34.0f);
+            const float top=bottom-px(heights[i]);
+            const float right=x+px(8.0f),depth=px(4.0f);
+            dl->AddRectFilled(ImVec2(x,top),ImVec2(right,bottom),IM_COL32(42,111,230,255));
+            dl->AddQuadFilled(ImVec2(x,top),ImVec2(x+depth,top-depth),ImVec2(right+depth,top-depth),ImVec2(right,top),IM_COL32(102,177,255,255));
+            dl->AddQuadFilled(ImVec2(right,top),ImVec2(right+depth,top-depth),ImVec2(right+depth,bottom-depth),ImVec2(right,bottom),IM_COL32(20,60,139,255));
+        }
+        ImGui::Dummy(ImVec2(px(44.0f),px(34.0f)));
+        ImGui::SameLine(0,px(12.0f));
+        ImGui::SetCursorPosY(hdr_top);
+    } else if (g_brand.id && g_brand.w > 0) {
         const SystemProfile* hprof = (const SystemProfile*)m->profile;
         const bool own_brand = hprof && hprof->brand && hprof->brand[0];
         float brand_w = 44.0f, brand_h = 33.0f;

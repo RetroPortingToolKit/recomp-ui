@@ -3,7 +3,7 @@
 #ifndef RUI_CONSOLE_PS2_PROFILE_H
 #define RUI_CONSOLE_PS2_PROFILE_H
 #include "../psx/psx_profile.h"
-static const char* const kPanelsDashboardPs2[]={"game","controller",NULL};
+static const char* const kPanelsDashboardPs2[]={"controller",NULL};
 static const char* const kPanelsSettingsPs2[]={"video","audio",NULL};
 static const SystemProfile kSystemProfilePs2 = {
     /* id       */ "ps2",
@@ -39,7 +39,7 @@ static const SystemProfile kSystemProfilePs2 = {
                               "PlayStation 2 disc (.iso/.bin)" },
     /* renderer_labels   */ NULL,
     /* hide_audio_freq   */ 1,
-    /* brand             */ NULL,
+    /* brand             */ "",     // original blue block emblem is drawn by the PS2 theme
     /* wordmark_image    */ NULL,
 };
 static inline int launcher_console_is_ps2(const char* name) {
