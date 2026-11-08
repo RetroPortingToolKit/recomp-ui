@@ -212,7 +212,8 @@ static const char* kHotkeyKey[] = {
     "WindowBigger", "WindowSmaller", "VolumeUp", "VolumeDown",
     "DisplayPerf", "ToggleRenderer",
     "SolarBrighter", "SolarDimmer", "SolarLive",
-    "Rewind", "SaveStateMenu", "OpenLauncher", "TurboToggle", "QuickSave", "QuickLoad"
+    "Rewind", "SaveStateMenu", "OpenLauncher", "TurboToggle", "QuickSave", "QuickLoad",
+    "Scanlines", "ReplayRecord", "AnalogMode", "RuntimeMenu", "SwapControllerPorts", "MouseCapture", "CaptureMark"
 };
 // Built-in defaults (shown when config.ini has no line; "" = unbound).
 static const char* kHotkeyDef[] = {
@@ -221,7 +222,8 @@ static const char* kHotkeyDef[] = {
      * (psxrecomp host_keymap reads these from [KeyMap]). */
     "", "", "Keypad +", "Keypad -", "F", "R",
     "", "", "",
-    "F8", "F7", "Ctrl+L", "F9", "F5", "Shift+F5"
+    "F8", "F7", "Ctrl+L", "F9", "F5", "Shift+F5",
+    "F6", "F12", "F3", "F1", "Ctrl+F6", "Ctrl+F10", "Ctrl+M"
 };
 /* Sized by their initializers, so a hotkey added to LngHotkey without a key
  * and a default here fails the build instead of reading a NULL. */
@@ -399,13 +401,18 @@ static const char* config_path(void) {
              ? g_launcher_config_path : "config.ini";
 }
 
+static const char* hotkey_default(const LauncherModel* m, int h) {
+    if (is_psx_profile(m)) {
+        if (h==LNG_HK_FULLSCREEN) return "F11,Alt+Return,Ctrl+F";
+        if (h==LNG_HK_OPEN_LAUNCHER) return "Ctrl+L,F10";
+    }
+    return kHotkeyDef[h];
+}
+
 // Fill m->hotkeys[] from config.ini [KeyMap] (or defaults where absent).
 static void reload_hotkey_display(LauncherModel* m) {
     for (int h = 0; h < LNG_HK_COUNT; ++h)
-        copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), kHotkeyDef[h]);
-    if (is_psx_profile(m))
-        copy_str(m->hotkeys[LNG_HK_FULLSCREEN], sizeof(m->hotkeys[LNG_HK_FULLSCREEN]),
-                 "F11,Alt+Return,Ctrl+F");
+        copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), hotkey_default(m,h));
 
     long len = 0; char* text = read_whole(config_path(), &len);
     if (!text) return;
@@ -1571,4 +1578,70 @@ void launcher_binds_set_hotkey(LauncherModel* m, LngHotkey h, int keycode, int k
     // missing line keeps the default.
     keymap_write(kHotkeyKey[h], val[0] ? val : "None");
     copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), val[0] ? val : "(unbound)");
+}
+
+static int hotkey_token(const char* token, SDL_Keycode* key, int* mods) {
+    char text[64];
+    snprintf(text,sizeof text,"%s",token?token:"");
+    char* p=text;
+    *mods=0;
+    while (*p==' ' || *p=='\t') ++p;
+    for (;;) {
+        if (!strncasecmp(p,"Ctrl+",5)) { *mods|=SDL_KMOD_CTRL; p+=5; }
+        else if (!strncasecmp(p,"Alt+",4)) { *mods|=SDL_KMOD_ALT; p+=4; }
+        else if (!strncasecmp(p,"Shift+",6)) { *mods|=SDL_KMOD_SHIFT; p+=6; }
+        else break;
+    }
+    while (*p==' ' || *p=='\t') ++p;
+    size_t n=strlen(p);
+    while(n && (p[n-1]==' ' || p[n-1]=='\t')) p[--n]=0;
+    *key=SDL_GetKeyFromName(p);
+    return *key!=SDLK_UNKNOWN;
+}
+int launcher_binds_hotkeys_equal(const char* a,const char* b) {
+    SDL_Keycode ka,kb; int ma,mb;
+    return hotkey_token(a,&ka,&ma) && hotkey_token(b,&kb,&mb) && ka==kb && ma==mb;
+}
+
+int launcher_binds_hotkey_slots(const LauncherModel* m, LngHotkey h, char slots[4][64]) {
+    if (!m || h < 0 || h >= LNG_HK_COUNT) return 0;
+    char text[260];
+    copy_str(text, sizeof text, m->hotkeys[h]);
+    int count = 0;
+    char* saved = NULL;
+    for (char* token = strtok_r(text, ",", &saved); token && count < 4;
+         token = strtok_r(NULL, ",", &saved)) {
+        while (*token == ' ' || *token == '\t') ++token;
+        size_t length = strlen(token);
+        while (length && (token[length-1] == ' ' || token[length-1] == '\t')) token[--length] = 0;
+        if (!length || ieq(token, length, "None") || ieq(token, length, "(unbound)")) continue;
+        copy_str(slots[count++], 64, token);
+    }
+    return count;
+}
+
+void launcher_binds_set_hotkey_slot(LauncherModel* m, LngHotkey h, int slot, int keycode, int kmod) {
+    char slots[4][64] = {{0}}, next[64], text[260] = "";
+    const int count = launcher_binds_hotkey_slots(m, h, slots);
+    if (!m || h < 0 || h >= LNG_HK_COUNT || slot < 0 || slot > count || slot >= 4) return;
+    format_hotkey(keycode, kmod, next, sizeof next);
+    for (int i = 0; i < count || i == slot; ++i) {
+        const char* value = i == slot ? next : slots[i];
+        if (!value[0]) continue;
+        if (text[0]) strncat(text, ",", sizeof text-strlen(text)-1);
+        strncat(text, value, sizeof text-strlen(text)-1);
+    }
+    keymap_write(kHotkeyKey[h], text[0] ? text : "None");
+    copy_str(m->hotkeys[h], sizeof m->hotkeys[h], text[0] ? text : "(unbound)");
+}
+
+void launcher_binds_reset_hotkeys(LauncherModel* m, uint32_t mask) {
+    if (!m) return;
+    launcher_model_cancel_hk_capture(m);
+    for (int h = 0; h < LNG_HK_COUNT; ++h) {
+        if (!(mask & (1u << h))) continue;
+        const char* value = hotkey_default(m,h);
+        keymap_write(kHotkeyKey[h], value[0] ? value : "None");
+    }
+    reload_hotkey_display(m);
 }

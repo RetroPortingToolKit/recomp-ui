@@ -88,10 +88,24 @@ int main() {
     CHECK(p && p->abi_version == PSX_MENU_ABI_VERSION && !std::strcmp(p->name, "recomp-ui"));
 
 #if defined(PSX_MENU_HOST_HAS_DEFAULT_SELECTION)
-    // Chosen by default for a single-disc title: keep its presentation.
-    g_discs = 1;
+    // Every title has a Disc page; only valid backend operations are enabled.
+    for (int count = 0; count <= 1; ++count) {
+    g_discs = count;
     PsxMenuHost dh = make_host(1);
-    CHECK(p->attach(p->ctx, nullptr, nullptr, &dh) == 0);
+    const int attached = p->attach(p->ctx, nullptr, nullptr, &dh);
+    CHECK(attached == 1);
+    if (attached) {
+        in(T);
+        CHECK(p->is_open(p->ctx));
+        CHECK(go("Graphics", "graphics.render_thread"));
+        CHECK(go("Disc", "media.disc"));
+        CHECK(go("Disc", "media.insert"));
+        g_inserted = 0;
+        in(A);
+        CHECK(g_inserted == (count ? 1 : 0));
+        p->detach(p->ctx);
+    }
+    }
 #endif
     // Chosen by default for a multi-disc title, or by the title: attach.
     g_discs = 3;

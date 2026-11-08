@@ -1644,7 +1644,8 @@ struct RecompLauncherCSettings {
 #define RECOMP_LAUNCHER_VSYNC_ON       1
 #define RECOMP_LAUNCHER_VSYNC_OFF      2
 #define RECOMP_LAUNCHER_VSYNC_ADAPTIVE 3
-#define RECOMP_LAUNCHER_VSYNC_COUNT    3
+#define RECOMP_LAUNCHER_VSYNC_VRR      4
+#define RECOMP_LAUNCHER_VSYNC_COUNT    4
 
 /* Values for RecompLauncherSettings.fmv_filter (1-based; 0 = unset). */
 #define RECOMP_LAUNCHER_FMV_FILTER_NEAREST  1

@@ -168,6 +168,8 @@ typedef enum {
     LNG_HK_TURBO_TOGGLE, /* PSX press-to-latch fast-forward → [KeyMap] TurboToggle */
     LNG_HK_QUICK_SAVE,
     LNG_HK_QUICK_LOAD,
+    LNG_HK_SCANLINES, LNG_HK_REPLAY_RECORD, LNG_HK_ANALOG_MODE,
+    LNG_HK_RUNTIME_MENU, LNG_HK_SWAP_CONTROLLER_PORTS, LNG_HK_MOUSE_CAPTURE, LNG_HK_CAPTURE_MARK,
     LNG_HK_COUNT
 } LngHotkey;
 
@@ -791,6 +793,7 @@ typedef struct {
     bool      capture_assist;      // capture_btn indexes assist bindings
     bool      hk_capturing;      // capturing a system hotkey
     LngHotkey capture_hk;
+    int capture_hk_slot;
     // Per-player bind-label display strings, indexed like capture_btn.
     // binds[] is slot 0 (the primary bind — every console); binds_alt[] is
     // slot 1, filled only by bind bridges with two slots per input (N64).
@@ -801,7 +804,7 @@ typedef struct {
     // launcher_binds.c's per-console bridge alongside the keyboard labels.
     char      pad_binds[LNG_MAX_PLAYERS][LNG_MAX_BUTTONS][32];
     char      camera_binds[LNG_CAMERA_BIND_COUNT][32];
-    char      hotkeys[LNG_HK_COUNT][32];    // [KeyMap] value strings, e.g. "Ctrl+R"
+    char      hotkeys[LNG_HK_COUNT][260];    // [KeyMap] value strings, e.g. "Ctrl+R"
 } LauncherModel;
 
 // Build the model from the inbound C ABI structs. `initial_rom` may be NULL.

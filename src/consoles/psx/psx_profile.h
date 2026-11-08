@@ -138,7 +138,11 @@ static const SystemProfile kSystemProfilePsx = {
                                    (1u << LNG_HK_SAVE_STATE_MENU) |
                                    (1u << LNG_HK_TURBO_TOGGLE)    |
                                    (1u << LNG_HK_QUICK_SAVE)     |
-                                   (1u << LNG_HK_QUICK_LOAD)),
+                                   (1u << LNG_HK_QUICK_LOAD) | (1u << LNG_HK_OPEN_LAUNCHER) |
+                                   (1u << LNG_HK_SCANLINES) | (1u << LNG_HK_REPLAY_RECORD) |
+                                   (1u << LNG_HK_ANALOG_MODE) | (1u << LNG_HK_RUNTIME_MENU) |
+                                   (1u << LNG_HK_SWAP_CONTROLLER_PORTS) | (1u << LNG_HK_MOUSE_CAPTURE) |
+                                   (1u << LNG_HK_CAPTURE_MARK)),
     /* panels_dashboard  */ kPanelsDashboardPsx,
     /* panels_settings   */ kPanelsSettingsPsx,
     /* panels_controller */ kPanelsControllerCommon,

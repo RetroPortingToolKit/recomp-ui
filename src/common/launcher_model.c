@@ -57,7 +57,9 @@ static const char* kHotkeyNames[] = {
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
     "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
-    "Quick save", "Quick load"
+    "Quick save", "Quick load",
+    "Toggle scanlines", "Record replay", "Analog button",
+    "Runtime menu", "Swap controller ports", "Capture mouse", "Diagnostic capture mark"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
@@ -2742,13 +2744,15 @@ void launcher_model_cycle_vsync(LauncherModel* m) {
     int cur = m->s.vsync;
     if (cur < 1 || cur > RECOMP_LAUNCHER_VSYNC_COUNT)
         cur = RECOMP_LAUNCHER_VSYNC_ON;
-    m->s.vsync = (cur % RECOMP_LAUNCHER_VSYNC_COUNT) + 1;
+    const int count=m->profile && !strcmp(m->profile->id,"psx") ? RECOMP_LAUNCHER_VSYNC_COUNT : 3;
+    m->s.vsync = (cur % count) + 1;
 }
 
 const char* launcher_model_vsync_label(const LauncherModel* m) {
     switch (m ? m->s.vsync : RECOMP_LAUNCHER_VSYNC_ON) {
         case RECOMP_LAUNCHER_VSYNC_OFF:      return "Off";
         case RECOMP_LAUNCHER_VSYNC_ADAPTIVE: return "Adaptive";
+        case RECOMP_LAUNCHER_VSYNC_VRR:      return "VRR";
         default:                             return "On";
     }
 }
@@ -5329,6 +5333,7 @@ void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey h) {
     m->camera_capturing = false;
     m->hk_capturing = true;
     m->capture_hk   = h;
+    m->capture_hk_slot = 0;
 }
 void launcher_model_cancel_hk_capture(LauncherModel* m) { m->hk_capturing = false; }
 

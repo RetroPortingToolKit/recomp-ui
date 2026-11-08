@@ -147,6 +147,10 @@ int launcher_binds_psx_name_is_custom(const char* guid);
 // modifier mask; pass keycode==0 to UNBIND. Persists to config.ini [KeyMap]
 // and refreshes the model's display string.
 void launcher_binds_set_hotkey(LauncherModel* m, LngHotkey h, int keycode, int kmod);
+int launcher_binds_hotkey_slots(const LauncherModel* m, LngHotkey h, char slots[4][64]);
+int launcher_binds_hotkeys_equal(const char* a,const char* b);
+void launcher_binds_set_hotkey_slot(LauncherModel* m, LngHotkey h, int slot, int keycode, int kmod);
+void launcher_binds_reset_hotkeys(LauncherModel* m, uint32_t mask);
 
 // NES Zapper switches were toggled (mouse-as-gun / crosshair). Persists to
 // keybinds.ini [zapper] via the NES-native bridge's surgical writer; the

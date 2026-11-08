@@ -1,5 +1,21 @@
 # Settings standard (every console)
 
+Private PSX017 update (Alex,2026-11-08): PlayStation Settings now starts on
+General (BIOS, audio, hotkeys and input) and has a Display tab for graphics.
+CRT, filtering, internal resolution and PGXP controls move from Mods to
+Display; enhanced audio and rewind controls move to General. Their existing
+provider and persisted values remain authoritative. Game-specific and
+third-party packages stay in Mods. Other console profiles keep their current
+surfaces and capabilities. This PSX instruction supersedes the older
+presentation policy below for these built-in preferences.
+
+The PSX Hotkeys editor exposes every runtime action, up to four alternatives
+per action, individual removal and Reset hotkeys to defaults. Reset restores
+current defaults, including F11/Alt+Return/Ctrl+F, F6 scanlines, F12 recording
+and F5/Shift+F5 quick state controls; it does not change the proposed F-key
+layout or unrelated configuration sections.
+
+
 The launcher's Settings page, and the in-game menu's Settings view, hold the
 player's **PC and system** choices only. Anything that changes the game's
 picture, sound or play is a **mod**. This applies to every console recomp-ui

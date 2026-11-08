@@ -7,5 +7,5 @@
  * the Mods page. */
 static inline int launcher_quick_listed(const RecompLauncherCModProvider* p,
                                         const RecompLauncherCModFeature* f) {
-    return p && f && f->quick && launcher_mod_feature_listed(p, f);
+    return p && f && f->quick && !launcher_settings_group(f->package_id) && launcher_mod_feature_listed(p, f);
 }

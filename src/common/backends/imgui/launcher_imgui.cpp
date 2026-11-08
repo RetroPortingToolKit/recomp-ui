@@ -3329,6 +3329,7 @@ static int dash_card_columns(float availw, float gap, float cardw, int count) {
 }
 
 static void draw_quick_mods(LauncherModel* m,const LauncherTheme& th);
+static void draw_preference_features(LauncherModel* m, const LauncherTheme& th, const char* group);
 
 void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
@@ -5156,6 +5157,7 @@ static const struct { int v; const char* label; } kVsyncChoices[] = {
     { RECOMP_LAUNCHER_VSYNC_OFF,      "Off" },
     { RECOMP_LAUNCHER_VSYNC_ON,       "On" },
     { RECOMP_LAUNCHER_VSYNC_ADAPTIVE, "Adaptive" },
+    { RECOMP_LAUNCHER_VSYNC_VRR, "VRR" },
 };
 /* The VSync dropdown's width: its widest choice. */
 static float vsync_combo_w(const LauncherTheme& th) {
@@ -5180,17 +5182,8 @@ bool draw_vsync_overridden_row(LauncherModel* m, const LauncherTheme& th) {
     return true;
 }
 
-void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
-    eyebrow("DISPLAY");
-
-    if (!any_deep_display(m)) {
-        // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
-        // Labels at the left edge, controls at the right (row_label_right), so
-        // no measuring pass over the labels is needed and the card reads as a
-        // grid flush on both sides.
-        const float cb = ImGui::GetFrameHeight();   // a checkbox is square
-        row_window_scale(m, th);
-        if (launcher_model_render_pipeline_offered(m)) {
+static void draw_render_pipeline(LauncherModel* m,const LauncherTheme& th) {
+if (launcher_model_render_pipeline_offered(m)) {
         row_label_right("Render thread", th, px(SETTINGS_CTRL_W));
         bool rt = m->s.render_thread != 0;
         if (ImGui::Checkbox("##render_thread", &rt))
@@ -5216,6 +5209,19 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
                               "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
         ImGui::EndDisabled();
     }
+}
+
+void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+    eyebrow("DISPLAY");
+
+    if (!any_deep_display(m)) {
+        // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
+        // Labels at the left edge, controls at the right (row_label_right), so
+        // no measuring pass over the labels is needed and the card reads as a
+        // grid flush on both sides.
+        const float cb = ImGui::GetFrameHeight();   // a checkbox is square
+        row_window_scale(m, th);
+        draw_render_pipeline(m,th);
 
     // Universal fullscreen row (every console; Off/Borderless/Exclusive,
         // the legacy launcher's vocabulary). Sits right under Window scale,
@@ -5559,6 +5565,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         }
     }
 
+    if (m->profile && !strcmp(m->profile->id,"psx")) draw_render_pipeline(m,th);
+
     // Frame interpolation is only meaningful under OpenGL (Software has no
     // interpolation pass); Presentation target only matters once frame
     // interpolation is actually on.
@@ -5584,7 +5592,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         if (ImGui::BeginCombo("##vsync_mode",
                               ui_text(launcher_model_vsync_label(m)))) {
             for (const auto& o : kVsyncChoices)
-                if (ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
+                if ((o.v!=RECOMP_LAUNCHER_VSYNC_VRR || (m->profile && !strcmp(m->profile->id,"psx"))) && ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
                     launcher_model_set_vsync(m, o.v);
             ImGui::EndCombo();
         }
@@ -6198,6 +6206,58 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
     // Likewise a host capability: only a host that reopens this launcher
     // mid-game has anything to bind.
     if (m->has_open_launcher_hotkey) mask |= 1u << LNG_HK_OPEN_LAUNCHER;
+    if (ImGui::Button(ui_text("Reset hotkeys to defaults")))
+        launcher_binds_reset_hotkeys(m, mask);
+    ImGui::Spacing();
+    if (prof && prof->id && !std::strcmp(prof->id, "psx")) {
+        int columns = (int)(ImGui::GetContentRegionAvail().x / px(340));
+        columns = columns < 1 ? 1 : (columns > 3 ? 3 : columns);
+        if (ImGui::BeginTable("psx_hotkeys", columns)) {
+            for (int h = 0; h < LNG_HK_COUNT; ++h) {
+                if (!(mask & (1u << h))) continue;
+                ImGui::TableNextColumn();
+                ImGui::PushID(h);
+                ImGui::TextUnformatted(ui_text(launcher_hotkey_name((LngHotkey)h)));
+                char bindings[4][64] = {};
+                const int count = launcher_binds_hotkey_slots(m, (LngHotkey)h, bindings);
+                for (int slot = 0; slot < count || (slot == count && slot < 4); ++slot) {
+                    ImGui::PushID(slot);
+                    const bool capture = m->hk_capturing && m->capture_hk == (LngHotkey)h && m->capture_hk_slot == slot;
+                    int duplicate = -1;
+                    if (slot < count) for (int other = 0; other < LNG_HK_COUNT; ++other) {
+                        if (other == h || !(mask & (1u << other))) continue;
+                        char theirs[4][64] = {};
+                        const int n = launcher_binds_hotkey_slots(m, (LngHotkey)other, theirs);
+                        for (int index = 0; index < n; ++index)
+                            if (launcher_binds_hotkeys_equal(bindings[slot], theirs[index])) duplicate = other;
+                    }
+                    if (duplicate >= 0) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+                    if (ImGui::Button(capture ? ui_text("[ press... ]") : slot < count ? bindings[slot] : ui_text("Add binding"), ImVec2(px(180), 0))) {
+                        launcher_model_begin_hk_capture(m, (LngHotkey)h);
+                        m->capture_hk_slot = slot;
+                    }
+                    if (duplicate >= 0) {
+                        ImGui::PopStyleColor();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also assigned to %s", ui_text(launcher_hotkey_name((LngHotkey)duplicate)));
+                    }
+                    if (slot < count) {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton(ui_text("Remove"))) {
+                            launcher_binds_set_hotkey_slot(m, (LngHotkey)h, slot, 0, 0);
+                            launcher_model_cancel_hk_capture(m);
+                            ImGui::PopID();
+                            break;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::Spacing();
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        return;
+    }
     // Same responsive grid treatment as the bindings list.
     const float cell_w = px(280.0f);
     int cols = (int)(ImGui::GetContentRegionAvail().x / cell_w);
@@ -6262,6 +6322,32 @@ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
 // still stack full-width below that — driven by the composition array + the
 // registry's available() gate.
 void draw_settings(LauncherModel* m, const LauncherTheme& th) {
+    const auto* settings_profile = (const SystemProfile*)m->profile;
+    if (settings_profile && settings_profile->id && !std::strcmp(settings_profile->id, "psx")) {
+        static int last_settings_frame = -2;
+        const int frame = ImGui::GetFrameCount();
+        const bool first = frame != last_settings_frame + 1;
+        last_settings_frame = frame;
+        if (ImGui::BeginTabBar("Settings tabs")) {
+            if (ImGui::BeginTabItem(ui_text("General"), nullptr, first ? ImGuiTabItemFlags_SetSelected : 0)) {
+                const char* ids[] = {"system", "audio", "hotkeys", "input", nullptr};
+                for (int i = 0; ids[i]; ++i) {
+                    const LauncherPanel* panel = find_composed(settings_profile->panels_settings, ids[i], m);
+                    if (panel) panel->draw(m, &th);
+                }
+                draw_preference_features(m, th, "General");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(ui_text("Display"))) {
+                const LauncherPanel* video = find_composed(settings_profile->panels_settings, "video", m);
+                if (video) video->draw(m, &th);
+                draw_preference_features(m, th, "Display");
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        return;
+    }
     if (m->settings_saved_on_exit) {
         ImGui::TextDisabled("Changes are saved when you press Play or close the launcher.");
         ImGui::Spacing();
@@ -12913,7 +12999,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
         for (int i = 0; i < count; ++i) {
             RecompLauncherCModPackage package{};
             if (!mods->package_get(mods->ctx, i, &package) ||
-                !launcher_mod_package_listed(mods, package.id)) continue;
+                !launcher_mod_package_listed(mods, package.id) || launcher_settings_group(package.id)) continue;
             if (first_listed < 0) first_listed = i;
             if (i == m->mod_package_selected) selected_listed = true;
             if (!mod_text_matches(m->mod_search, package)) continue;
@@ -12947,7 +13033,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::BeginChild("##mod_detail", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
         RecompLauncherCModPackage package{};
         if (mods->package_get(mods->ctx, m->mod_package_selected, &package) &&
-            launcher_mod_package_listed(mods, package.id)) {
+            launcher_mod_package_listed(mods, package.id) && !launcher_settings_group(package.id)) {
             ImGui::TextColored(col(th.accent2), "%s", package.name);
             ImGui::SameLine();
             ImGui::TextColored(col(th.text_muted), "%s", package.version);
@@ -13220,6 +13306,39 @@ static void draw_mod_feature_option(LauncherModel* m,
     ImGui::PopID();
 }
 
+static void draw_preference_features(LauncherModel* m, const LauncherTheme& th, const char* group) {
+    const auto* provider = m ? m->mods : nullptr;
+    if (!provider || !provider->feature_count || !provider->feature_get || !provider->feature_option_get) return;
+    for (int i = 0, count = provider->feature_count(provider->ctx); i < count; ++i) {
+        RecompLauncherCModFeature feature{};
+        if (!provider->feature_get(provider->ctx, i, &feature)) continue;
+        const char* page = launcher_settings_group(feature.package_id);
+        const bool runtime = page && !std::strcmp(page, "Runtime");
+        if (!page || std::strcmp(runtime ? feature.group : page, group)) continue;
+        ImGui::PushID(feature.package_id);
+        ImGui::PushID(feature.id);
+        if (ImGui::CollapsingHeader(ui_text(feature.name), ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::BeginDisabled(!launcher_model_can_open_mods(m));
+            if (!runtime) {
+                bool enabled = feature.enabled != 0;
+                if (ImGui::Checkbox(ui_text("Enabled"), &enabled)) change_mod_feature(m, feature, enabled);
+                ImGui::BeginDisabled(!feature.enabled);
+            }
+            for (int index = 0; index < feature.option_count; ++index) {
+                RecompLauncherCModOption option{};
+                if (provider->feature_option_get(provider->ctx, feature.package_id, feature.id, index, &option))
+                    draw_mod_feature_option(m, feature, option);
+            }
+            if (!runtime) ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            if (feature.status[0]) ImGui::TextWrapped("%s", feature.status);
+        }
+        ImGui::PopID();
+        ImGui::PopID();
+    }
+    (void)th;
+}
+
 static void draw_mod_feature_diagnostics(
     LauncherModel* m, const LauncherTheme& th,
     const RecompLauncherCModFeature& feature) {
@@ -13286,7 +13405,7 @@ static bool disable_all_mod_features(LauncherModel* m) {
         const RecompLauncherCModFeature& feature = features[index];
         /* A concealed feature keeps whatever its package and saved state
          * say; the player cannot see it, so a bulk action must not flip it. */
-        if (launcher_mod_feature_concealed(mods, &feature) ||
+        if (launcher_settings_group(feature.package_id) || launcher_mod_feature_concealed(mods, &feature) ||
             !feature.enabled)
             continue;
         if (!mods->feature_enable(mods->ctx, feature.package_id, feature.id,
@@ -13433,7 +13552,8 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         ModFeatureListItem item{};
         item.index = index;
         if (!mods->feature_get(mods->ctx, index, &item.feature) ||
-            !launcher_mod_feature_listed(mods, &item.feature)) {
+            !launcher_mod_feature_listed(mods, &item.feature) ||
+            launcher_settings_group(item.feature.package_id)) {
             continue;
         }
         ++listed_count;
@@ -15893,7 +16013,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             return true;
         }
         if (m->hk_capturing) {
-            launcher_binds_set_hotkey(m, m->capture_hk, 0, 0);
+            launcher_binds_set_hotkey_slot(m, m->capture_hk, m->capture_hk_slot, 0, 0);
             launcher_model_cancel_hk_capture(m);
             return true;
         }
@@ -16174,7 +16294,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     }
     // hotkey capture: wait past a bare modifier press for the real key
     if (is_modifier_scancode((SDL_Scancode)LNG_EVSCAN(ev))) return true;
-    launcher_binds_set_hotkey(m, m->capture_hk, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
+    launcher_binds_set_hotkey_slot(m, m->capture_hk, m->capture_hk_slot, (int)LNG_EVKEY(ev), (int)LNG_EVMOD(ev));
     launcher_model_cancel_hk_capture(m);
     return true;
 }

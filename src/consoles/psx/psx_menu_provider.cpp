@@ -109,6 +109,13 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
         close_menu();
         g_host->request_exit(PSX_MENU_EXIT_QUIT);
     } else if (is(item, "media.insert")) {
+        if (netplay() || g_disc < 1 || g_disc > disc_count() ||
+            !g_host->disc_path || !g_host->disc_path(g_disc) ||
+            !*g_host->disc_path(g_disc) || !g_host->disc_insert) {
+            status(disc_count() ? "No valid disc is selected, or disc changes are unavailable." :
+                                 "No disc roster is configured for this game.");
+            return 0;
+        }
         const int rc = g_host->disc_insert ? g_host->disc_insert(g_disc) : -1;
         if (rc != 0) {
             status(rc == 3 ? "Disc changes are unavailable in this game mode." : "That disc could not be inserted.");
@@ -120,7 +127,8 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
 }
 
 int cb_enabled(void *, const RecompRuntimeUiItem *item) {
-    if (item && item->key && !std::strncmp(item->key, "media.", 6)) return disc_count() > 1 && !netplay();
+    if (is(item, "media.insert")) return disc_count() > 0 && !netplay() && g_host && g_host->disc_insert;
+    if (is(item, "media.disc")) return disc_count() > 0 && !netplay();
     return 1;
 }
 
@@ -135,8 +143,8 @@ void cb_visibility(void *, int open) {
         g_restart = 0;
         const int mounted = g_host->disc_mounted ? g_host->disc_mounted() : 0;
         g_disc = mounted > 0 ? mounted : 1;
-        if (disc_count() > 1) std::snprintf(g_subtitle, sizeof g_subtitle, "Mounted: Disc %d", mounted);
-        else g_subtitle[0] = 0;
+        if (disc_count() > 0) std::snprintf(g_subtitle, sizeof g_subtitle, "Mounted: Disc %d", mounted);
+        else std::snprintf(g_subtitle, sizeof g_subtitle, "No disc roster configured");
         g_paused = false;
         if (g_pause_in_menu && g_host->set_paused) {
             g_paused = g_host->set_paused(1) != 0;
@@ -155,11 +163,8 @@ void cb_visibility(void *, int open) {
 int p_attach(void *, void *, void *, const PsxMenuHost *host) {
     std::lock_guard<std::mutex> lk(lock());
     if (!host || host->abi_version != PSX_MENU_ABI_VERSION) return 0;
-    // Chosen by default (the title chose no provider): keep the title's
-    // presentation -- recomp-ui's game menu is for multi-disc titles.
-#if defined(PSX_MENU_HOST_HAS_DEFAULT_SELECTION)
-    if (host->default_selection && (!host->disc_count || host->disc_count() < 2)) return 0;
-#endif
+    // The ordinary host menu is available for single-disc titles too.
+    // The roster supplies choices; it never gates the Disc page.
     g_host = host;
     if (g_ui) recomp_runtime_ui_destroy(g_ui);
     const int discs = disc_count();
@@ -179,7 +184,7 @@ int p_attach(void *, void *, void *, const PsxMenuHost *host) {
                    RECOMP_RUNTIME_UI_STANDARD_RESUME | RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER |
                    RECOMP_RUNTIME_UI_STANDARD_QUIT;
     cfg.extra_items = g_extra;
-    cfg.extra_item_count = discs > 1 ? 3 : 1;
+    cfg.extra_item_count = 3;
     g_ui = recomp_runtime_ui_create_standard(&cfg);
     if (!g_ui) { g_host = nullptr; return 0; }
     return 1;
