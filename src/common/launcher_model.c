@@ -53,7 +53,8 @@ static const char* kHotkeyNames[] = {
     "Window bigger", "Window smaller", "Volume up", "Volume down",
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
-    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle"
+    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
+    "Quick save", "Quick load"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
@@ -395,6 +396,7 @@ void launcher_model_init(LauncherModel* m,
         m->zapper               = game->zapper != 0;
         /* 0 = unset (caller predates the field) -> assume 2 players. */
         m->player_count         = game->num_players ? clampi(game->num_players, 1, LNG_MAX_PLAYERS) : 2;
+        m->memcard_slots        = game->memcard_slots;
         m->rom_cache_path       = game->rom_cache_path;
         m->expected_crc         = game->expected_crc;
         m->has_expected_crc     = game->has_expected_crc;
@@ -435,6 +437,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_spu_hq           = game->has_spu_hq != 0;
         m->has_rewind_depth     = game->has_rewind_depth != 0;
         m->has_vsync            = game->has_vsync != 0;
+        m->has_vsync_vrr        = game->has_vsync_vrr != 0;
         m->has_skip_fmv         = game->has_skip_fmv != 0;
         m->has_turbo_loads      = game->has_turbo_loads != 0;
         // game->has_fullscreen_toggle is deliberately NOT read: the Fullscreen
@@ -470,6 +473,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_languages        = game->num_languages;
         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
         m->import_sbi_cb        = game->import_sbi;
+        m->card_manager = game->card_manager;
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
         m->bios_verify_cb       = game->bios_verify;
         m->persist_setup_cb     = game->persist_setup;
@@ -582,6 +586,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
         m->has_render_pipeline         = game->has_render_pipeline != 0;
+        m->frame_generation_hidden     = game->frame_generation_hidden != 0;
         m->linear_filter_hidden        = game->linear_filter_hidden != 0;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
@@ -881,7 +886,7 @@ void launcher_model_init(LauncherModel* m,
         if (!ok) m->s.frame_interp_fps = 0;
     }
     if (m->has_vsync &&
-        (m->s.vsync < 1 || m->s.vsync > RECOMP_LAUNCHER_VSYNC_COUNT)) {
+        (m->s.vsync < 1 || m->s.vsync > (m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE))) {
         // 0 = a host that predates the field, or a fresh config. Tear-free is
         // the safe default; a player who wants the latency picks Off.
         m->s.vsync = RECOMP_LAUNCHER_VSYNC_ON;
@@ -2151,7 +2156,8 @@ void launcher_model_set_vsync(LauncherModel* m, int value) {
     if (!m || !m->has_vsync) return;
     if (value != RECOMP_LAUNCHER_VSYNC_OFF &&
         value != RECOMP_LAUNCHER_VSYNC_ON &&
-        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE)
+        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE &&
+        !(value == RECOMP_LAUNCHER_VSYNC_VRR && m->has_vsync_vrr))
         return;
     m->s.vsync = value;
 }
@@ -2496,16 +2502,18 @@ const char* launcher_model_rewind_interval_label(const LauncherModel* m) {
 // settings file carries it) cannot lose it just by opening this panel.
 void launcher_model_cycle_vsync(LauncherModel* m) {
     if (!m || !m->has_vsync) return;
+    const int count = m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE;
     int cur = m->s.vsync;
-    if (cur < 1 || cur > RECOMP_LAUNCHER_VSYNC_COUNT)
+    if (cur < 1 || cur > count)
         cur = RECOMP_LAUNCHER_VSYNC_ON;
-    m->s.vsync = (cur % RECOMP_LAUNCHER_VSYNC_COUNT) + 1;
+    m->s.vsync = (cur % count) + 1;
 }
 
 const char* launcher_model_vsync_label(const LauncherModel* m) {
     switch (m ? m->s.vsync : RECOMP_LAUNCHER_VSYNC_ON) {
         case RECOMP_LAUNCHER_VSYNC_OFF:      return "Off";
         case RECOMP_LAUNCHER_VSYNC_ADAPTIVE: return "Adaptive";
+        case RECOMP_LAUNCHER_VSYNC_VRR:      return "VRR";
         default:                             return "On";
     }
 }
@@ -3302,7 +3310,8 @@ enum {
     PREP_JOB_TOOLCHAIN = 2,
     PREP_JOB_PGO = 3,
     PREP_JOB_FMV_TIMING = 4,
-    PREP_JOB_BIOS = 5
+    PREP_JOB_BIOS = 5,
+    PREP_JOB_MOD_RESOURCE = 6
 };
 
 typedef struct {
@@ -3312,10 +3321,15 @@ typedef struct {
     char err[256];
     char progress_msg[256];
     char zip_path[512];
+    char mod_package[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_feature[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_source[RECOMP_LAUNCHER_MOD_PATH_MAX];
     float progress_pct; /* <0 indeterminate; else 0..1 */
     int  kind;          /* PREP_JOB_* */
     int  download;      /* toolchain: non-zero => allow network fetch */
     int  result;        /* 0 fail, 1 ok */
+    int  import_queued; /* UI-thread only: start after provider reads finish */
     volatile int done;
     volatile int progress_dirty;
 } PrepJob;
@@ -3355,6 +3369,7 @@ static void* prep_thread_main(void* arg);
 
 static int prep_spawn_thread(LauncherModel* m) {
 #if defined(_WIN32)
+    prep_lock_init(); /* initialize once on the UI thread before worker/poll race */
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
     if (!th) {
         m->setup_preparing = false;
@@ -3385,7 +3400,12 @@ static void* prep_thread_main(void* arg) {
     j->out_path[0] = '\0';
     j->err[0] = '\0';
     j->result = 0;
-    if (j->kind == PREP_JOB_TOOLCHAIN) {
+    if (j->kind == PREP_JOB_MOD_RESOURCE) {
+        const RecompLauncherCModProvider* mods = j->m->mods;
+        j->result = mods->feature_resource_import(
+            mods->ctx, j->mod_package, j->mod_feature, j->mod_resource,
+            j->mod_source, j->source, prep_progress_cb, j, j->err, sizeof(j->err));
+    } else if (j->kind == PREP_JOB_TOOLCHAIN) {
         if (j->m && j->m->ensure_toolchain_with_progress_cb) {
             j->result = j->m->ensure_toolchain_with_progress_cb(
                             j->download,
@@ -3447,7 +3467,9 @@ static void* prep_thread_main(void* arg) {
     } else {
         safe_copy(j->err, sizeof(j->err), "No prepare callback.");
     }
+    prep_lock();
     j->done = 1;
+    prep_unlock();
 #if defined(_WIN32)
     return 0;
 #else
@@ -3690,6 +3712,51 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     prep_spawn_thread(m);
 }
 
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path) {
+    if (!m || m->setup_preparing || !m->mods || !m->mods->feature_resource_import)
+        return;
+    const char* image = launcher_model_effective_rom_path(m);
+    if (!image || !image[0]) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "Select your game image before importing content.");
+        return;
+    }
+    if (!package_id || !feature_id || !resource_id || !source_path || !source_path[0] ||
+        strlen(package_id) >= sizeof(g_prep_job.mod_package) ||
+        strlen(feature_id) >= sizeof(g_prep_job.mod_feature) ||
+        strlen(resource_id) >= sizeof(g_prep_job.mod_resource) ||
+        strlen(source_path) >= sizeof(g_prep_job.mod_source) ||
+        strlen(image) >= sizeof(g_prep_job.source)) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "The selected resource path is too long or invalid.");
+        return;
+    }
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+    g_prep_job.m = m;
+    g_prep_job.kind = PREP_JOB_MOD_RESOURCE;
+    g_prep_job.progress_pct = -1.0f;
+    safe_copy(g_prep_job.source, sizeof(g_prep_job.source), image);
+    safe_copy(g_prep_job.mod_source, sizeof(g_prep_job.mod_source), source_path);
+    safe_copy(g_prep_job.mod_package, sizeof(g_prep_job.mod_package), package_id);
+    safe_copy(g_prep_job.mod_feature, sizeof(g_prep_job.mod_feature), feature_id);
+    safe_copy(g_prep_job.mod_resource, sizeof(g_prep_job.mod_resource), resource_id);
+    m->setup_preparing = true;
+    m->setup_prepare_fraction = -1.0f;
+    m->setup_prepare_pulse = 0;
+    m->setup_error[0] = 0;
+    safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title), "Importing game content");
+    safe_copy(m->setup_status, sizeof(m->setup_status), "Checking your files and preparing content...");
+    g_prep_job.import_queued = 1;
+}
+
+void launcher_model_start_pending_mod_import(LauncherModel* m) {
+    if (!m || !m->setup_preparing || g_prep_job.m != m ||
+        !g_prep_job.import_queued) return;
+    g_prep_job.import_queued = 0;
+    if (!prep_spawn_thread(m))
+        safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3719,6 +3786,15 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!done) return;
     m->setup_preparing = false;
     m->setup_prepare_fraction = -1.0f;
+
+    if (kind == PREP_JOB_MOD_RESOURCE) {
+        m->setup_progress_title[0] = 0;
+        m->setup_status[0] = 0;
+        safe_copy(m->mod_status, sizeof(m->mod_status),
+                  result ? "Content imported. Changes apply on PLAY."
+                         : (err[0] ? err : "Content import failed; previous selection retained."));
+        return;
+    }
 
     if (kind == PREP_JOB_TOOLCHAIN) {
         m->setup_progress_title[0] = '\0';
@@ -3887,6 +3963,11 @@ void launcher_model_set_memcard_path(LauncherModel* m, int slot, const char* pat
     // launcher_model_new_memcard() re-arms this flag.
     m->memcard_freshly_formatted[slot] = false;
     lm_inspect_memcard(m, slot);   // refresh real block usage/validity for the new path
+}
+
+int launcher_model_memcard_slot_count(const LauncherModel* m, int profile_slots) {
+    if (m->memcard_slots > 0 && m->memcard_slots < profile_slots) return m->memcard_slots;
+    return profile_slots;
 }
 
 void launcher_model_toggle_memcard(LauncherModel* m, int slot) {

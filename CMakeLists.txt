@@ -1,9 +1,9 @@
-# recomp-ui — console-agnostic Dear ImGui pre-boot launcher, shared across
+# recomp-ui â€” console-agnostic Dear ImGui pre-boot launcher, shared across
 # recomp ecosystems (SNES, NES, N64, PSX, ...).
 #
 # This top-level CMakeLists.txt builds ONLY a standalone self-test exe
 # (recomp-ui-launcher, from src/proto_main.c) so the repo can verify itself
-# in isolation. Real consumers do NOT build this project directly — they
+# in isolation. Real consumers do NOT build this project directly â€” they
 # `include(recomp_ui.cmake)` from their own CMake project and call
 # `recomp_target_launcher_ui(<their_target>)` (see recomp_ui.cmake and
 # README.md).
@@ -70,6 +70,15 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    # Assertion-based checks must execute in Release builds too.
+    if(MSVC)
+        add_compile_options(/UNDEBUG)
+    else()
+        add_compile_options(-UNDEBUG)
+    endif()
+    add_executable(recomp-ui-launcher-audio-buffer-test tests/launcher_audio_buffer_test.c)
+    target_include_directories(recomp-ui-launcher-audio-buffer-test PRIVATE src/common)
+    add_test(NAME recomp-ui-launcher-audio-buffer COMMAND recomp-ui-launcher-audio-buffer-test)
     find_package(Threads REQUIRED)
     add_executable(recomp-ui-launcher-mod-commit-job-test
         tests/launcher_mod_commit_job_test.cpp)
@@ -113,6 +122,13 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-directory-url-test tests/launcher_directory_url_test.cpp)
     target_include_directories(recomp-ui-directory-url-test PRIVATE src/common)
     add_test(NAME recomp-ui-directory-url COMMAND $<TARGET_FILE:recomp-ui-directory-url-test>)
+    add_executable(recomp-ui-mod-import-test
+        tests/launcher_mod_import_test.c
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c
+        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-mod-import-test PRIVATE src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-mod-import-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-mod-import COMMAND $<TARGET_FILE:recomp-ui-mod-import-test>)
     add_executable(recomp-ui-ips-patch-test
         tests/ips_patch_test.c
         src/common/ips_patch.c
@@ -287,6 +303,23 @@ if(BUILD_TESTING)
         NAME recomp-ui-psx-binds
         COMMAND $<TARGET_FILE:recomp-ui-psx-binds-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/psx-binds-test.ini")
+
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(recomp-ui-hotkey-store-test tests/launcher_hotkey_store_test.c)
+        target_include_directories(recomp-ui-hotkey-store-test PRIVATE src src/common)
+        target_compile_definitions(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_DEFS})
+        target_compile_options(recomp-ui-hotkey-store-test PRIVATE
+            -UNDEBUG -ffunction-sections -fdata-sections)
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(recomp-ui-hotkey-store-test PRIVATE -flto)
+            target_link_options(recomp-ui-hotkey-store-test PRIVATE -flto)
+        endif()
+        target_link_libraries(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_TARGET})
+        target_link_options(recomp-ui-hotkey-store-test PRIVATE
+            $<IF:$<PLATFORM_ID:Darwin>,-Wl$<COMMA>-dead_strip,-Wl$<COMMA>--gc-sections>)
+        add_test(NAME recomp-ui-hotkey-store COMMAND recomp-ui-hotkey-store-test
+            "${CMAKE_CURRENT_BINARY_DIR}/hotkey-store-test.ini")
+    endif()
 
     # Multi-disc roster: sibling autofill + per-slot binding. Includes
     # launcher_model.c (not links it) to reach the static path rewriter, so the

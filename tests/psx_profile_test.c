@@ -37,6 +37,7 @@ int main(void) {
     /* The PC/system Display capabilities remain available. */
     assert(game.has_window_size == 1);
     assert(game.has_renderer == 1);
+    assert(game.frame_generation_hidden == 1);
     assert(game.has_vsync == 1);
 
     return 0;

@@ -131,6 +131,8 @@ typedef enum {
     LNG_HK_OPEN_LAUNCHER, /* this launcher, mid-game → [KeyMap] OpenLauncher;
                            * shown only when GameInfo.has_open_launcher_hotkey */
     LNG_HK_TURBO_TOGGLE, /* PSX press-to-latch fast-forward → [KeyMap] TurboToggle */
+    LNG_HK_QUICK_SAVE,
+    LNG_HK_QUICK_LOAD,
     LNG_HK_COUNT
 } LngHotkey;
 
@@ -234,6 +236,7 @@ typedef struct {
     // (re-run on every disc/card change) instead of the placeholder synthesis.
     int (*disc_verify_cb)(const char* disc_path, RecompLauncherCDiscVerify* out);
     int (*import_sbi_cb)(const char*, const char*, char*, size_t, char*, size_t);
+    const RecompCardManager* card_manager;
     int (*memcard_inspect_cb)(const char* card_path, RecompLauncherCMemcard* out);
     int (*bios_verify_cb)(const char* bios_path, RecompLauncherCBiosVerify* out);
     /* GameInfo.bios_verify_for_rom: preferred over bios_verify_cb, and also
@@ -351,6 +354,7 @@ typedef struct {
     int                num_internal_resolutions;
     const char*        internal_resolution_note;
     bool               has_render_pipeline;   // GameInfo.has_render_pipeline
+    bool               frame_generation_hidden;
     // GameInfo.linear_filter_hidden: no legacy "Linear filtering" row.
     bool               linear_filter_hidden;
 
@@ -425,6 +429,9 @@ typedef struct {
     // Dashboard controller cards use launcher_model_visible_player_count()
     // (PSX multitap may hide seats 5+).
     int         player_count;
+    // Memory-card slots the GAME uses (GameInfo.memcard_slots; 0 = profile
+    // default). Read through launcher_model_memcard_slot_count().
+    int         memcard_slots;
 
     // ---- ROM verification ----
     // Expected fingerprint, borrowed from the game's C-ABI struct.
@@ -474,6 +481,7 @@ typedef struct {
     bool     has_spu_hq;
     bool     has_rewind_depth;
     bool     has_vsync;
+    bool     has_vsync_vrr;
     bool     has_skip_fmv;
     bool     has_turbo_loads;
     // (GameInfo.has_geometry_precision is not read: psxrecomp's PGXP
@@ -1056,6 +1064,8 @@ uint16_t launcher_model_memcard_blocks_used(const LauncherModel* m, int slot);
 // Enable/disable one card slot (mirrors the legacy launcher's per-card switch;
 // a disabled slot's SIO port reports no card present to the host once wired).
 void launcher_model_toggle_memcard(LauncherModel* m, int slot);
+// Slots the Save panel shows: the game's count, capped by the profile's.
+int launcher_model_memcard_slot_count(const LauncherModel* m, int profile_slots);
 // "New" action: format a real, mountable blank 128KB PS1 memory-card image at
 // `path` (recompui_memcard_format_file(), memcard_format.h — no dependency on
 // any host project's runtime headers), then adopt it as the slot's path. A
@@ -1234,6 +1244,12 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
 /* Run the host's bios_prepare_with_progress for the staged BIOS (progress
  * modal only; wizard resumes after). No-op without the callback. */
 void launcher_model_begin_bios_prepare(LauncherModel* m);
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path);
+/* Start a queued resource import after the frame's provider reads finish.
+ * The model/provider remain borrowed until poll_prepare_disc clears busy. */
+void launcher_model_start_pending_mod_import(LauncherModel* m);
 // Kick rebuild_with_progress alone (same busy UI as prepare).
 void launcher_model_start_rebuild(LauncherModel* m);
 // Confirm + kick pgo_optimize_with_progress (instrument → train → use rebuild).

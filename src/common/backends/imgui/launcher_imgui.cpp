@@ -1,3 +1,4 @@
+#include "launcher_mod_integer.h"
 // launcher_imgui.cpp — Dear ImGui (MIT) backend for the next-gen launcher.
 //
 // Draws the shared LauncherModel with Dear ImGui + SDL3 + OpenGL3, at parity
@@ -10,6 +11,7 @@
 //   (2) Live resize: immediate mode redraws every frame; a logical-width
 //       breakpoint switches the dashboard between two columns and one column.
 
+#include "card_manager_support.hpp"
 #include "launcher_backend.h"
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
@@ -17,6 +19,7 @@
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
+#include "launcher_audio_buffer.h"
 #include "launcher_quick_mods.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
@@ -406,7 +409,8 @@ char        g_pick_buf[512] = {};    // ROM picker result
 /* ---------------------------------------------------------------------------
  * File pickers: ONE entry point, and a fallback nothing can bypass.
  *
- * ui_pick() is the only way this backend opens a picker. It tries the host's
+ * Generic panels use ui_pick(); the optional card editor defers its native
+ * Unicode picker between frames. ui_pick() tries the host's
  * native dialog first and, when that reports itself unusable (-1), browses
  * in-app instead. Callers never learn which happened.
  *
@@ -2908,14 +2912,25 @@ static int dash_card_columns(float availw, float gap, float cardw, int count) {
 
 static void draw_quick_mods(LauncherModel* m,const LauncherTheme& th);
 
+#include "card_manager_imgui.hpp"
+
 void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
+    if (card_manager_ui::available(m)) {
+        ImGui::BeginDisabled(m->in_session);
+        if (ImGui::Button("Open Memory Card Manager")) card_manager_ui::start(m);
+        ImGui::EndDisabled();
+        if (m->in_session && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Close the game before editing memory cards.");
+        ImGui::Spacing();
+    }
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const SaveKind kind = prof ? prof->save.kind : SAVE_NONE;
     if (kind == SAVE_MEMCARD) {
         // No outer "MEMORY CARDS" card/eyebrow: the small per-slot cards ARE the
         // UI. Fixed width (same as player cards); wider windows add columns
         // instead of stretching the pair across the column.
-        const int slots = (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2;
+        const int slots = launcher_model_memcard_slot_count(
+            m, (prof->save.slots > 0 && prof->save.slots <= 2) ? prof->save.slots : 2);
         const float gap = px(th->spacing_sm);
         const float avail = ImGui::GetContentRegionAvail().x;
         const int cards=slots+(m->dashboard_quick_controls?1:0);
@@ -3487,16 +3502,43 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    for (int i = 0; i < g_pad_count; ++i)
-        push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+    // Live pads are listed per physical device: identical controllers (two
+    // DualSense, two of the same 8BitDo) share one GUID, and listing them once
+    // let only one player ever pick that model. PSX keeps its GUID registry.
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (psx) {
+            push_opt(g_pads[i].guid, g_pads[i].name, g_pads[i].id, true);
+            continue;
+        }
+        if (!g_pads[i].guid[0] || nopt >= kMaxOpts) continue;
+        int same = 0;
+        for (int j = 0; j < i; ++j)
+            if (std::strcmp(g_pads[j].guid, g_pads[i].guid) == 0) ++same;
+        std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", g_pads[i].guid);
+        const char* nm = (g_pads[i].name[0] && std::strcmp(g_pads[i].name, "Gamepad") != 0)
+                             ? g_pads[i].name : "Controller";
+        if (same) std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s (%d)", nm, same + 1);
+        else std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s", nm);
+        opts[nopt].id = g_pads[i].id;
+        opts[nopt].live = true;
+        ++nopt;
+    }
 
+    // A seat bound to a live device (player_gamepad_instance) claims that
+    // device; a seat with only a GUID claims the model, as before.
+    auto seat_has = [&](int o, const PadOpt& opt) -> bool {
+        if (m->s.player_src[o] != 2) return false;
+        if (!psx && opt.live && m->s.player_gamepad_instance[o])
+            return m->s.player_gamepad_instance[o] == opt.id + 1;
+        return m->s.player_gamepad_guid[o][0] &&
+               std::strcmp(m->s.player_gamepad_guid[o], opt.guid) == 0;
+    };
     const int claim_n = launcher_model_visible_player_count(m);
     for (int i = 0; i < nopt; ++i) {
         bool claimed = false;
         for (int o = 0; o < claim_n; ++o) {
             if (o == p) continue;
-            if (m->s.player_src[o] == 2 && m->s.player_gamepad_guid[o][0] &&
-                std::strcmp(m->s.player_gamepad_guid[o], opts[i].guid) == 0) {
+            if (seat_has(o, opts[i])) {
                 claimed = true;
                 break;
             }
@@ -3507,10 +3549,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
         else
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
-        const bool sel = m->s.player_src[p] == 2 &&
-                         m->s.player_gamepad_guid[p][0] &&
-                         std::strcmp(m->s.player_gamepad_guid[p],
-                                     opts[i].guid) == 0;
+        const bool sel = seat_has(p, opts[i]);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
@@ -4070,10 +4109,11 @@ static const struct { int v; const char* label; } kVsyncChoices[] = {
     { RECOMP_LAUNCHER_VSYNC_OFF,      "Off" },
     { RECOMP_LAUNCHER_VSYNC_ON,       "On" },
     { RECOMP_LAUNCHER_VSYNC_ADAPTIVE, "Adaptive" },
+    { RECOMP_LAUNCHER_VSYNC_VRR,      "VRR" },
 };
 /* The VSync dropdown's width: its widest choice. */
-static float vsync_combo_w(const LauncherTheme& th) {
-    const int n = (int)(sizeof kVsyncChoices / sizeof kVsyncChoices[0]);
+static float vsync_combo_w(const LauncherModel* m, const LauncherTheme& th) {
+    const int n = m->has_vsync_vrr ? 4 : 3;
     return settings_fit_w("VSync", th, settings_widest_text(n,
         [](int i) { return kVsyncChoices[i].label; }), true);
 }
@@ -4081,7 +4121,7 @@ static float vsync_combo_w(const LauncherTheme& th) {
 bool draw_vsync_overridden_row(LauncherModel* m, const LauncherTheme& th) {
     const char* by = launcher_model_vsync_forced_off_by(m);
     if (!by) return false;
-    const float w = vsync_combo_w(th);
+    const float w = vsync_combo_w(m, th);
     row_label_right("VSync", th, w);
     ImGui::BeginDisabled();
     ImGui::SetNextItemWidth(w);
@@ -4094,6 +4134,36 @@ bool draw_vsync_overridden_row(LauncherModel* m, const LauncherTheme& th) {
     return true;
 }
 
+void draw_render_pipeline_controls(LauncherModel* m, const LauncherTheme& th) {
+    if (!launcher_model_render_pipeline_offered(m)) return;
+    row_label_right("Render thread", th, ImGui::GetFrameHeight());
+    bool rt = m->s.render_thread != 0;
+    if (ImGui::Checkbox("##render_thread", &rt))
+        m->s.render_thread = rt ? 1 : 0;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
+                          "Turn off if you see stutter or glitches. Applies at next launch.");
+    const bool kids = launcher_model_render_pipeline_children_enabled(m);
+    ImGui::BeginDisabled(!kids);
+    row_label_right("Present thread", th, ImGui::GetFrameHeight());
+    bool pt = m->s.present_thread != 0;
+    if (ImGui::Checkbox("##present_thread", &pt))
+        m->s.present_thread = pt ? 1 : 0;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
+                          "Needs Render thread. Applies at next launch.");
+    if (!m->frame_generation_hidden) {
+        row_label_right("Smooth motion", th, ImGui::GetFrameHeight());
+        bool fg = m->s.frame_generation != 0;
+        if (ImGui::Checkbox("##frame_generation", &fg))
+            m->s.frame_generation = fg ? 1 : 0;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
+                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
+    }
+    ImGui::EndDisabled();
+}
+
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
@@ -4104,32 +4174,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // grid flush on both sides.
         const float cb = ImGui::GetFrameHeight();   // a checkbox is square
         row_window_scale(m, th);
-        if (launcher_model_render_pipeline_offered(m)) {
-        row_label_right("Render thread", th, px(SETTINGS_CTRL_W));
-        bool rt = m->s.render_thread != 0;
-        if (ImGui::Checkbox("##render_thread", &rt))
-            m->s.render_thread = rt ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("Draws on a separate thread so the game keeps running while a frame renders.\n"
-                              "Turn off if you see stutter or glitches. Applies at next launch.");
-        const bool kids = launcher_model_render_pipeline_children_enabled(m);
-        ImGui::BeginDisabled(!kids);
-        row_label_right("Present thread", th, px(SETTINGS_CTRL_W));
-        bool pt = m->s.present_thread != 0;
-        if (ImGui::Checkbox("##present_thread", &pt))
-            m->s.present_thread = pt ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Shows finished frames from another thread so waiting for the display never stalls drawing.\n"
-                              "Needs Render thread. Applies at next launch.");
-        row_label_right("Smooth motion", th, px(SETTINGS_CTRL_W));
-        bool fg = m->s.frame_generation != 0;
-        if (ImGui::Checkbox("##frame_generation", &fg))
-            m->s.frame_generation = fg ? 1 : 0;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Adds extra in-between frames up to your display's refresh rate, made from the camera.\n"
-                              "Adds up to one frame of delay. Needs Render thread. Applies at next launch.");
-        ImGui::EndDisabled();
-    }
+        draw_render_pipeline_controls(m, th);
 
     // Universal fullscreen row (every console; Off/Borderless/Exclusive,
         // the legacy launcher's vocabulary). Sits right under Window scale,
@@ -4293,6 +4338,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         if (note && *note)
             ImGui::TextColored(col(th.text_muted), "%s", ui_text(note));
     }
+
+    draw_render_pipeline_controls(m, th);
 
     if (launcher_model_internal_resolution_offered(m)) {
         /* The host's own resolution vocabulary (PSX: Native / 720p / 1080p /
@@ -4492,18 +4539,19 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // VSync sits with frame interpolation because both decide how a finished
     // frame reaches the panel, not how it is drawn.
     if (m->has_vsync && !draw_vsync_overridden_row(m, th)) {
-        const float vw = vsync_combo_w(th);
+        const float vw = vsync_combo_w(m, th);
         row_label_right("VSync", th, vw);
         ImGui::SetNextItemWidth(vw);
         if (ImGui::BeginCombo("##vsync_mode",
                               ui_text(launcher_model_vsync_label(m)))) {
             for (const auto& o : kVsyncChoices)
-                if (ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
+                if ((o.v != RECOMP_LAUNCHER_VSYNC_VRR || m->has_vsync_vrr) && ImGui::Selectable(ui_text(o.label), m->s.vsync == o.v))
                     launcher_model_set_vsync(m, o.v);
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
+                "VRR: software-paced presentation for variable-refresh displays.\n"
                 "On: the swap waits for the panel — no tearing.\n"
                 "Off: swap immediately — lowest display latency, may tear.\n"
                 "Adaptive: vsync while the game keeps up, immediate when it "
@@ -4549,7 +4597,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
             launcher_model_cycle_rewind_interval(m);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip(
-                "Frames between rewind snapshots (1 / 4 / 8 / 12 / 15).\n"
+                "Frames between rewind snapshots (1 / 4 / 8 / 12 / 15 / 30).\n"
                 "Smaller intervals give finer control when choosing a moment.\n"
                 "Takes effect on the next launch.");
         }
@@ -4619,6 +4667,27 @@ void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
         end_panel();
     }
 }
+
+static bool draw_audio_buffer_slider(const char *id, int *target) {
+    int steps = launcher_audio_buffer_step(*target);
+    char format[96];
+    std::snprintf(format, sizeof(format), "%d ms - %s", *target, launcher_audio_buffer_note(*target));
+    ImGui::PushID(id);
+    bool changed = ImGui::SliderInt(id, &steps, 0, 32, format,
+        ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+    if (changed) *target = 20 + steps * 5;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("20-180 ms target in 5 ms steps. Next game start only. 70 ms: Recommended/default. Below 70 ms: Experimental; 20 ms: unstable. Above 70 ms: more buffer reserve. This is not measured speaker latency.");
+    if (ImGui::SmallButton("Reset to Defaults")) {
+        *target = 70;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Reset Audio Buffer to 70 ms. Applies at the next game start; other settings are unchanged.");
+    ImGui::PopID();
+    return changed;
+}
+static void draw_audio_buffer_setting(LauncherModel*, const LauncherTheme&);
 
 void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("AUDIO");
@@ -4720,6 +4789,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
         if (ImGui::Button(ui_text(launcher_model_language_label(m)), ImVec2(lw, px(30))))
             launcher_model_cycle_language(m);
     }
+    draw_audio_buffer_setting(m, th);
+
 }
 
 // Audio module adapter — same AutoResizeY-vs-fixed-row_h sizing pattern as
@@ -5137,10 +5208,26 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
             const bool cap = m->hk_capturing && m->capture_hk == (LngHotkey)h;
             const char* lbl = cap ? ui_text("[ press... ]")
                             : m->hotkeys[h][0] ? m->hotkeys[h] : ui_text("(unbound)");
+            int duplicate = -1;
+            if (!cap && m->hotkeys[h][0] && std::strcmp(m->hotkeys[h], "(unbound)")) {
+                for (int other = 0; other < LNG_HK_COUNT; ++other) {
+                    if (other != h && (mask & (1u << other)) &&
+                        !std::strcmp(m->hotkeys[h], m->hotkeys[other])) {
+                        duplicate = other;
+                        break;
+                    }
+                }
+            }
+            if (duplicate >= 0) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
             if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
             if (ImGui::Button(lbl, ImVec2(px(130), 0)))
                 launcher_model_begin_hk_capture(m, (LngHotkey)h);
             if (cap) ImGui::PopStyleColor();
+            if (duplicate >= 0) {
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Also assigned to %s", ui_text(launcher_hotkey_name((LngHotkey)duplicate)));
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -5513,8 +5600,11 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     else         draw_assist_pad_unavailable_hint(m, th);
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
-                                        : "Reset Host Shortcuts"))
+                                        : "Reset Host Shortcuts")) {
         launcher_model_reset_assist_bindings(m);
+        for (int i = 0; i < m->assist_binding_count; ++i)
+            launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
+    }
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
 }
@@ -6902,10 +6992,20 @@ static void pick_mod_feature_resource(
     const std::string feat_id = feature_id;
     const std::string res_id = resource.id;
     const std::string res_label = resource.label;
+    const bool import_resource = resource.import_on_select &&
+                                 mods->feature_resource_import;
     auto apply_resource = [m, mods, pkg_id, feat_id, res_id, res_label,
-                           on_done](const char* path) {
+                           import_resource, on_done](const char* path) {
         bool stored = false;
         if (path) {
+            if (import_resource) {
+                launcher_model_import_mod_resource(m, pkg_id.c_str(),
+                    feat_id.c_str(), res_id.c_str(), path);
+                // Completion is reported by the worker poll. Do not prompt the
+                // next resource or query the provider while it owns the job.
+                if (on_done) on_done(path, false);
+                return;
+            }
             if (!mods->feature_resource_set_path(mods->ctx, pkg_id.c_str(),
                                                  feat_id.c_str(),
                                                  res_id.c_str(), path)) {
@@ -7360,7 +7460,7 @@ static bool draw_account_section(LauncherModel* m, const LauncherTheme& th) {
         ImGui::PushTextWrapPos(px(360));
         ImGui::TextColored(col(th.text_muted),
                            "Sign in with Discord so your name is yours across "
-                           "sessions. Optional — you can play as a guest.");
+                           "sessions. Online play requires sign-in; LAN does not.");
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Sign in with Discord", ImVec2(px(200), 0)) &&
             np->account_login_begin) {
@@ -11096,8 +11196,8 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
 
     const char* online_body =
         !online_available ? "Online play is not available in this build."
-        : !offered ? "Find players on the lobby server. This server does not "
-                   "offer sign-in, so you will play as a guest."
+        : !offered ? "Online play requires Discord sign-in. "
+                   "Sign-in is currently unavailable."
         : hold_online ? "Checking your saved sign-in\u2026"
         : "Find players on the lobby server. Sign in with Discord "
           "so your name is yours across sessions.";
@@ -11107,11 +11207,11 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
                                          online_body, card_w, true);
     ImGui::EndDisabled();
     if (online_hit) {
-        /* Skip the sign-in page when there is nothing to sign in to, or when
-         * this machine is already signed in -- which is the normal case after
+        /* Skip the sign-in page only when this machine is already signed in,
+         * which is the normal case after
          * the first time, because the stored device key is redeemed silently
          * at startup. */
-        if (!offered || np_account_signed_in(m)) {
+        if (np_account_signed_in(m)) {
             np_enter_netplay(m, 2);
         } else {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY_SIGNIN);
@@ -11132,8 +11232,8 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
         ImGui::TextColored(col(th.good), "%s", disp);
     } else if (awaiting) {
         ImGui::TextColored(col(th.text_muted),
-                           stalled ? "Still checking your saved sign-in \u2014 you can "
-                                     "continue as a guest."
+                           stalled ? "Still checking your saved sign-in. "
+                                     "Online play requires sign-in."
                                    : "Checking your saved sign-in\u2026");
     } else if (offered && acct == RECOMP_LAUNCHER_ACCOUNT_FAILED) {
         const char* err = npa->account_error ? npa->account_error(npa->ctx) : "";
@@ -11155,13 +11255,6 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
     /* Same reason as the chooser, plus this page needs the backend live to
      * notice the sign-in completing. */
     if (np && np->pump) np->pump(np->ctx);
-    /* Availability is settled lazily by /auth/discord/start. An unconfigured
-     * server can answer 503 after the chooser already opened this page.
-     * Apply the same guest path the chooser uses once that answer arrives. */
-    if (np && np->account_available && !np->account_available(np->ctx)) {
-        np_enter_netplay(m, 2);
-        return;
-    }
     const int st = (np && np->account_state) ? np->account_state(np->ctx)
                                              : RECOMP_LAUNCHER_ACCOUNT_GUEST;
     const float wrap = px(640);
@@ -11183,9 +11276,9 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
                        "other that uses it.");
     ImGui::Spacing();
     ImGui::TextColored(col(th.text_muted),
-                       "Online play requires an account when this server offers "
-                       "sign-in. If sign-in is unavailable, you will continue "
-                       "as a guest. LAN and Direct IP need no account.");
+                       "Online play on this server needs an account. LAN and "
+                       "Direct IP do not — go back and pick those to play "
+                       "without signing in.");
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, px(16)));
 
@@ -11236,10 +11329,7 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
     }
 
     ImGui::Dummy(ImVec2(0, px(20)));
-    /* No "continue as guest". Online play means signing in, when this server
-     * offers sign-in at all -- a server with no Discord configured never
-     * reaches this page, because the chooser sends it straight through. Back
-     * is the way out, and it leads to LAN, which needs no account. */
+    /* Online always requires sign-in. Back leads to the mode chooser. */
     if (ImGui::Button("Back", ImVec2(px(120), px(34))))
         launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
 }
@@ -11247,6 +11337,10 @@ void draw_netplay_signin_page(LauncherModel* m, const LauncherTheme& th) {
 void draw_netplay(LauncherModel* m, const LauncherTheme& th) {
     const auto* np = np_cb(m);
     if (!np) return;
+    if (m->netplay_mode == 2 && !np_account_signed_in(m)) {
+        launcher_model_set_view(m, LNG_VIEW_NETPLAY_SIGNIN);
+        return;
+    }
     draw_netplay_view(m);
     static bool network_settings_loaded = false;
     if (!network_settings_loaded) {
@@ -11675,8 +11769,121 @@ static void mod_option_tooltip(const RecompLauncherCModOption& option) {
     ImGui::EndTooltip();
 }
 
-static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
+struct ModBindingCapture {
+    ImGuiID owner = 0;
+    int slot = 0, last_frame = 0;
+    bool wheel = false;
+    std::string pending;
+};
+static ModBindingCapture s_mod_binding_capture;
+
+static bool capture_mod_binding(const SDL_Event& event) {
+    auto& capture = s_mod_binding_capture;
+    if (!capture.owner) return false;
+    if (event.type == SDL_EVENT_KEY_DOWN && !LNG_EVKEYREPEAT(event)) {
+        if (LNG_EVKEY(event) == SDLK_ESCAPE) { capture = {}; return true; }
+#if defined(LNG_SDL3)
+        const int sc = (int)event.key.scancode;
+#else
+        const int sc = (int)event.key.keysym.scancode;
+#endif
+        if (sc > 0 && sc < 512) capture.pending = "key:" + std::to_string(sc);
+        return true;
+    }
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+        if (event.button.button >= 1 && event.button.button <= 5)
+            capture.pending = "mouse:" + std::to_string(event.button.button);
+        return true;
+    }
+    if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+        if (capture.wheel && event.wheel.y != 0) {
+            double y = event.wheel.y;
+            if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) y = -y;
+            capture.pending = y > 0 ? "wheel:up" : "wheel:down";
+        }
+        return true;
+    }
+    return event.type == SDL_EVENT_KEY_UP || event.type == SDL_EVENT_MOUSE_BUTTON_UP;
+}
+
+static std::string mod_binding_label(const std::string& token) {
+    if (token == "none" || token.empty()) return "Add...";
+    if (token == "wheel:up") return "Wheel up";
+    if (token == "wheel:down") return "Wheel down";
+    if (token.compare(0, 6, "mouse:") == 0) {
+        const int button = std::atoi(token.c_str() + 6);
+        const char* names[] = {"", "Left mouse", "Middle mouse", "Right mouse", "Mouse X1", "Mouse X2"};
+        if (button >= 1 && button <= 5) return names[button];
+    }
+    if (token.compare(0, 4, "key:") == 0) {
+        const int sc = std::atoi(token.c_str() + 4);
+        if (sc > 0 && sc < 512) return SDL_GetScancodeName((SDL_Scancode)sc);
+    }
+    return token;
+}
+
+static bool draw_mod_binding_option(const RecompLauncherCModOption& option,
                                     char* next, size_t next_size) {
+    auto& capture = s_mod_binding_capture;
+    const int frame = ImGui::GetFrameCount();
+    if (capture.owner && (frame - capture.last_frame > 1 || !SDL_GetKeyboardFocus())) capture = {};
+    const ImGuiID id = ImGui::GetID("##binding");
+    std::string tokens[3] = {"none", "none", "none"};
+    const std::string value = option.value;
+    size_t start = 0;
+    for (int i = 0; i < 3; ++i) {
+        const auto end = value.find(',', start);
+        tokens[i] = value.substr(start, end == std::string::npos ? end : end - start);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    bool changed = false;
+    if (capture.owner == id) {
+        capture.last_frame = frame;
+        if (!capture.pending.empty()) {
+            tokens[capture.slot] = capture.pending;
+            capture = {};
+            changed = true;
+        }
+    }
+    ImGui::TextUnformatted(option.label);
+    ImGui::SameLine(px(260));
+    for (int i = 0; i < 3; ++i) {
+        ImGui::PushID(i);
+        if (i) ImGui::SameLine();
+        const bool waiting = capture.owner == id && capture.slot == i;
+        const std::string label = waiting ? "Press..." : mod_binding_label(tokens[i]);
+        if (ImGui::Button(label.c_str(), ImVec2(px(120), 0))) {
+            capture = {}; capture.owner = id; capture.slot = i;
+            capture.wheel = option.allow_wheel != 0; capture.last_frame = frame;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s\nClick to rebind; right-click to clear. Escape cancels.%s",
+                label.c_str(), option.allow_wheel ? " Wheel input is allowed." : "");
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !waiting) {
+                tokens[i] = "none"; changed = true;
+            }
+        }
+        ImGui::PopID();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset")) {
+        capture = {};
+        std::snprintf(next, next_size, "%s", option.default_value);
+        return true;
+    }
+    if (changed) {
+        int last = 2;
+        while (last > 0 && tokens[last] == "none") --last;
+        std::string saved = tokens[0];
+        for (int i = 1; i <= last; ++i) saved += "," + tokens[i];
+        std::snprintf(next, next_size, "%s", saved.c_str());
+    }
+    return changed;
+}
+
+static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
+                                    char* next, size_t next_size, bool audio_buffer = false) {
     mod_option_control(option.label);
 
     errno = 0;
@@ -11689,6 +11896,13 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
     provider_value = std::max(
         option.min_value, std::min(option.max_value, provider_value));
 
+    if (audio_buffer && option.min_value == 20 && option.max_value == 180 && option.step == 5) {
+        int target = static_cast<int>(provider_value);
+        const bool changed = draw_audio_buffer_slider("##audio_buffer", &target);
+        if (changed) std::snprintf(next, next_size, "%d", target);
+        return changed;
+    }
+
     static std::unordered_map<ImGuiID, ModIntegerEditState> edits;
     const ImGuiID id = ImGui::GetID("##integer");
     ModIntegerEditState& edit = edits[id];
@@ -11698,9 +11912,9 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
     }
 
     const int64_t step = option.step > 0 ? option.step : 1;
-    const bool edited = ImGui::InputScalar(
-        "##integer", ImGuiDataType_S64, &edit.value, &step, nullptr, nullptr,
-        ImGuiInputTextFlags_None);
+    const bool edited = rui_mod_integer_control(
+        &edit.value, option.min_value, option.max_value, step,
+        option.slider != 0, option.display_divisor);
     const bool commit = ImGui::IsItemDeactivatedAfterEdit() ||
                         (edited && !ImGui::IsItemActive());
     if (!commit) return false;
@@ -11719,6 +11933,7 @@ static bool draw_mod_integer_option(const RecompLauncherCModOption& option,
 }
 
 static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->package_count || !mods->package_get) return;
     const bool feature_provider =
@@ -11941,6 +12156,8 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                         }
                         ImGui::EndCombo();
                     }
+                } else if (option.type == RECOMP_MOD_OPTION_BINDING) {
+                    changed = draw_mod_binding_option(option, next, sizeof(next));
                 } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
                     changed = draw_mod_text_option(
                         option, next, sizeof(next));
@@ -12050,10 +12267,13 @@ static void draw_mod_feature_option(LauncherModel* m,
             }
             ImGui::EndCombo();
         }
+    } else if (option.type == RECOMP_MOD_OPTION_BINDING) {
+        changed = draw_mod_binding_option(option, next, sizeof(next));
     } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
         changed = draw_mod_text_option(option, next, sizeof(next));
     } else {
-        changed = draw_mod_integer_option(option, next, sizeof(next));
+        changed = draw_mod_integer_option(option, next, sizeof(next),
+            launcher_audio_buffer_option(feature.package_id, feature.id, option.id));
     }
 
     const bool hovered = ImGui::IsItemHovered();
@@ -12070,6 +12290,43 @@ static void draw_mod_feature_option(LauncherModel* m,
     if (changed && !inert && m->has_bios && m->bios_verify_for_rom_cb)
         launcher_model_refresh_bios_status(m);
     ImGui::PopID();
+}
+
+static void draw_audio_buffer_setting(LauncherModel* m, const LauncherTheme& th) {
+    const auto *mods = m->mods;
+    if (!mods || !mods->feature_count || !mods->feature_get ||
+        !mods->feature_option_get || !mods->feature_set_option) return;
+    for (int i=0,n=mods->feature_count(mods->ctx);i<n;++i) {
+        RecompLauncherCModFeature feature{};
+        if (!mods->feature_get(mods->ctx,i,&feature) ||
+            std::strcmp(feature.package_id,"psx.audio.low-latency") ||
+            std::strcmp(feature.id,"low-latency-audio") ||
+            !launcher_mod_feature_listed(mods, &feature)) continue;
+        ImGui::PushID("audio_buffer_settings");
+        ImGui::BeginDisabled(!launcher_model_can_open_mods(m) || !feature.enabled);
+        for (int j=0;j<feature.option_count;++j) {
+            RecompLauncherCModOption option{};
+            if (!mods->feature_option_get(mods->ctx,feature.package_id,feature.id,j,&option)) continue;
+            if (!std::strcmp(option.id,"target_ms") && option.min_value == 20 &&
+                option.max_value == 180 && option.step == 5) {
+                ImGui::BeginDisabled(option.disabled != 0);
+                row_label_right("Audio Buffer",th,px(SETTINGS_CTRL_W));
+                ImGui::SetNextItemWidth(px(SETTINGS_CTRL_W));
+                int target=std::atoi(option.value);
+                if (draw_audio_buffer_slider("##buffer",&target) && !option.disabled) {
+                    char next[24];std::snprintf(next,sizeof(next),"%d",target);
+                    if (!mods->feature_set_option(mods->ctx,feature.package_id,feature.id,option.id,next)) mod_note_error(m);
+                }
+                ImGui::EndDisabled();
+            } else if (!std::strcmp(option.id,"diagnostics")) {
+                draw_mod_feature_option(m,feature,option);
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Applies at next game start.");
+        ImGui::PopID();
+        break;
+    }
 }
 
 static void draw_mod_feature_diagnostics(
@@ -12218,6 +12475,7 @@ static void draw_mod_catalog_diagnostics(LauncherModel* m,
 }
 
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
+    if (!m || m->setup_preparing) return;
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_count || !mods->feature_get ||
         !mods->feature_option_get || !mods->feature_enable ||
@@ -13377,9 +13635,11 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
 }
 
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
-    if (!m->setup_wizard_supported) return;
+    /* Cartridge titles can import mods without a first-run disc wizard. */
+    if (!m->setup_wizard_supported && !m->setup_preparing) return;
     if (!m->setup_wizard_open && !m->setup_preparing) return;
     launcher_model_poll_prepare_disc(m);
+    if (!m->setup_wizard_open && !m->setup_preparing) return;
 
     /* While a prepare/rebuild/toolchain job runs, show only the progress window.
      * Skipping BeginPopupModal on "First-run setup" lets ImGui dismiss it. */
@@ -14545,9 +14805,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                                               LNG_PADBIND_NONE, 0, 0);
         } else if (m->capturing) {
             const SystemProfile* prof = (const SystemProfile*)m->profile;
-            if (m->capture_assist || host_player_binds)
+            if (m->capture_assist || host_player_binds) {
                 launcher_model_set_captured_key(m, 0);
-            else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
+                if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, 0);
+            } else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
                      !strcmp(prof->id, "psx"))
                 launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                m->capture_slot, 0);
@@ -14578,7 +14839,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     // axis push (past a dead threshold) commits. PSX only accepts events from
     // the player's selected Input source device.
     if (m->capturing && m->capture_pad) {
-        if (m->settings_bindings && m->capture_assist) {
+        if (m->capture_assist) {
             if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int button = (int)LNG_EVGBTN(ev);
                 uint32_t mask = launcher_input_gamepad_button_mask(
@@ -14798,9 +15059,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // the legacy setter — capture_slot is always 0 for them.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const bool alt_slots = prof && prof->controller.binds_per_input >= 2;
-        if ((m->settings_bindings && m->capture_assist) || host_player_binds)
+        if (m->capture_assist || host_player_binds) {
             launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
-        else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
+            if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, (int)LNG_EVSCAN(ev));
+        } else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
             launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn, m->capture_slot,
                                      RUI_N64_FIELD_KEY, (int)LNG_EVSCAN(ev));
         else if (alt_slots)
@@ -14883,6 +15145,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     launcher_boot_timing_mark("rui:backend_run:begin");
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    s_mod_binding_capture = {};
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     /* Gamepad nav is enabled only once a real pad event has arrived -- see the
@@ -14965,9 +15228,11 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         // NULL brand => the shared dots; a non-NULL EMPTY string => the profile
         // opts out of a corner emblem entirely (N64 leads with its wordmark).
         // Only load when there's an actual filename.
+        // A game's own mark (recomp_target_launcher_ui BRAND) wins over all of it.
+        g_brand = launcher_texture_load(asset("assets/img/brand_game.tga").c_str());
         const char* brand_file = bprof && bprof->brand
                                    ? bprof->brand : "brand_mark.tga";
-        if (brand_file && brand_file[0])
+        if (!g_brand.id && brand_file && brand_file[0])
             g_brand = launcher_texture_load(
                 asset((std::string("assets/img/") + brand_file).c_str()).c_str());
         // Optional platform wordmark: loads only if the profile names one AND
@@ -15039,7 +15304,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     bool first_present_marked = false;
 
     while ((m->action == LNG_ACTION_NONE && !p->should_quit) ||
-           launch_commit.job.pending()) {
+           launch_commit.job.pending() || m->setup_preparing) {
         /* finish() joins before model/provider access, returning the borrowed
          * ctx to the UI. A queued close wins even when commit succeeded. */
         const auto completion = launch_commit.finish(launch_commit.close_requested || p->should_quit);
@@ -15061,6 +15326,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
          * RESUME in session -- the same as a player's close box. */
         if (smoke_frames > 0 && ++frame > smoke_frames) {
             if (launch_commit.job.pending()) launch_commit.close_requested = true;
+            else if (m->setup_preparing) p->should_quit = true;
             else { p->should_quit = true; break; }
         }
 
@@ -15077,6 +15343,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
                 LNG_ImplSDL_ProcessEvent(&ev);
                 continue;
             }
+            if (capture_mod_binding(ev)) continue;
             if (try_capture(m, ev)) continue;
             /* Arm gamepad navigation on the first REAL pad input.
              *
@@ -15111,6 +15378,10 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             }
             LNG_ImplSDL_ProcessEvent(&ev);
         } while (SDL_PollEvent(&ev));
+        if (!launch_commit.job.pending() && p->should_quit && card_manager_ui::has_dirty()) {
+            p->should_quit = false;
+            card_manager_ui::request_close(true);
+        }
 
         launcher_platform_refresh_metrics(p);
         /* Also when a never-seen emoji was registered last frame: the atlas
@@ -15212,7 +15483,9 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (launch_commit.job.pending() && (launch_commit.close_requested || p->should_quit))
             launch_commit.job.request_cancel();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
+        else if (m->setup_preparing) draw_setup_wizard_modal(m, *th);
         else draw_ui(m, *th, p->logical_w, p->logical_h);
+        if (!launch_commit.job.pending()) card_manager_ui::draw(m);
         ImGui::Render();
 
         /* Disc pickers, source/option edits and setup outputs have completed
@@ -15250,10 +15523,17 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         if (launch_commit.job.pending()) {
             if (launcher_debug_step_pending(p)) launch_commit.close_requested = true;
+        } else if (m->setup_preparing) {
+            if (launcher_debug_step_pending(p)) p->should_quit = true;
         } else {
             launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
         }
+        // Native pickers can return during draw_ui; start only after its
+        // remaining reads and debug commands have released the provider.
+        launcher_model_start_pending_mod_import(m);
         launcher_platform_present(p);
+        if (!launch_commit.job.pending()) card_manager_ui::process_picker();
+        if (card_manager_ui::exit_ready) p->should_quit = true;
         if (!first_present_marked) {
             launcher_boot_timing_mark("rui:first_swap");
             first_present_marked = true;
@@ -15261,6 +15541,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     }
 
     launcher_boot_timing_mark("rui:action_requested");
+    card_manager_ui::shutdown();
     launcher_input_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     g_artwork.clear();
@@ -15292,9 +15573,13 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         (void)mod_commit_launch(m);
         m->action = LNG_ACTION_LAUNCH;
     }
-    if (p->should_quit && m->action == LNG_ACTION_NONE) m->action = LNG_ACTION_QUIT;
+    /* Background setup/import callbacks retain the model until they finish.
+     * Keep a close request pending rather than freeing their live context. */
+    if (p->should_quit && !m->setup_preparing && m->action == LNG_ACTION_NONE)
+        m->action = LNG_ACTION_QUIT;
     // Persist selected gamepads (defaults if never remapped) so PLAY remembers
     // the pad in input.ini / settings even without an explicit Save click.
+    if (m->setup_preparing) m->action = LNG_ACTION_NONE;
     if (m->action == LNG_ACTION_LAUNCH || m->action == LNG_ACTION_RELAUNCH)
         launcher_binds_prepare_psx_launch(m, g_pads, g_pad_count);
     return m->action;

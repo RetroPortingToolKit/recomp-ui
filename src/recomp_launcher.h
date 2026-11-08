@@ -8,6 +8,7 @@
 
 #ifndef RECOMP_LAUNCHER_H
 #define RECOMP_LAUNCHER_H
+#include "recomp_card_manager.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,6 +57,7 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_ROM_REVISIONS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
 #define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
+#define RECOMP_LAUNCHER_HAS_MOD_RESOURCE_IMPORT 1
 
 /* Portable encoding used by host-owned controller bindings. Button and axis
  * numbers are SDL's standard game-controller indices; zero remains unbound. */
@@ -968,7 +970,9 @@ typedef enum RecompLauncherCModOptionType {
      * host should surface why via last_error). Appended additively; only
      * games whose providers supply a TEXT option ever render one. */
     RECOMP_MOD_OPTION_TEXT = 3,
+    RECOMP_MOD_OPTION_BINDING = 4,
 } RecompLauncherCModOptionType;
+#define RECOMP_LAUNCHER_HAS_MOD_OPTION_TEXT 1
 
 typedef struct RecompLauncherCModPackage {
     char id[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -1062,6 +1066,11 @@ typedef struct RecompLauncherCModOption {
      * UI only has to grey the control out -- it never cross-references
      * options itself. Example: ticking "Instant" makes the speed box inert. */
     int  disabled;
+    /* Additive presentation hints; zero preserves the existing widgets. */
+    int  slider;
+    int  allow_wheel;
+    /* Decimal slider display; stored values remain integers. Zero means 1. */
+    int64_t display_divisor;
 } RecompLauncherCModOption;
 
 typedef struct RecompLauncherCModChoice {
@@ -1107,6 +1116,9 @@ typedef struct RecompLauncherCModResource {
     int verified;
     /* "file" (default) or "directory". Appended for source compatibility. */
     char format[64];
+    /* Import this file through feature_resource_import on a background job.
+     * Ordinary path selections leave this zero. */
+    int import_on_select;
 } RecompLauncherCModResource;
 
 typedef struct RecompLauncherCModProvider {
@@ -1233,6 +1245,16 @@ typedef struct RecompLauncherCModProvider {
     int (*commit_with_progress)(void* ctx, const char* image_path,
         int (*report)(void* report_ctx, float fraction, const char* text),
         void* report_ctx);
+    /* Optional expensive owner-input conversion, run away from the UI thread.
+     * The UI blocks other provider operations until completion. Implementations
+     * must retain the previous selection on failure. No shell is involved.
+     * image_path is a snapshot of the selected game image, never replaced by
+     * the import result. Only resources with import_on_select use this hook. */
+    int (*feature_resource_import)(void* ctx, const char* package_id,
+                                   const char* feature_id, const char* resource_id,
+                                   const char* path, const char* image_path,
+                                   void (*progress)(void*, float, const char*),
+                                   void* progress_user, char* error, size_t error_size);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_QUICK_MODS 1
 /* RecompLauncherCModFeature carries forces_vsync_off. */
@@ -1616,7 +1638,8 @@ struct RecompLauncherCSettings {
 #define RECOMP_LAUNCHER_VSYNC_ON       1
 #define RECOMP_LAUNCHER_VSYNC_OFF      2
 #define RECOMP_LAUNCHER_VSYNC_ADAPTIVE 3
-#define RECOMP_LAUNCHER_VSYNC_COUNT    3
+#define RECOMP_LAUNCHER_VSYNC_VRR      4
+#define RECOMP_LAUNCHER_VSYNC_COUNT    4
 
 /* Values for RecompLauncherSettings.fmv_filter (1-based; 0 = unset). */
 #define RECOMP_LAUNCHER_FMV_FILTER_NEAREST  1
@@ -2451,7 +2474,22 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Optional two-card editor, borrowed for the launcher session. */
+    const RecompCardManager* card_manager;
+    /* Additional VSync choice supported by the host. Zero keeps On/Off/Adaptive. */
+    int                has_vsync_vrr;
+    /* Keep failed or mod-owned frame generation out of the pipeline settings. */
+    int                frame_generation_hidden;
+
+    /* Memory-card slots the game uses (SAVE_MEMCARD), capped by the console
+     * profile: 1 hides slot 2 for a title that only talks to port 1. 0 = unset
+     * (callers that predate the field) keeps the profile's count. Appended for
+     * ABI stability. */
+    int                memcard_slots;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
+#define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
+#define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1
@@ -2459,6 +2497,7 @@ typedef struct RecompLauncherCGameInfo {
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
 #define RECOMP_LAUNCHER_HAS_FRACTIONAL_FAST_FORWARD 1
+#define RECOMP_LAUNCHER_HAS_MEMCARD_SLOTS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that

@@ -5,10 +5,20 @@
 #include <string.h>
 
 static int mutations, failures;
+static int assist_action = -1;
+static bool assist_gamepad;
+void launcher_model_import_mod_resource(LauncherModel* m, const char* pkg,
+    const char* feature, const char* resource, const char* path) {
+    (void)m; (void)pkg; (void)feature; (void)resource; (void)path; ++mutations;
+}
+
 void launcher_model_set_view(LauncherModel* m, LngView view) { ++mutations; m->view = view; }
 void launcher_model_begin_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; }
 void launcher_model_begin_pad_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; m->capture_pad = true; }
 void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey hotkey) { (void)m; (void)hotkey; ++mutations; }
+void launcher_model_begin_assist_capture(LauncherModel* m, int action, bool gamepad) {
+    (void)m; ++mutations; assist_action = action; assist_gamepad = gamepad;
+}
 void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }
@@ -49,7 +59,7 @@ int main(int argc, char** argv) {
     }
     if (strcmp(argv[1], "model") != 0) return 2;
 
-    script("view:settings;player:2;capbtn:3;cappad:5;caphk:1;quit");
+    script("view:settings;player:2;capbtn:3;cappad:5;caphk:1;capassist:2,1;quit");
     for (int i = 0; i < 8; ++i)
         check(!launcher_debug_step_pending(&platform), "model command deferred while busy");
     check(mutations == 0 && model.cfg_player == 0, "pending path cannot mutate model");
@@ -67,6 +77,11 @@ int main(int argc, char** argv) {
           "deferred gamepad capture resumes on normal path");
     launcher_debug_step(&platform, &model);
     check(mutations == 4, "hotkey capture runs only on normal path");
+    check(!launcher_debug_step_pending(&platform) && mutations == 4,
+          "assist capture remains deferred while busy");
+    launcher_debug_step(&platform, &model);
+    check(mutations == 5 && assist_action == 2 && assist_gamepad,
+          "deferred assist capture retains action and gamepad selection");
     launcher_debug_step(&platform, &model);
     check(model.action == LNG_ACTION_QUIT, "normal quit behavior retained");
     return failures ? 1 : 0;

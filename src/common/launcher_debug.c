@@ -203,6 +203,7 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         else if (strcmp(v, "controller") == 0) launcher_model_set_view(m, LNG_VIEW_CONTROLLER);
         else if (strcmp(v, "assist_tools") == 0) launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
         else if (strcmp(v, "credits") == 0) launcher_model_set_view(m, LNG_VIEW_CREDITS);
+        else if (strcmp(v, "mods") == 0) launcher_model_set_view(m, LNG_VIEW_MODS);
         /* The LAN-vs-online fork. Reachable only by clicking NETPLAY on the
          * dashboard, which made it the one netplay page a screenshot script
          * could not open. */
@@ -213,6 +214,20 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "mod-select:", 11) == 0) {
+        m->mod_selected = atoi(c + 11);
+    } else if (strncmp(c, "resource-import:", 16) == 0) {
+        char resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+        const char* path = strchr(c + 16, ':');
+        RecompLauncherCModFeature feature;
+        if (path && (size_t)(path - (c + 16)) < sizeof resource && m->mods &&
+            m->mods->feature_get && m->mods->feature_get(m->mods->ctx, m->mod_selected, &feature)) {
+            memcpy(resource, c + 16, (size_t)(path - (c + 16)));
+            resource[path - (c + 16)] = 0;
+            launcher_model_import_mod_resource(m, feature.package_id, feature.id, resource, path + 1);
+        }
+    } else if (strcmp(c, "wait-ready") == 0) {
+        if (m->setup_preparing) --g_cmd_index;
     } else if (strncmp(c, "player:", 7) == 0) {
         // Select which player the Controller view configures. Clamp to the
         // launcher's real player range (N64 profiles run up to 4) instead of
@@ -232,6 +247,30 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) synth_pad_axis(axis, value);
     } else if (strncmp(c, "caphk:", 6) == 0) {
         launcher_model_begin_hk_capture(m, (LngHotkey)atoi(c + 6)); // rebind a hotkey
+    } else if (strncmp(c, "capassist:", 10) == 0) {
+        int action = 0, pad = 0;
+        if (sscanf(c + 10, "%d,%d", &action, &pad) == 2)
+            launcher_model_begin_assist_capture(m, action, pad != 0);
+    } else if (strncmp(c, "padbutton:", 10) == 0) {
+        SDL_Event event;
+        SDL_zero(event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        LNG_EVGBTN(event) = (Uint8)atoi(c + 10);
+        LNG_EVGBTNWHICH(event) = 1;
+        SDL_PushEvent(&event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+        SDL_PushEvent(&event);
+    } else if (strncmp(c, "padaxis:", 8) == 0) {
+        int axis = 0, value = 0;
+        if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) {
+            SDL_Event event;
+            SDL_zero(event);
+            event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+            LNG_EVGAXIS(event) = (Uint8)axis;
+            LNG_EVGAXISVAL(event) = (Sint16)value;
+            LNG_EVGAXISWHICH(event) = 1;
+            SDL_PushEvent(&event);
+        }
     } else if (strncmp(c, "size:", 5) == 0) {
         int w = 0, h = 0;
         if (sscanf(c + 5, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {

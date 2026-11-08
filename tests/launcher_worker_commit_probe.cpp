@@ -18,7 +18,7 @@ struct Provider {
     std::atomic<int> reads{0};
     int commits = 0;
     bool success = true, on_worker = false;
-    bool ready = false;
+    bool ready = false, close_during_import = false;
     unsigned long long revision = 0;
     int probes = 0;
     std::string image, error = "Probe: verified resource is missing.";
@@ -69,6 +69,20 @@ static int commit(void* ctx, const char* image) {
     p.busy = false;
     return p.success ? 1 : 0;
 }
+static int import_resource(void* ctx, const char*, const char*, const char*,
+    const char*, const char* image,
+    void (*progress)(void*, float, const char*), void* user, char* err, size_t cap) {
+    auto& p = *static_cast<Provider*>(ctx);
+    if (p.close_during_import) {
+        SDL_Event event{};
+        event.type = SDL_QUIT;
+        SDL_PushEvent(&event);
+    }
+    progress(user, 0.5f, "Importing probe content");
+    const int ok = commit(ctx, image);
+    if (!ok) std::snprintf(err, cap, "%s", p.error.c_str());
+    return ok;
+}
 static const char* error(void* ctx) { return static_cast<Provider*>(ctx)->error.c_str(); }
 static int try_commit(void* ctx, const char* image) {
     read(ctx);
@@ -86,13 +100,15 @@ int main(int argc, char** argv) {
     provider.success = std::strcmp(argv[3], "fail") != 0;
     const bool warm = std::strcmp(argv[2], "warm") == 0;
     const bool prepare = std::strcmp(argv[2], "prepare") == 0;
-    const bool worker = std::strcmp(argv[2], "worker") == 0 || prepare;
+    const bool importing = std::strcmp(argv[2], "import") == 0;
+    const bool worker = std::strcmp(argv[2], "worker") == 0 || prepare || importing;
     const bool session = std::strcmp(argv[2], "session") == 0;
     RecompLauncherCModProvider mods{};
     mods.ctx = &provider; mods.package_count = count; mods.package_get = package;
     mods.feature_count = count; mods.feature_get = feature;
     mods.feature_option_get = option; mods.feature_enable = enable;
     mods.feature_set_option = set_option;
+    mods.feature_resource_import = importing ? import_resource : nullptr;
     mods.commit = commit; mods.last_error = error; mods.commit_worker_safe = worker || session || warm;
     if (warm || prepare) {
         mods.try_commit = try_commit; mods.preparation_revision = revision;
@@ -110,15 +126,25 @@ int main(int argc, char** argv) {
     LauncherPlatform platform;
     if (!launcher_platform_open(&platform, "Worker commit probe", 1100, 880)) return 4;
     LauncherTheme theme = launcher_theme_default();
+    if (importing) {
+        provider.close_during_import = std::strcmp(argv[4], "close") == 0;
+        launcher_model_import_mod_resource(&model, "probe.content", "content", "disc", "owned.bin");
+    }
+    const auto start = std::chrono::steady_clock::now();
     const LngAction action = launcher_backend_run(&platform, &model, &theme);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
     launcher_platform_close(&platform);
     const bool wants_launch = std::strcmp(argv[4], "launch") == 0;
-    bool ok = provider.commits == (warm ? 0 : 1) && !provider.busy && provider.violations == 0 && provider.reads > 0 &&
+    bool ok = provider.commits == (warm ? 0 : 1) && !provider.busy && provider.violations == 0 &&
+        ((importing && provider.close_during_import) || provider.reads > 0) &&
         provider.on_worker == worker && provider.image == argv[1] &&
         action == (wants_launch ? LNG_ACTION_LAUNCH : LNG_ACTION_QUIT);
     if (warm || prepare) ok = ok && provider.probes > 0;
+    if (importing) ok = ok && elapsed >= std::chrono::seconds(3);
     if (!provider.success && std::strcmp(argv[4], "quit") == 0 && !session)
         ok = ok && std::strcmp(model.mod_status, provider.error.c_str()) == 0;
-    if (!ok) std::fprintf(stderr, "FAIL: actual backend ownership/result contract\n");
+    if (!ok) std::fprintf(stderr, "FAIL: actual backend ownership/result contract commits=%d busy=%d violations=%d reads=%d worker=%d action=%d image=%s\n",
+        provider.commits, (int)provider.busy.load(), (int)provider.violations.load(),
+        (int)provider.reads.load(), (int)provider.on_worker, (int)action, provider.image.c_str());
     return ok ? 0 : 1;
 }

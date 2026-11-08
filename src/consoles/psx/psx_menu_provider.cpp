@@ -35,10 +35,30 @@ char g_subtitle[96];
 // Texture filtering, FMV filtering and smoothing are not menu rows: they are
 // psxrecomp's Image Filtering mod (its options on the Mods page), like the
 // rest of the game's look.
+const char* const kRenderers[] = {"Software", "OpenGL", "Vulkan"};
+const int kRendererValues[] = {0, 1, 2};
+const char* const kVsync[] = {"Off", "On", "Adaptive", "VRR"};
+const int kVsyncValues[] = {0, 1, -1, 2};
+int g_renderers = 2;
+bool g_vsync_overridden = false;
+enum { RENDERER, RENDER_THREAD, PRESENT_THREAD,
+#ifdef PSX_HOST_VIDEO_HAS_VSYNC
+       VSYNC,
+#endif
+       DISC, INSERT };
 RecompRuntimeUiItem g_extra[] = {
+    {"graphics.renderer", "Graphics", "Renderer", "Applies with a restart when the menu closes.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, kRenderers, 2, kRendererValues},
     {"graphics.render_thread", "Graphics", "Render thread",
-     "Use a second CPU thread; restarts when this menu closes.",
+     "Use a second CPU thread for OpenGL; restarts when this menu closes.",
      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"graphics.present_thread", "Graphics", "Present thread",
+     "Present OpenGL frames on another thread. Requires Render thread; restarts when this menu closes.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+#ifdef PSX_HOST_VIDEO_HAS_VSYNC
+    {"graphics.vsync", "Graphics", "VSync", "Driver synchronization and variable-refresh presentation.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1, kVsync, 3, kVsyncValues},
+#endif
     {"media.disc", "Disc", "Selected disc", "Choose a disc, then Insert disc and resume.",
      RECOMP_RUNTIME_UI_INT, 1, 1, 1, nullptr, 0, nullptr},
     {"media.insert", "Disc", "Insert disc and resume", "Change the disc while the game keeps running.",
@@ -67,7 +87,12 @@ void apply_video() {
 
 int cb_get(void *, const RecompRuntimeUiItem *item, int *out) {
     if (is(item, RECOMP_RUNTIME_UI_KEY_FULLSCREEN)) *out = g_video.fullscreen;
+    else if (is(item, "graphics.renderer")) *out = g_video.renderer;
     else if (is(item, "graphics.render_thread")) *out = g_video.render_thread;
+    else if (is(item, "graphics.present_thread")) *out = g_video.present_thread;
+#ifdef PSX_HOST_VIDEO_HAS_VSYNC
+    else if (is(item, "graphics.vsync")) *out = g_video.vsync;
+#endif
     else if (is(item, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU)) *out = g_pause_in_menu ? 1 : 0;
     else if (is(item, "media.disc")) *out = g_disc;
     else return 0;
@@ -76,7 +101,15 @@ int cb_get(void *, const RecompRuntimeUiItem *item, int *out) {
 
 int cb_set(void *, const RecompRuntimeUiItem *item, int v) {
     if (is(item, RECOMP_RUNTIME_UI_KEY_FULLSCREEN)) g_video.fullscreen = v;
+    else if (is(item, "graphics.renderer")) {
+        if (v < 0 || v >= g_renderers) return 0;
+        g_video.renderer = v;
+    }
     else if (is(item, "graphics.render_thread")) g_video.render_thread = v ? 1 : 0;
+    else if (is(item, "graphics.present_thread")) g_video.present_thread = v ? 1 : 0;
+#ifdef PSX_HOST_VIDEO_HAS_VSYNC
+    else if (is(item, "graphics.vsync")) g_video.vsync = v;
+#endif
     else if (is(item, RECOMP_RUNTIME_UI_KEY_PAUSE_IN_MENU)) {
         g_pause_in_menu = v != 0;
         const bool want = g_pause_in_menu && recomp_runtime_ui_is_open(g_ui);
@@ -120,6 +153,9 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
 }
 
 int cb_enabled(void *, const RecompRuntimeUiItem *item) {
+    if (is(item, "graphics.render_thread")) return g_video.renderer == 1;
+    if (is(item, "graphics.present_thread")) return g_video.renderer == 1 && g_video.render_thread;
+    if (is(item, "graphics.vsync")) return !g_vsync_overridden;
     if (item && item->key && !std::strncmp(item->key, "media.", 6)) return disc_count() > 1 && !netplay();
     return 1;
 }
@@ -163,7 +199,26 @@ int p_attach(void *, void *, void *, const PsxMenuHost *host) {
     g_host = host;
     if (g_ui) recomp_runtime_ui_destroy(g_ui);
     const int discs = disc_count();
-    g_extra[1].maximum = discs > 1 ? discs : 1;
+    g_extra[DISC].maximum = discs > 1 ? discs : 1;
+    RecompLauncherCGameInfo gi{};
+    if (host->launcher_game_info) host->launcher_game_info(&gi);
+    g_renderers = gi.num_renderers > 0 && gi.num_renderers <= 3 ? gi.num_renderers : 2;
+    g_extra[RENDERER].choice_count = g_renderers;
+    g_extra[RENDERER].maximum = g_renderers - 1;
+    g_extra[RENDERER].choices = gi.renderer_labels ? gi.renderer_labels : kRenderers;
+#ifdef PSX_HOST_VIDEO_HAS_VSYNC
+    g_extra[VSYNC].choice_count = gi.has_vsync_vrr ? 4 : 3;
+    g_extra[VSYNC].maximum = gi.has_vsync_vrr ? 3 : 2;
+#endif
+    g_vsync_overridden = false;
+    if (gi.mods && gi.mods->feature_count && gi.mods->feature_get) {
+        const int count = gi.mods->feature_count(gi.mods->ctx);
+        for (int i = 0; i < count; ++i) {
+            RecompLauncherCModFeature feature{};
+            if (gi.mods->feature_get(gi.mods->ctx, i, &feature) &&
+                feature.enabled && feature.forces_vsync_off) g_vsync_overridden = true;
+        }
+    }
     RecompRuntimeUiStandardConfig cfg{};
     cfg.menu.title = "Game menu";
     cfg.menu.subtitle = g_subtitle;
@@ -179,7 +234,7 @@ int p_attach(void *, void *, void *, const PsxMenuHost *host) {
                    RECOMP_RUNTIME_UI_STANDARD_RESUME | RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER |
                    RECOMP_RUNTIME_UI_STANDARD_QUIT;
     cfg.extra_items = g_extra;
-    cfg.extra_item_count = discs > 1 ? 3 : 1;
+    cfg.extra_item_count = discs > 1 ? INSERT + 1 : DISC;
     g_ui = recomp_runtime_ui_create_standard(&cfg);
     if (!g_ui) { g_host = nullptr; return 0; }
     return 1;

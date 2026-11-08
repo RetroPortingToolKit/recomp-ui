@@ -73,5 +73,27 @@ int main(void) {
     launcher_model_init(&model, &saved, &game, NULL);
     assert(model.s.assist_fast_forward_multiplier == 21);
     assert(model.s.fast_forward_toggle_mode == 1);
+    /* Named shortcuts also work for hosts such as SNES which retain their
+     * own gameplay mapper. Quick Save (action0) must never overwrite Up. */
+    for (int settings_owned = 0; settings_owned <= 1; ++settings_owned) {
+        game.settings_bindings = settings_owned;
+        launcher_model_init(&model, &saved, &game, NULL);
+        const int up_key = model.s.player_key_bind[0][0];
+        const int up_pad = model.s.player_pad_bind[0][0];
+        launcher_model_begin_assist_capture(&model, 0, true);
+        launcher_model_set_captured_pad(&model, RECOMP_LAUNCHER_PAD_BUTTON(2));
+        launcher_model_cancel_capture(&model);
+        launcher_model_begin_assist_capture(&model, 1, false);
+        launcher_model_set_captured_key(&model, 61);
+        launcher_model_cancel_capture(&model);
+        assert(model.s.assist_pad_bind[0] == RECOMP_LAUNCHER_PAD_BUTTON(2));
+        assert(model.s.assist_key_bind[1] == 61);
+        assert(model.s.player_key_bind[0][0] == up_key);
+        assert(model.s.player_pad_bind[0][0] == up_pad);
+        launcher_model_commit(&model, &saved);
+        launcher_model_init(&model, &saved, &game, NULL);
+        assert(model.s.assist_pad_bind[0] == RECOMP_LAUNCHER_PAD_BUTTON(2));
+        assert(model.s.assist_key_bind[1] == 61);
+    }
     return 0;
 }
