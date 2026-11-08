@@ -45,9 +45,16 @@
 #include "imgui_impl_opengl3.h"
 
 #include <atomic>
+#include <cmath>
 #if defined(_MSC_VER)
   #include <intrin.h>
 #endif
+
+static RecompLauncherCHostFrame s_host_frame=nullptr;
+static void* s_host_frame_context=nullptr;
+extern "C" void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context) {
+ s_host_frame=hook;s_host_frame_context=context;
+}
 
 // ---- Dear ImGui version compatibility ----------------------------------------
 // recomp-ui's vendored ImGui is 1.91.x, but a host can reuse its OWN single
@@ -1593,6 +1600,20 @@ void draw_crt_background(ImVec2 origin, ImVec2 size) {
     bg->AddRectFilledMultiColor(origin, ImVec2(origin.x + size.x, origin.y + px(90)),
                                 imcol(th.accent, 0.10f), imcol(th.accent, 0.10f),
                                 imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));
+    if(g_th->background_style==1) {
+        const float time=(float)ImGui::GetTime();
+        for(int i=0;i<24;++i) {
+            const float depth=0.24f+(float)((i*7)%19)/24.0f;
+            const float w=size.x*(0.018f+depth*.026f);
+            const float x=origin.x+size.x*((i*.6180339f+(float)std::sin(time*.025f+i)*.018f)-(int)(i*.6180339f));
+            const float base=origin.y+size.y*(.72f+depth*.2f);
+            const float h=size.y*(.08f+(float)((i*11)%17)*.016f)*(0.7f+depth);
+            const ImVec2 a(x,base-h),b(x+w,base),c(x+w+w*.35f,base-w*.28f),d(x+w*.35f,base-h-w*.28f);
+            bg->AddRectFilled(a,b,IM_COL32(45,92,171,(int)(12+depth*23)));
+            bg->AddQuadFilled(ImVec2(x+w,base-h),b,c,ImVec2(x+w+w*.35f,base-h-w*.28f),IM_COL32(32,58,123,24));
+            bg->AddQuadFilled(a,ImVec2(x+w,base-h),ImVec2(x+w+w*.35f,base-h-w*.28f),d,IM_COL32(92,153,220,30));
+        }
+    }
     // scanlines over everything, very subtle — only for CRT-style themes (the PSX
     // theme sets scanlines = 0 for a flat, disc-era look).
     if (th.scanlines) {
@@ -3158,7 +3179,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
     }
 
     // NES co-op seats select physical instances: identical pads share a GUID.
-    if (src_prof && src_prof->id && !strcmp(src_prof->id, "nes")) {
+    if (src_prof && src_prof->id && (!strcmp(src_prof->id, "nes") || !strcmp(src_prof->id,"ps2"))) {
         for (int i = 0; i < g_pad_count; ++i) {
             const bool guid_match = m->s.player_gamepad_guid[p][0] &&
                 g_pads[i].guid[0] &&
@@ -3166,10 +3187,17 @@ void draw_source_selectables(LauncherModel* m, int p) {
             const bool sel = m->s.player_src[p] == 2 &&
                 (m->s.player_gamepad_instance[p] ?
                  m->s.player_gamepad_instance[p] == g_pads[i].id + 1 : guid_match);
+            const bool ps2=!strcmp(src_prof->id,"ps2");
+            bool claimed=false;
+            if(ps2) for(int other=0;other<2;++other) if(other!=p && m->s.player_src[other]==2 && m->player_pad_id[other]==g_pads[i].id) claimed=true;
             ImGui::PushID(i);
-            if (ImGui::Selectable(g_pads[i].name, sel))
+            if(claimed) ImGui::BeginDisabled();
+            if (ImGui::Selectable(g_pads[i].name, sel) && !claimed) {
                 launcher_model_set_source(m, p, 2, g_pads[i].id, g_pads[i].name,
                                           g_pads[i].guid);
+                if(ps2) launcher_binds_refresh(m);
+            }
+            if(claimed) ImGui::EndDisabled();
             ImGui::PopID();
         }
         if (g_pad_count == 0) {
@@ -5805,7 +5833,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
     // Some systems ship no rebindable input layer (N64 Snap / PMS-J read no
     // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
     // Controller view is source+deadzone only.
-    if (m->hide_rebind) return;
+    const auto* controller_profile=(const SystemProfile*)m->profile;
+    if (m->hide_rebind || (controller_profile && !strcmp(controller_profile->id,"ps2") && m->s.player_src[m->cfg_player]==2)) return;
 
     if (begin_panel("cfg_binds", 0)) {
         // Responsive grid: fit as many label+chip columns as the width allows
@@ -14073,6 +14102,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             }
         }
 
+        if(s_host_frame) s_host_frame(s_host_frame_context,m,p,0);
         ImGui_ImplOpenGL3_NewFrame();
         /* Suspend ImGui's GAMEPAD navigation while a bind capture is open.
          *
@@ -14102,6 +14132,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         glClearColor(bg.r, bg.g, bg.b, bg.a);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if(s_host_frame) s_host_frame(s_host_frame_context,m,p,1);
         launcher_debug_step(p, m);   // script/screenshot: after draw, before swap
         launcher_platform_present(p);
         if (!first_present_marked) {

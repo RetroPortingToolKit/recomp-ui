@@ -43,6 +43,7 @@ typedef struct {
     float row_height;
     float font_body, font_title, font_small;
     float focus_ring_width;
+    int   background_style; // 0=plain,1=original procedural PS2 towers
     int   scanlines;      // 1 = draw the CRT scanline overlay, 0 = flat (e.g. PSX)
 } LauncherTheme;
 
@@ -81,6 +82,7 @@ static inline LauncherTheme launcher_theme_default(void) {
     t.row_height = 44.0f;                      // large rows: Steam Deck friendly
     t.font_body  = 18.0f; t.font_title = 34.0f; t.font_small = 13.0f;
     t.focus_ring_width = 2.5f;
+    t.background_style=0;
     t.scanlines  = 1;                          // CRT look: scanlines ON
     return t;
 }
@@ -283,7 +285,18 @@ static inline LauncherTheme launcher_theme_gbc(void) {
 // 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis;
 // anything else -> default CRT). Note the "gb*" order: match "gba" and "gbc"
 // (3rd char) BEFORE the bare "gb" fallback.
+static inline LauncherTheme launcher_theme_ps2(void) {
+ LauncherTheme t=launcher_theme_psx();
+ t.background=lng_rgba(.012f,.028f,.075f,1);t.background2=lng_rgba(.025f,.09f,.21f,1);
+ t.panel=lng_rgba(.025f,.055f,.115f,.94f);t.panel_hovered=lng_rgba(.04f,.09f,.18f,.97f);
+ t.control=lng_rgba(.055f,.105f,.19f,1);t.control_hovered=lng_rgba(.08f,.16f,.29f,1);
+ t.text=lng_rgba(.94f,.96f,1,1);t.text_muted=lng_rgba(.66f,.76f,.9f,1);
+ t.accent=lng_rgba(.26f,.58f,1,1);t.accent_dim=lng_rgba(.12f,.32f,.7f,1);
+ t.border=lng_rgba(.16f,.3f,.49f,.72f);t.scanlines=0;t.background_style=1;return t;
+}
+
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if(name && name[0]=='p' && name[1]=='s' && name[2]=='2' && !name[3]) return launcher_theme_ps2();
     if (name && (name[0] == 'p' || name[0] == 'P') &&
         (name[1] == 's' || name[1] == 'S'))
         return launcher_theme_psx();

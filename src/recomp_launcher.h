@@ -2130,6 +2130,12 @@ int recomp_launcher_run_window(const char* window_title,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len);
 
+/* Owner-thread integration: phase0 before draw services model actions;
+ * phase1 after GL rendering/before swap permits requested capture only.
+ * Opaque model/platform pointers are borrowed during callback only. */
+typedef void (*RecompLauncherCHostFrame)(void*,void*,void*,unsigned);
+void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context);
+
 /* Valid after run_window returns RECOMP_LAUNCHER_RESULT_RELAUNCH. Copies the
  * executable path produced by rebuild_with_progress. Returns 1 on success. */
 int recomp_launcher_relaunch_exe(char* out, size_t out_cap);
