@@ -357,6 +357,23 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-psx-binds-sections-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/psx-binds-sections-test.ini")
 
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(recomp-ui-hotkey-store-test tests/launcher_hotkey_store_test.c)
+        target_include_directories(recomp-ui-hotkey-store-test PRIVATE src src/common)
+        target_compile_definitions(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_DEFS})
+        target_compile_options(recomp-ui-hotkey-store-test PRIVATE
+            -UNDEBUG -ffunction-sections -fdata-sections)
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(recomp-ui-hotkey-store-test PRIVATE -flto)
+            target_link_options(recomp-ui-hotkey-store-test PRIVATE -flto)
+        endif()
+        target_link_libraries(recomp-ui-hotkey-store-test PRIVATE ${RUI_SDL_TARGET})
+        target_link_options(recomp-ui-hotkey-store-test PRIVATE
+            $<IF:$<PLATFORM_ID:Darwin>,-Wl$<COMMA>-dead_strip,-Wl$<COMMA>--gc-sections>)
+        add_test(NAME recomp-ui-hotkey-store COMMAND recomp-ui-hotkey-store-test
+            "${CMAKE_CURRENT_BINARY_DIR}/hotkey-store-test.ini")
+    endif()
+
     # Multi-disc roster: sibling autofill + per-slot binding. Includes
     # launcher_model.c (not links it) to reach the static path rewriter, so the
     # model's own deps are compiled in alongside.

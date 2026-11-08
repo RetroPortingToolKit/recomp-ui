@@ -136,7 +136,9 @@ static const SystemProfile kSystemProfilePsx = {
                                    (1u << LNG_HK_DISPLAY_PERF)   |
                                    RUI_PSX_REWIND_HOTKEY_MASK    |
                                    (1u << LNG_HK_SAVE_STATE_MENU) |
-                                   (1u << LNG_HK_TURBO_TOGGLE)),
+                                   (1u << LNG_HK_TURBO_TOGGLE)    |
+                                   (1u << LNG_HK_QUICK_SAVE)     |
+                                   (1u << LNG_HK_QUICK_LOAD)),
     /* panels_dashboard  */ kPanelsDashboardPsx,
     /* panels_settings   */ kPanelsSettingsPsx,
     /* panels_controller */ kPanelsControllerCommon,

@@ -166,6 +166,8 @@ typedef enum {
     LNG_HK_OPEN_LAUNCHER, /* this launcher, mid-game → [KeyMap] OpenLauncher;
                            * shown only when GameInfo.has_open_launcher_hotkey */
     LNG_HK_TURBO_TOGGLE, /* PSX press-to-latch fast-forward → [KeyMap] TurboToggle */
+    LNG_HK_QUICK_SAVE,
+    LNG_HK_QUICK_LOAD,
     LNG_HK_COUNT
 } LngHotkey;
 

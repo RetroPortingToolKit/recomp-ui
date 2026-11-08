@@ -212,7 +212,7 @@ static const char* kHotkeyKey[] = {
     "WindowBigger", "WindowSmaller", "VolumeUp", "VolumeDown",
     "DisplayPerf", "ToggleRenderer",
     "SolarBrighter", "SolarDimmer", "SolarLive",
-    "Rewind", "SaveStateMenu", "OpenLauncher", "TurboToggle"
+    "Rewind", "SaveStateMenu", "OpenLauncher", "TurboToggle", "QuickSave", "QuickLoad"
 };
 // Built-in defaults (shown when config.ini has no line; "" = unbound).
 static const char* kHotkeyDef[] = {
@@ -221,7 +221,7 @@ static const char* kHotkeyDef[] = {
      * (psxrecomp host_keymap reads these from [KeyMap]). */
     "", "", "Keypad +", "Keypad -", "F", "R",
     "", "", "",
-    "F8", "F7", "Ctrl+L", "F9"
+    "F8", "F7", "Ctrl+L", "F9", "F5", "Shift+F5"
 };
 /* Sized by their initializers, so a hotkey added to LngHotkey without a key
  * and a default here fails the build instead of reading a NULL. */
