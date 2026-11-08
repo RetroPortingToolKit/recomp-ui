@@ -11192,15 +11192,17 @@ void draw_netplay_mode_page(LauncherModel* m, const LauncherTheme& th) {
     else if (quiet_signin_since <= 0.0) quiet_signin_since = now_t;
     const bool stalled = awaiting && (now_t - quiet_signin_since > 5.0);
     const bool hold_online = awaiting && !stalled;
+    const bool online_available = npa && npa->connect;
 
     const char* online_body =
-        !offered ? "Online play requires Discord sign-in. "
+        !online_available ? "Online play is not available in this build."
+        : !offered ? "Online play requires Discord sign-in. "
                    "Sign-in is currently unavailable."
         : hold_online ? "Checking your saved sign-in\u2026"
         : "Find players on the lobby server. Sign in with Discord "
           "so your name is yours across sessions.";
 
-    ImGui::BeginDisabled(hold_online);
+    ImGui::BeginDisabled(hold_online || !online_available);
     const bool online_hit = np_mode_card(th, "online", "Online Netplay",
                                          online_body, card_w, true);
     ImGui::EndDisabled();
