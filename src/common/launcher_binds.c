@@ -403,6 +403,9 @@ static const char* config_path(void) {
 static void reload_hotkey_display(LauncherModel* m) {
     for (int h = 0; h < LNG_HK_COUNT; ++h)
         copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), kHotkeyDef[h]);
+    if (is_psx_profile(m))
+        copy_str(m->hotkeys[LNG_HK_FULLSCREEN], sizeof(m->hotkeys[LNG_HK_FULLSCREEN]),
+                 "F11,Alt+Return,Ctrl+F");
 
     long len = 0; char* text = read_whole(config_path(), &len);
     if (!text) return;

@@ -714,3 +714,5 @@ Matthew Stanley.
 
 Bundled third-party code (Dear ImGui, stb, tinyfiledialogs) retains its own
 licenses under `src/third_party/`.
+
+For the private PSX Pin I preview, fullscreen defaults to F11 with Alt+Return and Ctrl+F aliases. The runtime default replay-record key is F12. A saved explicit binding or unbind replaces its default; other console profiles retain their own defaults.

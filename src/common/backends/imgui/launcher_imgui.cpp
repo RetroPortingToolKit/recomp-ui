@@ -4749,7 +4749,7 @@ static void draw_start_from(LauncherModel* m, const LauncherTheme& th, float w, 
         if (!shown)
             start_note(th, ui_text(kind == LNG_START_STATE
                 ? "No save state yet. In the game, the save-state menu (F7) makes one."
-                : "No replay yet. Tick Record replay below, or record in the game (F11)."));
+                : "No replay yet. Tick Record replay below, or record in the game (F12)."));
         const int more = kind == LNG_START_STATE ? m->start_notes.states_unlisted
                                                  : m->start_notes.replays_unlisted;
         if (more > 0) {
@@ -13914,7 +13914,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip(
                     "Record this session from power-on until you quit, or stop\n"
-                    "with the replay hotkey (F11 by default). Files go to\n"
+                    "with the replay hotkey (F12 by default). Files go to\n"
                     "saves/replays in the\n"
                     "game folder. Only for this launch: it is not remembered.\n\n"
                     "Recorded: Player 1's pad, the memory cards at boot and the\n"
