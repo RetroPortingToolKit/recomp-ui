@@ -117,6 +117,7 @@ int main(int argc, char** argv) {
     f = fopen(cache, "rb");
     require(f == NULL, "host-owned paths do not create a cache");
     game.host_persists_paths = 0;
+    launcher_model_init(m, &settings, &game, rom);
 
     require(chdir(argv[1]) == 0, "enter fixture directory");
     launcher_model_set_rom(m, "External ROM (USA).sfc");
