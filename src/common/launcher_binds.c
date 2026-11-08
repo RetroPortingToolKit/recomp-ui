@@ -403,6 +403,13 @@ static const char* config_path(void) {
 static void reload_hotkey_display(LauncherModel* m) {
     for (int h = 0; h < LNG_HK_COUNT; ++h)
         copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), kHotkeyDef[h]);
+    static const char* const psx_keys[] = {"Rewind", "SaveStateMenu", "Turbo", "TurboToggle"};
+    static const SDL_Scancode psx_defaults[] = {SDL_SCANCODE_F8, SDL_SCANCODE_F7, SDL_SCANCODE_TAB, SDL_SCANCODE_F9};
+    if (is_psx_profile(m))
+        for (int i = 0; i < 4 && i < m->assist_binding_count; ++i) {
+            m->s.assist_key_bind[i] = psx_defaults[i];
+            m->default_assist_key_bind[i] = psx_defaults[i];
+        }
 
     long len = 0; char* text = read_whole(config_path(), &len);
     if (!text) return;
@@ -436,6 +443,15 @@ static void reload_hotkey_display(LauncherModel* m) {
                 copy_str(m->hotkeys[h], sizeof(m->hotkeys[h]), unbound ? "(unbound)" : v);
                 break;
             }
+        if (is_psx_profile(m))
+            for (int i = 0; i < 4 && i < m->assist_binding_count; ++i)
+                if (ieq(p, klen, psx_keys[i])) {
+                    /* Named capture is a single physical key. Preserve a legacy
+                     * modifier/multiple binding on disk until explicitly edited. */
+                    m->s.assist_key_bind[i] = strchr(v, '+') || strchr(v, ',') ? 0 :
+                        (int)SDL_GetScancodeFromName(v);
+                    break;
+                }
     }
     free(text);
 }
@@ -445,6 +461,15 @@ static void reload_hotkey_display(LauncherModel* m) {
 // Original config.ini [KeyMap] entry point, now a thin wrapper.
 static void keymap_write(const char* key, const char* value) {
     launcher_ini_kv_write(config_path(), "KeyMap", key, value);
+}
+
+void launcher_binds_set_assist_key(LauncherModel* m, int action, int scancode) {
+    static const char* const names[] = {"Rewind", "SaveStateMenu", "Turbo", "TurboToggle"};
+    if (!m || !is_psx_profile(m) || action < 0 || action >= 4 ||
+        action >= m->assist_binding_count) return;
+    const char* name = scancode > 0 ? SDL_GetScancodeName((SDL_Scancode)scancode) : NULL;
+    keymap_write(names[action], name && name[0] ? name : "None");
+    m->s.assist_key_bind[action] = scancode;
 }
 
 // ---- SNES config.ini [GamepadMap] bridge -----------------------------------

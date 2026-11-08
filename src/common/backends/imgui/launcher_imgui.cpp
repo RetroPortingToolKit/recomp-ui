@@ -5600,8 +5600,11 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     else         draw_assist_pad_unavailable_hint(m, th);
     if (show_reset && ImGui::Button(m->has_assist_tools
                                         ? "Reset Assist Controls"
-                                        : "Reset Host Shortcuts"))
+                                        : "Reset Host Shortcuts")) {
         launcher_model_reset_assist_bindings(m);
+        for (int i = 0; i < m->assist_binding_count; ++i)
+            launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
+    }
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
 }
@@ -14801,9 +14804,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                                               LNG_PADBIND_NONE, 0, 0);
         } else if (m->capturing) {
             const SystemProfile* prof = (const SystemProfile*)m->profile;
-            if (m->capture_assist || host_player_binds)
+            if (m->capture_assist || host_player_binds) {
                 launcher_model_set_captured_key(m, 0);
-            else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
+                if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, 0);
+            } else if (prof && prof->controller.binds_per_input >= 2 && prof->id &&
                      !strcmp(prof->id, "psx"))
                 launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                m->capture_slot, 0);
@@ -15054,9 +15058,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         // the legacy setter — capture_slot is always 0 for them.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const bool alt_slots = prof && prof->controller.binds_per_input >= 2;
-        if (m->capture_assist || host_player_binds)
+        if (m->capture_assist || host_player_binds) {
             launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));
-        else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
+            if (m->capture_assist) launcher_binds_set_assist_key(m, m->capture_btn, (int)LNG_EVSCAN(ev));
+        } else if (alt_slots && prof->id && !strcmp(prof->id, "n64"))
             launcher_binds_set_field(m, m->cfg_player + 1, m->capture_btn, m->capture_slot,
                                      RUI_N64_FIELD_KEY, (int)LNG_EVSCAN(ev));
         else if (alt_slots)

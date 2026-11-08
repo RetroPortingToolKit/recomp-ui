@@ -155,6 +155,9 @@ void launcher_binds_set_zapper(int mouse_enabled, int crosshair);
 void launcher_binds_refresh_camera(LauncherModel* m);
 void launcher_binds_set_camera(LauncherModel* m, int action, int scancode);
 void launcher_binds_reset_camera(LauncherModel* m);
+/* PSX's legacy host actions execute config.ini [KeyMap], independently of
+ * the gameplay keyboard store. Other hosts consume assist_key_bind directly. */
+void launcher_binds_set_assist_key(LauncherModel* m, int action, int scancode);
 
 // Surgically set "Key = value" inside [section] of `path`, preserving every
 // other line (comments, blank lines, unrelated sections). Creates the file
