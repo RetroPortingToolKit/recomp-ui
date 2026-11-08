@@ -6521,7 +6521,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         // vocab overlaps the bind-chip button next to it.
         float label_col_w = px(70.0f);
         for (int b = 0; b < nbtn; ++b) {
-            float w = ImGui::CalcTextSize(spec.buttons[b].label).x + px(20.0f);
+            float w = ImGui::CalcTextSize(launcher_model_button_label(m, b)).x + px(20.0f);
             if (w > label_col_w) label_col_w = w;
         }
         // Two chips per row when either the N64 keeps two binds per input
@@ -6584,7 +6584,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     : cell;
                 ImGui::TableNextColumn();
                 ImGui::PushID(b);
-                bind_row_label(spec.buttons[b].label, col(th.text_muted),
+                bind_row_label(launcher_model_button_label(m, b), col(th.text_muted),
                                label_col_w, chip_gap);
                 if (bpi >= 2) {
                     // Two chips per input: slot 0 primary, slot 1 alternate,
@@ -6734,7 +6734,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             } else {
                 ImGui::TextColored(col(th.accent), "Auto Map %d/%d - press %s%s",
                                    cell + 1, automap_total,
-                                   spec.buttons[b].label,
+                                   launcher_model_button_label(m, b),
                                    pad_src ? " on the controller" : "");
             }
         } else if (m->capturing) {

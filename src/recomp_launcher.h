@@ -2454,7 +2454,14 @@ typedef struct RecompLauncherCGameInfo {
     /* Explicit host-native player roles, independent of emulated controller
      * ports. Zero retains the console ceiling. Used by native co-op mods. */
     int                native_player_count;
+    /* Host-native gameplay actions appended after the console's real buttons.
+     * Requires settings_bindings. The host consumes these array entries;
+     * they never imply extra emulated controller buttons or ports. Labels
+     * are borrowed for the launcher's lifetime; NULL/0 preserves the profile. */
+    const char* const*  virtual_button_labels;
+    int                virtual_button_count;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_VIRTUAL_BUTTONS 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1

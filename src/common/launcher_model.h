@@ -405,6 +405,8 @@ typedef struct {
     const char* assist_tools_note;
     bool has_virtual_stylus;
     bool settings_bindings;
+    const char* const* virtual_button_labels;
+    int virtual_button_count;
     const char* const* assist_binding_labels;
     int assist_binding_count;
     int assist_direct_pad_bind_action;
@@ -883,6 +885,7 @@ const char* launcher_model_ws_cells_label(const LauncherModel* m);   // "8 cells
 // player's CURRENT mode's button_count; otherwise it is the profile's full
 // button_count. Always <= LNG_MAX_BUTTONS.
 int launcher_model_active_button_count(const LauncherModel* m, int player);
+const char* launcher_model_button_label(const LauncherModel* m, int button);
 
 // ---- aspect ratio (PSX-style; only meaningful when aspect_mask != 0) ----
 // Cycle through the OFFERED aspects only (4:3 always offered; 16:9/21:9 per

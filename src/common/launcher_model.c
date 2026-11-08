@@ -753,6 +753,13 @@ void launcher_model_init(LauncherModel* m,
     // ---- infer the SystemProfile this game belongs to (panel composition +
     // per-system specs) from the ABI caps launcher_profile_apply() already set ----
     m->profile = launcher_system_infer(game);
+    if (game && m->settings_bindings && game->virtual_button_labels &&
+        game->virtual_button_count > 0 && m->profile &&
+        !m->profile->controller.mode_count) {
+        m->virtual_button_labels = game->virtual_button_labels;
+        m->virtual_button_count = clampi(game->virtual_button_count, 0,
+            LNG_MAX_BUTTONS - m->profile->controller.button_count);
+    }
     if (game && game->native_player_count > 0) {
         m->player_count = clampi(game->native_player_count, 1, LNG_MAX_PLAYERS);
     } else if (m->profile && m->profile->controller.max_players > 0) {
@@ -1103,7 +1110,7 @@ void launcher_model_init(LauncherModel* m,
     // gets a placeholder — kP1Defaults only names the SNES-shaped first 12.
     {
         const SystemProfile* prof = (const SystemProfile*)m->profile;
-        int bc = prof ? prof->controller.button_count : LNG_BTN_COUNT;
+        int bc = (prof ? prof->controller.button_count : LNG_BTN_COUNT) + m->virtual_button_count;
         if (bc > LNG_MAX_BUTTONS) bc = LNG_MAX_BUTTONS;
         for (int b = 0; b < bc; ++b) {
             safe_copy(m->binds[0][b], sizeof(m->binds[0][b]),
@@ -4563,9 +4570,19 @@ int launcher_model_active_button_count(const LauncherModel* m, int player) {
                 break;
             }
     }
+    bc += m->virtual_button_count;
     if (bc > LNG_MAX_BUTTONS) bc = LNG_MAX_BUTTONS;
     if (bc < 0) bc = 0;
     return bc;
+}
+const char* launcher_model_button_label(const LauncherModel* m, int button) {
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    if (!prof || button < 0) return "?";
+    int base = prof->controller.button_count;
+    if (button < base) return prof->controller.buttons[button].label;
+    button -= base;
+    return button < m->virtual_button_count && m->virtual_button_labels[button]
+        ? m->virtual_button_labels[button] : "?";
 }
 
 void launcher_model_cycle_player_src(LauncherModel* m, int player) {
@@ -4658,7 +4675,7 @@ void launcher_model_begin_capture(LauncherModel* m, int b) {
 }
 void launcher_model_begin_capture_slot(LauncherModel* m, int b, int slot) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
-    int bc = prof ? prof->controller.button_count : LNG_BTN_COUNT;
+    int bc = (prof ? prof->controller.button_count : LNG_BTN_COUNT) + m->virtual_button_count;
     if (bc > LNG_MAX_BUTTONS) bc = LNG_MAX_BUTTONS;
     if (b < 0 || b >= bc) return;
     m->hk_capturing  = false;
