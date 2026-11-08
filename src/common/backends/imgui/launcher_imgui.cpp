@@ -3827,6 +3827,13 @@ void draw_shader_row(LauncherModel* m, const LauncherTheme& th, float col_w = 0.
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
+    // PS2 owns density/aspect in Mods and currently applies only window mode
+    // from this card. Legacy scale/filter rows have no host consumer here.
+    if (is_ps2_host(m)) {
+        row_fullscreen(m, th);
+        return;
+    }
+
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
         // Labels at the left edge, controls at the right (row_label_right), so
