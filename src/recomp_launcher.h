@@ -2451,6 +2451,9 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Explicit host-native player roles, independent of emulated controller
+     * ports. Zero retains the console ceiling. Used by native co-op mods. */
+    int                native_player_count;
 } RecompLauncherCGameInfo;
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
