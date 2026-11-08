@@ -13,6 +13,9 @@
 //   size:WxH                             resize the window (tests live reflow)
 //   click:X,Y                            synthetic click at logical coords
 //   key:escape                           synthetic key press
+//   capassist:ACTION,PAD                 capture named host shortcut (PAD=0/1)
+//   padbutton:BUTTON                     synthetic gamepad button press
+//   padaxis:AXIS,VALUE                   synthetic gamepad axis event
 //   wait:N                               idle N frames (let layout settle)
 //   shot:PATH                            write a PNG of the current frame
 //   quit                                 exit the launcher
