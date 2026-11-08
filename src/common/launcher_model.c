@@ -1303,7 +1303,8 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->crc_match = false;
     m->sha_match = false;
     m->sha1_match = false;
-    const int disc_verify = m->profile && m->profile->verify.mode == 1;
+    const int disc_verify = m->profile && (m->profile->verify.mode == 1 ||
+        (m->profile->id && !strcmp(m->profile->id, "ps2")));
     if (m->rom_present) {
         FILE* f = fopen(m->rom_full, "rb");
         if (f) {

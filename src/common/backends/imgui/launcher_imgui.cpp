@@ -107,6 +107,10 @@ struct ShaderPresetEntry {
 static std::vector<ShaderPresetEntry> g_shader_presets;
 
 namespace { std::string asset(const char* rel); }
+static std::string s_assets_directory;
+extern "C" void launcher_backend_set_assets_directory(const char* directory) {
+    s_assets_directory=directory?directory:"";
+}
 
 static bool shader_path_matches(const std::string& preset, const char* selected) {
     if (!selected || !*selected) return false;
@@ -2209,6 +2213,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
     // (icon + Serial/Region/ISO checklist) here instead of the CRC/SHA line;
     // mode==0 systems (SNES/cart) keep the CRC/SHA line exactly as before.
     const bool disc_verdict = m->profile && m->profile->verify.mode == 1;
+    const bool linked_ps2 = m->profile && m->profile->id && !strcmp(m->profile->id,"ps2");
 
     // Box art on top (centered), everything else BELOW it. Height is derived
     // from the space actually left after the metadata + button, so the art is
@@ -2236,6 +2241,9 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
     const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
     if (disc_verdict) {
         draw_verdict_block(m, th, availw);
+    } else if (linked_ps2) {
+        ImGui::TextWrapped("%s", m->game_name);
+        ImGui::TextColored(col(th.text_muted), "%s", m->rom_present ? "Disc loaded" : "Disc unavailable");
     } else {
         const bool verified = launcher_model_rom_verified(m);
         char line[64];
@@ -2266,6 +2274,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::EndTable();
     }
     ImGui::Dummy(ImVec2(0, px(12)));
+    if (linked_ps2) { end_panel(); return; }
     // "Browse For Disc 2", not "Change Disc": on a multi-disc set the button
     // does not swap which disc the game is on — the Disc Selection dropdown
     // above does that — it re-points the SELECTED disc at a file on this
@@ -3181,13 +3190,13 @@ void draw_source_selectables(LauncherModel* m, int p) {
     // NES co-op seats select physical instances: identical pads share a GUID.
     if (src_prof && src_prof->id && (!strcmp(src_prof->id, "nes") || !strcmp(src_prof->id,"ps2"))) {
         for (int i = 0; i < g_pad_count; ++i) {
+            const bool ps2=!strcmp(src_prof->id,"ps2");
             const bool guid_match = m->s.player_gamepad_guid[p][0] &&
                 g_pads[i].guid[0] &&
                 std::strcmp(m->s.player_gamepad_guid[p], g_pads[i].guid) == 0;
             const bool sel = m->s.player_src[p] == 2 &&
-                (m->s.player_gamepad_instance[p] ?
+                (ps2 ? m->player_pad_id[p] == g_pads[i].id : m->s.player_gamepad_instance[p] ?
                  m->s.player_gamepad_instance[p] == g_pads[i].id + 1 : guid_match);
-            const bool ps2=!strcmp(src_prof->id,"ps2");
             bool claimed=false;
             if(ps2) for(int other=0;other<2;++other) if(other!=p && m->s.player_src[other]==2 && m->player_pad_id[other]==g_pads[i].id) claimed=true;
             ImGui::PushID(i);
@@ -5837,6 +5846,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
     if (m->hide_rebind || (controller_profile && !strcmp(controller_profile->id,"ps2") && m->s.player_src[m->cfg_player]==2)) return;
 
     if (begin_panel("cfg_binds", 0)) {
+        if (controller_profile && !strcmp(controller_profile->id,"ps2"))
+            ImGui::TextWrapped("Escape opens settings. While rebinding, Escape cancels and Backspace clears the binding.");
         // Responsive grid: fit as many label+chip columns as the width allows
         // (1..4) instead of one tall column with dead space to the right.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
@@ -13787,6 +13798,11 @@ std::string normalized_path(const char* path) {
 std::string asset(const char* rel) {
     std::string path = normalized_path(rel);
     if (is_absolute_path(path)) return path;
+    if (!s_assets_directory.empty()) {
+        std::filesystem::path root=std::filesystem::u8path(s_assets_directory);
+        if (path.rfind("assets/",0)==0) return (root/std::filesystem::u8path(path.substr(7))).u8string();
+        return (root.parent_path()/std::filesystem::u8path(path)).u8string();
+    }
 
 #if defined(__ANDROID__)
     const char* base = SDL_AndroidGetInternalStoragePath();

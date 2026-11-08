@@ -27,7 +27,7 @@ static const SystemProfile kSystemProfilePs2 = {
         /*bios*/0, /*deadzone*/1,
         /*widescreen_cells*/0, /*fmv_filter*/0,
     },
-    /* verify */  { 1, NULL },    // disc-verdict mode; probe==NULL -> synthesized verdict (see launcher_model.c)
+    /* verify */  { 0, NULL },    // no PS1 synthetic disc verdict for a linked PS2 title
     // Only controls consumed by the host are exposed.
     /* hotkeys_mask */ 0,
     /* panels_dashboard  */ kPanelsDashboardPs2,

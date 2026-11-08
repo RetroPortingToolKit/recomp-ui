@@ -29,6 +29,14 @@ extern "C" {
 // file rewritten cleanly rather than half-applying a foreign blend.
 void rui_psx_binds_init(const char* path);
 
+/* A host with a distinct keyboard contract may seed its own defaults. Existing
+ * files remain authoritative, including intentionally unbound players. While
+ * enabled, saves update only those player/key entries and preserve other INI
+ * sections. NULL restores the ordinary PSX policy. Pass 24 scancodes/player. */
+void rui_psx_binds_host_defaults(const int* scancodes, int players);
+/* Check actual persisted primary bindings without changing the live store. */
+int rui_psx_binds_check_saved(const char* path);
+
 // Current binding (SDL_Scancode as int) for player (0..LNG_MAX_PLAYERS-1),
 // rebind-spec button b (0..LNG_PSX_PAD_BUTTON_COUNT-1). Auto-initializes
 // from `path` on first use.

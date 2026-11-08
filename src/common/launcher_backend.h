@@ -24,6 +24,7 @@ LngAction launcher_backend_run(LauncherPlatform* p,
 
 // Human name of the compiled-in backend, for window titles / logs.
 const char* launcher_backend_name(void);
+void launcher_backend_set_assets_directory(const char* directory);
 
 #ifdef __cplusplus
 }
