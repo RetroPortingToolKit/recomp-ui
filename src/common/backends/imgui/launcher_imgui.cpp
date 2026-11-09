@@ -1466,6 +1466,7 @@ static void merge_font_if_present(const char* path, float size, float density,
 }
 
 // ---- DPI: rebuild fonts + re-derive style from an unscaled baseline ----------
+static void apply_theme_style(const LauncherTheme& th);
 void apply_scale(const LauncherTheme& th, float scale, const char* font_path,
                  const char* jp_font_path, const char* symbols_font_path,
                  const char* emoji_font_path) {
@@ -1555,6 +1556,9 @@ void apply_scale(const LauncherTheme& th, float scale, const char* font_path,
     ImGui_ImplOpenGL3_DestroyFontsTexture();
     ImGui_ImplOpenGL3_CreateFontsTexture();
 
+    apply_theme_style(th);
+}
+static void apply_theme_style(const LauncherTheme& th) {
     ImGuiStyle style; ImGui::StyleColorsDark(&style);
     style.WindowRounding = th.radius_lg; style.ChildRounding = th.radius_lg;
     style.FrameRounding  = th.radius_sm; style.GrabRounding  = th.radius_sm;
@@ -1901,7 +1905,24 @@ void row_label(const char* text, const LauncherTheme& th, float col_w = 0.0f) {
  * long to leave room keeps a minimum gap and lets its control run wide rather
  * than colliding with the text.
  */
+static bool g_psx_compact_settings=false;
+static void draw_psx_picture_controls(LauncherModel* m);
+static float settings_label_width() {
+    return std::min(px(190), ImGui::GetContentRegionAvail().x * 0.48f);
+}
 void row_label_right(const char* text, const LauncherTheme& th, float ctrl_w) {
+    if (g_psx_compact_settings) {
+        const float x = ImGui::GetCursorPosX(), y = ImGui::GetCursorPosY();
+        const float label_w = settings_label_width();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushTextWrapPos(x + label_w - px(th.spacing_sm));
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text(text));
+        ImGui::PopTextWrapPos();
+        // A wrapped label reserves its full height before the next row.
+        ImGui::SameLine();
+        ImGui::SetCursorPos(ImVec2(x + label_w, y));
+        return;
+    }
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(col(th.text_muted), "%s", ui_text(text));
     // Label help also covers compound widgets (steppers and device pickers).
@@ -1947,6 +1968,8 @@ void row_label_right(const char* text, const LauncherTheme& th, float ctrl_w) {
  */
 float settings_fit_w(const char* row_label, const LauncherTheme& th,
                      float widest_text, bool combo) {
+    if (g_psx_compact_settings)
+        return std::min(px(230), ImGui::GetContentRegionAvail().x - settings_label_width());
     const ImGuiStyle& st = ImGui::GetStyle();
     float w = widest_text + st.FramePadding.x * 2.0f +
               (combo ? ImGui::GetFrameHeight() : 0.0f);
@@ -4213,6 +4236,7 @@ void draw_render_pipeline_controls(LauncherModel* m, const LauncherTheme& th) {
 
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
+    if (g_psx_compact_settings) draw_psx_picture_controls(m);
 
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
@@ -4993,6 +5017,7 @@ void draw_system_controls(LauncherModel* m, const LauncherTheme& th) {
     char elided[192]; elide_left(bp, avail, elided, sizeof(elided));
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(col(has_pick ? th.text : th.text_muted), "%s", elided);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s",bp);
     ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
                     browse_w);
     if (ImGui::Button(ui_text("Browse"), ImVec2(browse_w, btn_h))) {
@@ -5291,7 +5316,25 @@ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
 // AUDIO in the same right column in composition order; WIDE panels (HOTKEYS)
 // still stack full-width below that — driven by the composition array + the
 // registry's available() gate.
+static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, bool display);
 void draw_settings(LauncherModel* m, const LauncherTheme& th) {
+    const auto* settings_profile = (const SystemProfile*)m->profile;
+    if (settings_profile && settings_profile->id && !std::strcmp(settings_profile->id, "psx")) {
+        static int last_settings_frame=-2;
+        const int frame=ImGui::GetFrameCount();
+        const bool first=frame!=last_settings_frame+1;
+        last_settings_frame=frame;
+        if (ImGui::BeginTabBar("Settings tabs")) {
+            if (ImGui::BeginTabItem(ui_text("General"),nullptr,first?ImGuiTabItemFlags_SetSelected:0)) {
+                draw_psx_settings_page(m,th,false);ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(ui_text("Display"))) {
+                draw_psx_settings_page(m,th,true);ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        return;
+    }
     if (m->settings_saved_on_exit) {
         ImGui::TextDisabled("Changes are saved when you press Play or close the launcher.");
         ImGui::Spacing();
@@ -11776,6 +11819,12 @@ static void draw_linkified_mod_author(
  * an edit; the caller pushes the committed text through set_option, whose
  * rejection reverts the row to the model value on the next frame. */
 static void mod_option_control(const char* label) {
+    if (g_psx_compact_settings) {
+        const float width=settings_fit_w(label,*g_th,0,false);
+        row_label_right(label,*g_th,width);
+        ImGui::SetNextItemWidth(width);
+        return;
+    }
     const float start = ImGui::GetCursorPosX();
     const float available = ImGui::GetContentRegionAvail().x;
     const bool inline_control = available >= px(490) &&
@@ -12031,7 +12080,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
         for (int i = 0; i < count; ++i) {
             RecompLauncherCModPackage package{};
             if (!mods->package_get(mods->ctx, i, &package) ||
-                !launcher_mod_package_listed(mods, package.id)) continue;
+                !launcher_mod_package_listed(mods, package.id) || launcher_settings_group(package.id)) continue;
             if (first_listed < 0) first_listed = i;
             if (i == m->mod_package_selected) selected_listed = true;
             if (!mod_text_matches(m->mod_search, package)) continue;
@@ -12065,7 +12114,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::BeginChild("##mod_detail", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
         RecompLauncherCModPackage package{};
         if (mods->package_get(mods->ctx, m->mod_package_selected, &package) &&
-            launcher_mod_package_listed(mods, package.id)) {
+            launcher_mod_package_listed(mods, package.id) && !launcher_settings_group(package.id)) {
             ImGui::TextColored(col(th.accent2), "%s", package.name);
             ImGui::SameLine();
             ImGui::TextColored(col(th.text_muted), "%s", package.version);
@@ -12273,7 +12322,8 @@ static void draw_mod_feature_option(LauncherModel* m,
 
     if (option.type == RECOMP_MOD_OPTION_BOOLEAN) {
         bool value = std::strcmp(option.value, "true") == 0;
-        if (ImGui::Checkbox(option.label, &value)) {
+        if (g_psx_compact_settings) row_label_right(option.label,*g_th,ImGui::GetFrameHeight());
+        if (ImGui::Checkbox(g_psx_compact_settings ? "##boolean" : option.label, &value)) {
             std::snprintf(next, sizeof(next), "%s", value ? "true" : "false");
             changed = true;
         }
@@ -12338,6 +12388,9 @@ static void draw_mod_feature_option(LauncherModel* m,
         launcher_model_refresh_bios_status(m);
     ImGui::PopID();
 }
+
+#include "launcher_psx_settings.inc"
+
 
 static void draw_audio_buffer_setting(LauncherModel* m, const LauncherTheme& th) {
     const auto *mods = m->mods;
@@ -12442,7 +12495,7 @@ static bool disable_all_mod_features(LauncherModel* m) {
         const RecompLauncherCModFeature& feature = features[index];
         /* A concealed feature keeps whatever its package and saved state
          * say; the player cannot see it, so a bulk action must not flip it. */
-        if (launcher_mod_feature_concealed(mods, &feature) ||
+        if (launcher_settings_group(feature.package_id) || launcher_mod_feature_concealed(mods, &feature) ||
             !feature.enabled)
             continue;
         if (!mods->feature_enable(mods->ctx, feature.package_id, feature.id,
@@ -12590,7 +12643,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         ModFeatureListItem item{};
         item.index = index;
         if (!mods->feature_get(mods->ctx, index, &item.feature) ||
-            !launcher_mod_feature_listed(mods, &item.feature)) {
+            !launcher_mod_feature_listed(mods, &item.feature) || launcher_settings_group(item.feature.package_id)) {
             continue;
         }
         ++listed_count;
