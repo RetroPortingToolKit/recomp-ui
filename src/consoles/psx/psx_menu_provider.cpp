@@ -160,9 +160,10 @@ void cb_visibility(void *, int open) {
     }
 }
 
-int p_attach(void *, void *, void *, const PsxMenuHost *host) {
+int p_attach(void *, void *window, void *, const PsxMenuHost *host) {
     std::lock_guard<std::mutex> lk(lock());
     if (!host || host->abi_version != PSX_MENU_ABI_VERSION) return 0;
+    set_window(window);
     // The ordinary host menu is available for single-disc titles too.
     // The roster supplies choices; it never gates the Disc page.
     g_host = host;

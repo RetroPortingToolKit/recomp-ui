@@ -329,6 +329,27 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME recomp-ui-psx-menu-provider
                  COMMAND $<TARGET_FILE:recomp-ui-psx-menu-provider-test>)
+        if(SNESRECOMP_SDL_BACKEND STREQUAL "SDL3")
+            add_executable(recomp-ui-psx-menu-presentation-test
+                tests/psx_menu_presentation_test.cpp
+                src/consoles/psx/psx_menu_provider.cpp
+                src/common/recomp_runtime_ui.c src/common/recomp_runtime_settings.c
+                src/third_party/imgui/imgui.cpp src/third_party/imgui/imgui_draw.cpp
+                src/third_party/imgui/imgui_tables.cpp src/third_party/imgui/imgui_widgets.cpp
+                "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/src/host_overlay.c")
+            target_include_directories(recomp-ui-psx-menu-presentation-test PRIVATE
+                src src/common src/third_party/imgui src/third_party/imgui/backends
+                "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/include")
+            target_compile_definitions(recomp-ui-psx-menu-presentation-test PRIVATE ${RUI_SDL_DEFS})
+            target_link_libraries(recomp-ui-psx-menu-presentation-test PRIVATE ${RUI_SDL_TARGET})
+            if(WIN32)
+                target_link_libraries(recomp-ui-psx-menu-presentation-test PRIVATE shell32)
+            endif()
+            add_custom_command(TARGET recomp-ui-psx-menu-presentation-test POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:${RUI_SDL_TARGET}> $<TARGET_FILE_DIR:recomp-ui-psx-menu-presentation-test>)
+            add_test(NAME recomp-ui-psx-menu-presentation COMMAND recomp-ui-psx-menu-presentation-test)
+        endif()
     else()
         message(STATUS "recomp-ui: psx menu provider test skipped "
                        "(no psxrecomp at RECOMP_UI_PSXRECOMP_ROOT)")

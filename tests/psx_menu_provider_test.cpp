@@ -15,11 +15,14 @@
 #include <cstring>
 
 // Presentation stubs (the real ones need SDL + a GL context).
+#ifndef RUI_MENU_PRESENTATION_TEST
 namespace rui_psx {
+void set_window(void *) {}
 int sdl_event(const void *) { return 0; }
 void draw(int, int) {}
 void release_gl() {}
 }
+#endif
 
 static int g_fail = 0;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++g_fail; } } while (0)

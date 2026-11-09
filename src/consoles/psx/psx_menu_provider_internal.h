@@ -16,6 +16,7 @@ RecompRuntimeUi *model();           // NULL when not attached
 void input(int recomp_runtime_ui_input);  // caller holds lock()
 
 // Presentation side (psx_menu_provider_imgui.cpp; tests stub these).
+void set_window(void *sdl_window);            // main thread, caches display scale
 int  sdl_event(const void *sdl_event);      // main thread
 void draw(int framebuffer_w, int framebuffer_h);  // GL thread
 void release_gl();                          // detach, GL current

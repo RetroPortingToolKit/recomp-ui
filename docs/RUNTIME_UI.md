@@ -38,6 +38,21 @@ a GBA core, or recreate a Genesis renderer without the host's lifecycle rules.
 The ImGui presentation is responsive: wide windows show persistent section
 navigation beside the selected page; narrow windows use a drill-in hierarchy.
 Both use the same palette, spacing, radius, and semantic colors as the launcher.
+The desktop panel fits the available viewport, up to 1040 by 680 logical units.
+The PSX provider scales its logical canvas and 18-unit font together from the
+framebuffer resolution and display scale. A 1280 by 720 viewport is the reference;
+1080p, 1440p and 4K grow the menu and text proportionally. Small windows limit
+the scale so navigation and Resume fit. Selected keyboard/controller rows scroll
+into view without continuously overriding manual scrolling.
+
+The PSX renderer supplies framebuffer pixels, so the provider divides those
+dimensions by one layout scale and submits with that same framebuffer scale.
+The font atlas uses matching raster density. SDL display-scale reads happen on
+the main thread at attach and window changes; the GL thread uses the cached
+value. A density change rebuilds the atlas and invalidates its GL texture;
+unchanged frames reuse it. Style metrics stay logical, avoiding cumulative
+scaling when the same context moves between resolutions or monitors.
+
 An N64 host therefore gets the clean graphite/red/blue N64 theme with no CRT
 scanlines; SNES uses its console theme; handheld themes remain flat rather than
 pretending to be a CRT.
@@ -49,8 +64,15 @@ than an operating-system guess. Set
 uses almost the full drawable, scales rows and spacing from the short display
 axis, widens the section rail and scroll grab, replaces desktop key hints with
 touch copy, and gives stepped values and Resume phone-sized hit targets. A zero
-flag retains the desktop/TV geometry byte-for-byte, including on platforms that
-also happen to support touch.
+flag uses the desktop/TV layout, including on platforms that also happen to
+support touch.
+
+`recomp-ui-psx-menu-presentation` tests the actual PSX provider, SDL input path
+and ImGui drawer with CPU-only submission. It checks repeated resolution/DPI
+transitions, panel/footer bounds, atlas reuse, categories, settings, disc insertion
+and Resume. Optional `RUI_MENU_CAPTURE_DIR` writes the render matrix and geometry.
+Its windowed/fullscreen cases exercise the corresponding viewport sizes; they
+do not establish physical fullscreen, monitor DPI events or controller hardware.
 
 The vendored SDL_Renderer2 backend is the official backend from the matching
 Dear ImGui `v1.91.9b` release. It requires SDL 2.0.17 or newer. A host using an

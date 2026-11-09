@@ -60,6 +60,17 @@ void value_text(RecompRuntimeUi *ui, const RecompRuntimeUiItem *item,
     }
 }
 
+void reveal_selection(bool selected, const char *key) {
+    if (!selected) return;
+    ImGuiStorage *storage = ImGui::GetStateStorage();
+    const ImGuiID state = ImGui::GetID("##visible-selection");
+    const int row = static_cast<int>(ImGui::GetID(key));
+    if (storage->GetInt(state, -1) != row) {
+        ImGui::SetScrollHereY(0.5f);
+        storage->SetInt(state, row);
+    }
+}
+
 void draw_sections(RecompRuntimeUi *ui, const LauncherTheme &theme,
                    bool enter_on_click) {
     for (size_t index = 0; index < ui->section_count; ++index) {
@@ -67,6 +78,7 @@ void draw_sections(RecompRuntimeUi *ui, const LauncherTheme &theme,
         const bool selected = index == ui->section_index;
         const bool clicked = ImGui::Selectable(ui->sections[index], selected, 0,
                                                ImVec2(0.0f, theme.row_height));
+        reveal_selection(selected, ui->sections[index]);
         if ((clicked || ImGui::IsItemHovered()) &&
             (index != ui->section_index || (clicked && enter_on_click))) {
             const int was_in_section = ui->in_section;
@@ -106,6 +118,7 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
                 ui->row_index = index;
                 ui->in_section = 1;
             }
+            reveal_selection(selected, folder);
             ImGui::PopID();
             continue;
         }
@@ -146,6 +159,7 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
             ui->row_index = index;
             ui->in_section = 1;
         }
+        reveal_selection(selected, item->key);
 
         ImDrawList *draw = ImGui::GetWindowDrawList();
         const ImVec2 end = ImGui::GetItemRectMax();
@@ -340,7 +354,7 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
     const float margin = touch_friendly
         ? std::max(20.0f, short_axis * 0.025f)
         : 24.0f;
-    const float max_width = touch_friendly ? display.x : 780.0f;
+    const float max_width = touch_friendly ? display.x : 1040.0f;
     const float max_height = touch_friendly ? display.y : 680.0f;
     const float width = display.x - margin * 2.0f < max_width
                             ? display.x - margin * 2.0f

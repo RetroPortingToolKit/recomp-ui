@@ -9,6 +9,7 @@
 
 #if defined(RUI_PSX_HAS_MENU_HOST)
 #include "psx_menu_provider_internal.h"
+#include "psx_menu_imgui_display.h"
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -20,6 +21,7 @@
 #endif
 
 #include <cfloat>
+#include <atomic>
 #include <cstdint>
 
 namespace rui_psx {
@@ -29,6 +31,8 @@ ImGuiContext *g_ctx = nullptr;   // GL thread
 bool g_gl_ready = false;
 uint64_t g_last_ns = 0;
 unsigned g_pad_held = 0;         // main thread
+SDL_Window *g_window = nullptr; // main thread only
+std::atomic<float> g_display_scale{1.0f};
 
 #if defined(LNG_SDL3)
 constexpr unsigned kBack = 1u << SDL_GAMEPAD_BUTTON_BACK;
@@ -49,9 +53,35 @@ int key_input(int key) {
 
 }  // namespace
 
+void set_window(void *window) {
+    g_window = static_cast<SDL_Window *>(window);
+    float scale = 1.0f;
+#if defined(LNG_SDL3)
+    if (g_window) scale = SDL_GetWindowDisplayScale(g_window);
+#else
+    if (g_window) {
+        int logical_w = 0, logical_h = 0, pixel_w = 0, pixel_h = 0;
+        SDL_GetWindowSize(g_window, &logical_w, &logical_h);
+        SDL_GL_GetDrawableSize(g_window, &pixel_w, &pixel_h);
+        if (logical_w > 0 && logical_h > 0)
+            scale = std::max(float(pixel_w) / logical_w, float(pixel_h) / logical_h);
+    }
+#endif
+    g_display_scale.store(scale > 0 ? scale : 1.0f, std::memory_order_relaxed);
+}
+
 int sdl_event(const void *p) {
     if (!p) return 0;
     const SDL_Event &e = *static_cast<const SDL_Event *>(p);
+    // SDL's display-scale query is main-thread-only; the GL thread reads the
+    // cached value. This also handles monitor/DPI changes while the menu is shut.
+#if defined(LNG_SDL3)
+    if (e.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+        e.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+        set_window(g_window);
+#else
+    if (e.type == SDL_WINDOWEVENT) set_window(g_window);
+#endif
     std::lock_guard<std::mutex> lk(lock());
     RecompRuntimeUi *ui = model();
     if (!ui) return 0;
@@ -122,8 +152,8 @@ void draw(int w, int h) {
     if (!g_gl_ready) g_gl_ready = ImGui_ImplOpenGL3_Init(nullptr);
     if (!g_gl_ready) { ImGui::SetCurrentContext(prev); return; }
     ImGuiIO &io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((float)w, (float)h);
-    io.DisplayFramebufferScale = ImVec2(1, 1);
+    if (configure_menu_display(w, h, g_display_scale.load(std::memory_order_relaxed)))
+        ImGui_ImplOpenGL3_DestroyFontsTexture();
     // Keyboard/controller driven: no mouse position, so hover never moves the
     // model's selection under the player.
     io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);

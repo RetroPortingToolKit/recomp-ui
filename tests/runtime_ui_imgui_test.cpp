@@ -328,7 +328,7 @@ int main() {
     confirmation_cadence_case();
     nested_mouse_case();
     toast_case();
-    render_case(0, ImVec2(1280.0f, 720.0f), 779.0f, 671.0f, 781.0f);
+    render_case(0, ImVec2(1280.0f, 720.0f), 1039.0f, 671.0f, 1041.0f);
     render_case(RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY,
                 ImVec2(3088.0f, 1440.0f), 3000.0f, 1300.0f, 3020.0f);
     std::puts("runtime UI: assertions enabled; three footer layouts/clicks, confirmation cadence, nested mouse, toast and render cases passed");
