@@ -36,6 +36,18 @@ extern "C" {
 #define RECOMP_LAUNCHER_MAX_PLAYERS 8
 /* Host may #ifdef this when reading player_gamepad_guid[] from settings. */
 #define RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_GUID 1
+/* player_src value 3: the port holds a mouse device driven by the host
+ * pointer (PSX: the Sony PS1 Mouse). Offered only by profiles that support it
+ * (launcher_model_mouse_source_available); hosts #ifdef the macro so an older
+ * launcher is never handed a value it would clamp to Gamepad. */
+#define RECOMP_LAUNCHER_HAS_MOUSE_SOURCE 1
+#define RECOMP_LAUNCHER_HAS_NATIVE_MOUSE_CAP 1
+#define RECOMP_LAUNCHER_HAS_NEGCON_MODE 1
+#define RECOMP_LAUNCHER_PAD_MODE_NEGCON 3
+#define RECOMP_LAUNCHER_HAS_GUNCON_SOURCE 1
+#define RECOMP_LAUNCHER_SRC_GUNCON 4
+#define RECOMP_LAUNCHER_HAS_NATIVE_PERIPHERAL_CAPS 1
+#define RECOMP_LAUNCHER_SRC_MOUSE 3
 /* Host may #ifdef this when reading multitap_enabled from settings. */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ENABLED 1
 /* Host may #ifdef this when reading multitap_analog (DualShock-on-tap hack). */
@@ -1280,7 +1292,7 @@ struct RecompLauncherCSettings {
     int  skip_launcher;     // bool: boot straight to the game next time
     int  msu1_enabled;      // bool
     char msu1_dir[512];
-    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital)
+    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital), 3=neGcon (PSX, RECOMP_LAUNCHER_PAD_MODE_NEGCON)
     int  aspect_index;      // 0 = 4:3, 1 = 16:9, 2 = 21:9
 
     // ---- deeper PSX-style settings (capability-gated; see RecompLauncherCGameInfo
@@ -2486,6 +2498,10 @@ typedef struct RecompLauncherCGameInfo {
      * (callers that predate the field) keeps the profile's count. Appended for
      * ABI stability. */
     int                memcard_slots;
+    /* Native port device implemented by the host; independent of mouse-to-stick. */
+    int has_native_mouse;
+    int has_native_guncon;
+    int has_native_negcon;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1

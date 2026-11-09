@@ -551,6 +551,22 @@ if(BUILD_TESTING)
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
 
+    add_executable(recomp-ui-launcher-mouse-source-test
+        tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-mouse-source-test PRIVATE src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-mouse-source-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-mouse-source-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(NAME recomp-ui-launcher-mouse-source COMMAND recomp-ui-launcher-mouse-source-test)
+
+    add_executable(recomp-ui-launcher-negcon-mode-test
+        tests/launcher_negcon_mode_test.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-negcon-mode-test PRIVATE src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-negcon-mode-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-negcon-mode-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(NAME recomp-ui-launcher-negcon-mode COMMAND recomp-ui-launcher-negcon-mode-test)
+
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
     # pattern) and the tri-state enabled flag. Includes launcher_model.c like

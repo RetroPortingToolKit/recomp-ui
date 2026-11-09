@@ -367,6 +367,9 @@ typedef struct {
     // _invert_x / _invert_y / _bind[]), like audio_device. False => none of
     // the mouse surface composes and behavior is unchanged for every game.
     bool has_mouse_controls;
+    bool has_native_mouse;
+    bool has_native_guncon;
+    bool has_native_negcon;
     bool has_gyro_controls;
     bool has_sharp_filter;
     bool has_affine_filter;
@@ -1164,19 +1167,41 @@ void launcher_model_apply_msu1_patch(LauncherModel* m);
 void launcher_model_skip_msu1_patch(LauncherModel* m);
 
 // ---- controllers ----
-// PSX-style pad mode: 1=Analog, 2=D-Pad. Gated: no-op when
-// !pad_mode_selectable (mode is locked). Mode 0 (Hybrid) is NOT selectable —
-// it is a mod-only mode requested at runtime by a trusted game plugin — so a
-// stale persisted 0 snaps to Analog.
+// PSX-style pad mode: 1=Analog, 2=D-Pad, 3=neGcon (PSX only). Gated: no-op
+// when !pad_mode_selectable (mode is locked). Mode 0 (Hybrid) is NOT
+// selectable — it is a mod-only mode requested at runtime by a trusted game
+// plugin — so a stale persisted 0 snaps to Analog. A keyboard seat may pick
+// D-Pad or neGcon, not Analog. A neGcon seat keeps its pad type when its input
+// source changes.
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode);
-void launcher_model_cycle_player_src(LauncherModel* m, int player); // None/Kbd/Pad
+void launcher_model_cycle_player_src(LauncherModel* m, int player); // None/Kbd/Pad(/Mouse)
+// 1 when this profile offers the mouse source (player_src 3,
+// RECOMP_LAUNCHER_SRC_MOUSE): only PSX, for the PS1 Mouse port device.
+// Elsewhere set_source maps 3 to None and the label reads "None".
+int launcher_model_mouse_source_available(const LauncherModel* m);
+int launcher_model_mouse_pair_available(const LauncherModel* m);
+int launcher_model_mouse_pair_port(const LauncherModel* m);
+int launcher_model_mouse_pair_pad_seat(const LauncherModel* m);
+void launcher_model_set_mouse_pair_port(LauncherModel* m, int port);
+void launcher_model_set_primary_source(LauncherModel* m, int kind,
+                                       uint32_t id, const char* name, const char* guid);
+// 1 when this profile offers the light-gun source (player_src 4,
+// RECOMP_LAUNCHER_SRC_GUNCON): only PSX, for the Namco GunCon aimed by the
+// host pointer. Elsewhere set_source maps 4 to None and the label reads "None".
+int launcher_model_guncon_source_available(const LauncherModel* m);
+// 1 for the sources that take the host pointer (PS1 Mouse, GunCon). Only one
+// seat at a time may hold one: they would share the same pointer.
+int launcher_model_source_is_pointer(int kind);
+// 1 when this profile offers the neGcon pad type (pad_mode 3,
+// RECOMP_LAUNCHER_PAD_MODE_NEGCON): only PSX. Elsewhere a 3 reads as Analog.
+int launcher_model_negcon_mode_available(const LauncherModel* m);
 void launcher_model_deadzone_delta(LauncherModel* m, int player, int delta);
 /* Absolute set, for a drag slider rather than a +/- stepper. Clamped 0..100,
  * and to whole percent: the value the runner consumes is a raw stick radius
  * derived from it, so a fractional percent would not survive the round trip. */
 void launcher_model_set_deadzone(LauncherModel* m, int player, int pct);
 // Set the input source explicitly (used by the device dropdown). kind: 0 None,
-// 1 Keyboard, 2 Gamepad. For gamepad, pass the SDL id + display name + GUID
+// 1 Keyboard, 2 Gamepad, 3 Mouse (PSX only; None elsewhere). For gamepad, pass the SDL id + display name + GUID
 // (GUID may be NULL/empty; then player_gamepad_guid[player] is cleared).
 void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
