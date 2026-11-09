@@ -15,6 +15,56 @@ current defaults, including F11/Alt+Return/Ctrl+F, F6 scanlines, F12 recording
 and F5/Shift+F5 quick state controls; it does not change the proposed F-key
 layout or unrelated configuration sections.
 
+### Compact PSX layout and picture presets
+
+PSX cards fit their contents. General groups System, Audio and Input above
+the full-width Hotkeys editor. Display starts with the display controls,
+Internal Resolution and PGXP in one card. Image Quality and Effects and
+Presentation sit beside it. Two columns start at 840 logical pixels of
+available content; three start at 1500. Narrow windows use one column and
+the page scrolls. Labels wrap within their column, controls share a left
+edge, and long BIOS paths keep their filename with the full path on hover.
+
+The Display tab's Faithful and Best buttons use existing provider writes.
+The selected name is derived from current values; editing a mapped value
+shows Custom. There is no separately saved preset flag. Both use OpenGL,
+4:3 and original motion, with frame interpolation and smooth motion off.
+Best uses more GPU work; hardware can reduce the effective resolution.
+These are picture presets, not a game-speed or accuracy guarantee.
+
+| Provider option | Faithful | Best |
+|---|---|---|
+| Internal Resolution / resolution | 1x | 4x |
+| Image Filtering / smoothing | sharp | smooth |
+| Image Filtering / texture_filtering | nearest | bilinear |
+| Image Filtering / fmv_filtering | nearest | bicubic |
+| video.geometry_correction | false | true |
+| video.perspective_texturing | false | true |
+| video.antialiasing_mode | off | fxaa_hq |
+| video.dithering | on | fine |
+| video.texture_lod | off | mipmap |
+| video.anisotropic_filtering | 1 | 16 |
+| video.fmv_chroma_smoothing | false | true |
+| video.accurate_blending | true | true |
+| video.bloom | 0 | 0 |
+| video.post_shader | empty | empty |
+| video.supersample | 1 | 1 |
+
+Both enable the Internal Resolution and Image Filtering features and disable
+the CRT and PGXP add-ons. Explicit PGXP vertex and texture overrides still
+work with the PGXP add-on off. The UI calls its switch **CPU/culling add-on**
+to distinguish it from these visual overrides. Saved CPU/culling options are
+retained but inactive, so a previously selected precise-culling option does
+not change guest calculations when a preset is selected. Other PGXP tuning,
+title-specific settings, third-party mods, audio, bindings, cards and saves
+are retained. A disabled CRT add-on leaves the title's baseline screen look.
+
+Runtime provider values save immediately; the ordinary renderer, aspect and
+motion fields save through the existing Play/close path. Explicit command-line
+and environment overrides still win. A provider refusal keeps its error and
+the actual partially applied values; the UI never claims an atomic transaction.
+Preset availability requires all mapped options and supported choice values.
+
 
 The launcher's Settings page, and the in-game menu's Settings view, hold the
 player's **PC and system** choices only. Anything that changes the game's

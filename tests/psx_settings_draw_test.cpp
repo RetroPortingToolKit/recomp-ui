@@ -8,6 +8,9 @@
 #include "launcher_profile.h"
 #include <set>
 #include <cassert>
+#include "../src/third_party/stb_image_write.h"
+#include <filesystem>
+#include <fstream>
 static void probe_fail(const char* condition,int line) {
     std::fprintf(stderr,"FAIL Settings drawer line%d: %s\n",line,condition);std::exit(1);
 }
@@ -68,12 +71,98 @@ static int option(void*,const char* package,const char* group,int index,RecompLa
 static int enable(void*,const char*,const char*,int){return 1;}
 static int set(void*,const char*,const char*,const char*,const char*){return 1;}
 
+static float probe_width=1280,probe_height=720;
 static void frame(LauncherModel& model,const LauncherTheme& theme,bool draw=true) {
     ImGui::NewFrame();
-    ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(1280,720));
+    ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
     ImGui::Begin("settings-probe",nullptr,ImGuiWindowFlags_NoSavedSettings);
     if(draw)draw_settings(&model,theme);
     ImGui::End();ImGui::Render();
+}
+// Rasterize the actual ImGui draw lists into an SDL software surface. No SDL
+// window, OS input, OpenGL context or desktop capture exists in this path.
+static void capture(const std::filesystem::path& path,float dpi) {
+    auto* data=ImGui::GetDrawData();
+    SDL_Surface* surface=SDL_CreateSurface((int)(probe_width*dpi),(int)(probe_height*dpi),SDL_PIXELFORMAT_RGBA32);
+    assert(surface); SDL_Renderer* renderer=SDL_CreateSoftwareRenderer(surface); assert(renderer);
+    unsigned char* atlas; int w,h; ImGui::GetIO().Fonts->GetTexDataAsRGBA32(&atlas,&w,&h);
+    SDL_Surface* font_surface=SDL_CreateSurfaceFrom(w,h,SDL_PIXELFORMAT_RGBA32,atlas,w*4);
+    SDL_Texture* texture=SDL_CreateTextureFromSurface(renderer,font_surface); assert(texture);
+    SDL_SetTextureBlendMode(texture,SDL_BLENDMODE_BLEND);
+    SDL_SetRenderScale(renderer,dpi,dpi);
+    SDL_SetRenderDrawColor(renderer,10,13,20,255); SDL_RenderClear(renderer);
+    for (int n=0;n<data->CmdListsCount;++n) {
+        const auto* list=data->CmdLists[n]; std::vector<SDL_Vertex> vertices;
+        for (const auto& v:list->VtxBuffer) {
+            const auto c=ImGui::ColorConvertU32ToFloat4(v.col);
+            vertices.push_back({{v.pos.x,v.pos.y},{c.x,c.y,c.z,c.w},{v.uv.x,v.uv.y}});
+        }
+        for (const auto& cmd:list->CmdBuffer) {
+            if (cmd.UserCallback) continue;
+            SDL_Rect clip{(int)cmd.ClipRect.x,(int)cmd.ClipRect.y,(int)(cmd.ClipRect.z-cmd.ClipRect.x),(int)(cmd.ClipRect.w-cmd.ClipRect.y)};
+            SDL_SetRenderClipRect(renderer,&clip);
+            std::vector<int> indices;
+            for (unsigned i=0;i<cmd.ElemCount;++i) indices.push_back(list->IdxBuffer[cmd.IdxOffset+i]+cmd.VtxOffset);
+            assert(SDL_RenderGeometry(renderer,texture,vertices.data(),(int)vertices.size(),indices.data(),(int)indices.size()));
+        }
+    }
+    SDL_RenderPresent(renderer);
+    assert(stbi_write_png(path.u8string().c_str(),surface->w,surface->h,4,surface->pixels,surface->pitch));
+    SDL_DestroyTexture(texture); SDL_DestroySurface(font_surface); SDL_DestroyRenderer(renderer); SDL_DestroySurface(surface);
+}
+static void geometry(std::ofstream& out,const char* page,int width,float dpi) {
+    int cards=0;
+    for (auto* w:ImGui::GetCurrentContext()->Windows) {
+        if (!w->Active || !(w->Flags&ImGuiWindowFlags_ChildWindow)) continue;
+        const std::string name=w->Name;
+        if (name.find("settings-matrix/")!=0) continue;
+        if (name.find("hotkeys")!=std::string::npos) {
+            assert(w->ScrollMax.x==0);
+            assert(w->ContentSize.x<=w->Size.x-2*w->WindowPadding.x+1);
+            continue;
+        }
+        ++cards;
+        out<<page<<','<<width<<','<<dpi<<','<<name<<','<<w->Pos.x<<','<<w->Pos.y<<','<<w->Size.x<<','<<w->Size.y<<','<<w->ContentSize.x<<','<<w->ContentSize.y<<'\n';
+        assert(w->ContentSize.x<=w->Size.x-2*w->WindowPadding.x+1);
+        assert(w->ScrollMax.x==0);
+        assert(w->Pos.x>=0 && w->Pos.x+w->Size.x<=width+1);
+        if (name.find("Audio_")!=std::string::npos || name.find("/Audio")!=std::string::npos)
+            assert(w->Size.y<=w->ContentSize.y+2*w->WindowPadding.y+3);
+    }
+    assert(cards==3); // A wrong window-name filter must not silently test zero cards.
+}
+static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const char* folder) {
+    std::filesystem::create_directories(folder);
+    std::ofstream out(std::filesystem::path(folder)/"geometry.csv");
+    out<<"page,width,dpi,window,x,y,w,h,content_w,content_h\n";
+    std::snprintf(model.s.bios_path,sizeof(model.s.bios_path),"I:/Projects/Recompilations/PS1/Work/eagle/PS1B-529-pin-delivery-20261108/products/0.1.7/medievil/windows-x64/inputs/a-very-long-bios-folder/another-long-folder/SCPH1001.BIN");
+    for (int width:{640,960,1280,1920}) for (float dpi:{1.f,1.5f,2.f}) {
+        probe_width=(float)width;probe_height=800;
+        auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(dpi,dpi);
+        for (int page=0;page<2;++page) {
+            for (int i=0;i<4;++i) {
+                ImGui::NewFrame(); ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
+                ImGui::Begin("settings-matrix",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                draw_psx_settings_page(&model,theme,page==1);
+                ImGui::End(); ImGui::Render();
+            }
+            geometry(out,page?"Display":"General",width,dpi);
+            char file[96];std::snprintf(file,sizeof file,"%s-%d-%.0f.png",page?"display":"general",width,dpi*100);
+            capture(std::filesystem::path(folder)/file,dpi);
+            auto* root=ImGui::FindWindowByName("settings-matrix");assert(root);
+            // Scroll the actual owning window and prove the bottom remains reachable.
+            for (int i=0;i<3;++i) {
+                ImGui::NewFrame();ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
+                ImGui::Begin("settings-matrix",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                ImGui::SetScrollY(root->ScrollMax.y);draw_psx_settings_page(&model,theme,page==1);
+                ImGui::End();ImGui::Render();
+            }
+            assert(root->ScrollMax.y==0 || root->Scroll.y>0);
+            std::snprintf(file,sizeof file,"%s-%d-%.0f-bottom.png",page?"display":"general",width,dpi*100);
+            capture(std::filesystem::path(folder)/file,dpi);
+            ImGui::NewFrame();ImGui::Begin("settings-matrix");ImGui::SetScrollY(0);ImGui::End();ImGui::Render();
+        }
+    }
 }
 int main() {
     RecompLauncherCModProvider provider{};
@@ -88,8 +177,11 @@ int main() {
     const auto before=model.s;
     IMGUI_CHECKVERSION();ImGui::CreateContext();auto& io=ImGui::GetIO();
     io.IniFilename=nullptr;io.DisplaySize=ImVec2(1280,720);io.DeltaTime=1.0f/60.0f;
+    const auto theme=launcher_theme_psx();g_th=&theme;apply_theme_style(theme);
+    ImFontConfig font; font.SizePixels=theme.font_body;
+    if (const char* path=std::getenv("RUI_LAYOUT_FONT")) io.Fonts->AddFontFromFileTTF(path,theme.font_body,&font);
+    else io.Fonts->AddFontDefault(&font);
     unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);
-    const auto theme=launcher_theme_default();g_th=&theme;
     frame(model,theme);frame(model,theme);
     assert(!visited_general.empty() && visited_display.empty());
     auto* window=ImGui::FindWindowByName("settings-probe");assert(window);
@@ -118,6 +210,7 @@ int main() {
     frame(model,theme,false);frame(model,theme); // ImGui queues programmatic tab selection for the next frame.
     visited_general.clear();visited_display.clear();frame(model,theme);
     assert(!visited_general.empty() && visited_display.empty());
+    if (const char* folder=std::getenv("RUI_LAYOUT_CAPTURE_DIR")) render_matrix(model,theme,folder);
     ImGui::DestroyContext();
     puts("PASS: production Settings drawer General default/reentry,Display selection,35 provider controls+6 real widgets,preserved values,built-in grouping,plugin boundary;CPU-only");
 }
