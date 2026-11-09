@@ -70,6 +70,23 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    if(EXISTS "${RECOMP_UI_PSXRECOMP_ROOT}/recompiler/src/player_settings.h")
+        add_executable(recomp-ui-psx-settings-draw tests/psx_settings_draw_test.cpp)
+        target_link_libraries(recomp-ui-psx-settings-draw PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+        recomp_target_launcher_ui(recomp-ui-psx-settings-draw CONSOLE psx)
+        get_target_property(_settings_sources recomp-ui-psx-settings-draw SOURCES)
+        list(FILTER _settings_sources EXCLUDE REGEX "common/backends/imgui/launcher_imgui.cpp$")
+        set_property(TARGET recomp-ui-psx-settings-draw PROPERTY SOURCES "${_settings_sources}")
+        if(WIN32 AND RUI_SDL_RUNTIME_TARGET)
+            add_custom_command(TARGET recomp-ui-psx-settings-draw POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:${RUI_SDL_RUNTIME_TARGET}>
+                    $<TARGET_FILE_DIR:recomp-ui-psx-settings-draw>)
+        endif()
+        target_include_directories(recomp-ui-psx-settings-draw PRIVATE "${RECOMP_UI_PSXRECOMP_ROOT}/recompiler/src")
+        target_compile_options(recomp-ui-psx-settings-draw PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG>)
+        add_test(NAME recomp-ui-psx-settings-draw COMMAND recomp-ui-psx-settings-draw)
+    endif()
     # Assertion-based checks must execute in Release builds too.
     if(MSVC)
         add_compile_options(/UNDEBUG)
