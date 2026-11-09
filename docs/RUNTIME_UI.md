@@ -197,6 +197,8 @@ the same.
   Enhanced Audio and Rewind mods (the Mods page; SETTINGS_STANDARD.md).
 - Opens with F10 or Ctrl+L, or Select + L3; arrows / Enter / Esc or D-pad /
   Cross / Circle navigate. Each opening starts at the first section.
+  Keyboard/controller selection keeps the current row visible, including a
+  return to a previously visited row after scrolling in a small window.
 - Selection: psxrecomp uses it when the title registers no provider, so
   recomp-ui stays the default. Chosen that way
   (`PsxMenuHost.default_selection`) it attaches only for multi-disc titles,

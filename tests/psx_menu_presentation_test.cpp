@@ -89,6 +89,28 @@ int main() {
     pad(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
     require(ui->row_index != before_row, "controller moves row");
 
+    // Revisiting a previously selected row must reveal it again after a scroll.
+    // A per-row storage key incorrectly remembers that it was once visible.
+    auto narrow_frame = [&] {
+        for (int frame = 0; frame < 3; ++frame) p->draw(p->ctx, 640, 480);
+        ImGui::SetCurrentContext(rui_psx::g_ctx);
+        auto *menu = ImGui::FindWindowByName("##recomp-runtime-ui");
+        for (auto *window : GImGui->Windows)
+            if (window->Active && window->ParentWindow == menu &&
+                std::strstr(window->Name, "##content")) return window;
+        require(false, "narrow content child exists");
+        return static_cast<ImGuiWindow *>(nullptr);
+    };
+    require(go("System", RECOMP_RUNTIME_UI_KEY_RESUME), "select first System row");
+    narrow_frame();
+    for (int i = 0; i < 3; ++i) pad(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
+    auto *content = narrow_frame();
+    require(content->ScrollMax.y > 1 && content->Scroll.y > 1,
+            "last System row actually scrolls in a small window");
+    for (int i = 0; i < 3; ++i) pad(SDL_GAMEPAD_BUTTON_DPAD_UP);
+    content = narrow_frame();
+    require(content->Scroll.y < 1, "revisited first row scrolls back into view");
+
     const char *folder = std::getenv("RUI_MENU_CAPTURE_DIR");
     std::ofstream geometry;
     if (folder) {
