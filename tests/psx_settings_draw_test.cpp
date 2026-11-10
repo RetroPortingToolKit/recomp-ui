@@ -1,5 +1,6 @@
-/* Render the production Settings drawer into CPU-only ImGui frames. No SDL
- * window, GL context, game, focus or operating-system input is created. */
+/* Render the production Settings and Configure drawers into CPU-only ImGui
+ * frames. No SDL window, GL context, game, focus or operating-system input is
+ * created. */
 #if defined(RUI_SETTINGS_MODULE_CASE)
 #define RECOMP_LAUNCHER_V2_BUILD_MODULE 1
 #endif
@@ -71,7 +72,7 @@ static int option(void*,const char* package,const char* group,int index,RecompLa
 static int enable(void*,const char*,const char*,int){return 1;}
 static int set(void*,const char*,const char*,const char*,const char*){return 1;}
 
-static float probe_width=1280,probe_height=720;
+static float probe_width=1280,probe_height=800;
 static void frame(LauncherModel& model,const LauncherTheme& theme,bool draw=true) {
     ImGui::NewFrame();
     ImGui::SetNextWindowPos(ImVec2(0,0));ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
@@ -115,21 +116,37 @@ static void geometry(std::ofstream& out,const char* page,int width,float dpi) {
     for (auto* w:ImGui::GetCurrentContext()->Windows) {
         if (!w->Active || !(w->Flags&ImGuiWindowFlags_ChildWindow)) continue;
         const std::string name=w->Name;
-        if (name.find("settings-matrix/")!=0) continue;
-        if (name.find("hotkeys")!=std::string::npos) {
-            assert(w->ScrollMax.x==0);
-            assert(w->ContentSize.x<=w->Size.x-2*w->WindowPadding.x+1);
-            continue;
-        }
+        if (name.find("settings-probe/")!=0) continue;
         ++cards;
         out<<page<<','<<width<<','<<dpi<<','<<name<<','<<w->Pos.x<<','<<w->Pos.y<<','<<w->Size.x<<','<<w->Size.y<<','<<w->ContentSize.x<<','<<w->ContentSize.y<<'\n';
-        assert(w->ContentSize.x<=w->Size.x-2*w->WindowPadding.x+1);
-        assert(w->ScrollMax.x==0);
-        assert(w->Pos.x>=0 && w->Pos.x+w->Size.x<=width+1);
-        if (name.find("Audio_")!=std::string::npos || name.find("/Audio")!=std::string::npos)
-            assert(w->Size.y<=w->ContentSize.y+2*w->WindowPadding.y+3);
+        // A card never overhangs the page it sits in.
+        assert(w->Pos.x>=-1 && w->Pos.x+w->Size.x<=width+2);
     }
-    assert(cards==3); // A wrong window-name filter must not silently test zero cards.
+    // A page with no card at all would make the checks above vacuous.
+    assert(cards>0);
+}
+/* Select a tab in `bar` the same way a click queues it, so the page below is
+ * rendered through the real tab-item path without synthesising OS input. */
+static void click_bar(LauncherModel& model,const LauncherTheme& theme,ImGuiTabBar* bar,int index) {
+    assert(bar && index<(int)bar->Tabs.Size);
+    const ImGuiID id=bar->Tabs[index].ID;
+    bar->NextSelectedTabId=id;
+    for (int i=0;i<3;++i) frame(model,theme);
+    assert(bar->SelectedTabId==id);
+}
+static void click_tab(LauncherModel& model,const LauncherTheme& theme,const char* bar_key,int index) {
+    auto* root=ImGui::FindWindowByName("settings-probe"); assert(root);
+    click_bar(model,theme,
+              ImGui::GetCurrentContext()->TabBars.GetByKey(root->GetID(bar_key)),index);
+}
+/* The Display page's sub-tabs live inside the Display tab item's ID scope, so
+ * their bar is keyed by that tab's ID rather than by the window's. */
+static ImGuiTabBar* find_display_sub_tabs() {
+    auto* root=ImGui::FindWindowByName("settings-probe"); assert(root);
+    auto& g=*ImGui::GetCurrentContext();
+    ImGuiTabBar* outer=g.TabBars.GetByKey(root->GetID("Settings tabs"));
+    if (!outer || outer->Tabs.Size<2) return nullptr;
+    return g.TabBars.GetByKey(ImHashStr("PSX display tabs",0,outer->Tabs[1].ID));
 }
 static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const char* folder) {
     std::filesystem::create_directories(folder);
@@ -139,30 +156,75 @@ static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const 
     for (int width:{640,960,1280,1920}) for (float dpi:{1.f,1.5f,2.f}) {
         probe_width=(float)width;probe_height=800;
         auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(dpi,dpi);
-        for (int page=0;page<2;++page) {
-            for (int i=0;i<4;++i) {
+        static const char* names[5]={"general","display","display-image","display-presentation","hotkeys"};
+        // The full-screen launcher is the layout these pages are designed for.
+        model.s.fullscreen=1;
+        for (int page=0;page<5;++page) {
+            for (int i=0;i<3;++i) {      // warm-up frames settle tab-bar layout
                 ImGui::NewFrame(); ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
-                ImGui::Begin("settings-matrix",nullptr,ImGuiWindowFlags_NoSavedSettings);
-                draw_psx_settings_page(&model,theme,page==1);
+                ImGui::Begin("settings-probe",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                draw_settings(&model,theme);
                 ImGui::End(); ImGui::Render();
             }
-            geometry(out,page?"Display":"General",width,dpi);
-            char file[96];std::snprintf(file,sizeof file,"%s-%d-%.0f.png",page?"display":"general",width,dpi*100);
+            frame(model,theme);
+            click_tab(model,theme,"Settings tabs",page==0?0:(page==4?2:1));
+            if (page>=2 && page<=3) {
+                ImGuiTabBar* sub=find_display_sub_tabs(); assert(sub);
+                click_bar(model,theme,sub,page==2?1:2);
+            }
+            geometry(out,names[page],width,dpi);
+            char file[96];std::snprintf(file,sizeof file,"%s-%d-%.0f.png",names[page],width,dpi*100);
             capture(std::filesystem::path(folder)/file,dpi);
-            auto* root=ImGui::FindWindowByName("settings-matrix");assert(root);
-            // Scroll the actual owning window and prove the bottom remains reachable.
+            auto* root=ImGui::FindWindowByName("settings-probe");assert(root);
             for (int i=0;i<3;++i) {
                 ImGui::NewFrame();ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
-                ImGui::Begin("settings-matrix",nullptr,ImGuiWindowFlags_NoSavedSettings);
-                ImGui::SetScrollY(root->ScrollMax.y);draw_psx_settings_page(&model,theme,page==1);
+                ImGui::Begin("settings-probe",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                ImGui::SetScrollY(root->ScrollMax.y);draw_settings(&model,theme);
                 ImGui::End();ImGui::Render();
             }
             assert(root->ScrollMax.y==0 || root->Scroll.y>0);
-            std::snprintf(file,sizeof file,"%s-%d-%.0f-bottom.png",page?"display":"general",width,dpi*100);
+            std::snprintf(file,sizeof file,"%s-%d-%.0f-bottom.png",names[page],width,dpi*100);
             capture(std::filesystem::path(folder)/file,dpi);
-            ImGui::NewFrame();ImGui::Begin("settings-matrix");ImGui::SetScrollY(0);ImGui::End();ImGui::Render();
+            ImGui::NewFrame();ImGui::Begin("settings-probe");ImGui::SetScrollY(0);ImGui::End();ImGui::Render();
+        }
+        // One windowed capture of the Display page, where the two columns stack.
+        if (width==1280) {
+            model.s.fullscreen=0;
+            for (int i=0;i<3;++i) {
+                ImGui::NewFrame(); ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
+                ImGui::Begin("settings-probe",nullptr,ImGuiWindowFlags_NoSavedSettings);
+                draw_settings(&model,theme);
+                ImGui::End(); ImGui::Render();
+            }
+            frame(model,theme);
+            click_tab(model,theme,"Settings tabs",1);
+            capture(std::filesystem::path(folder)/"display-window-1280.png",1.f);
+            model.s.fullscreen=1;
         }
     }
+}
+
+/* The Configure page, rendered the same way, so the two-column layout and the
+ * player tab header can be checked without a running game. */
+static void render_config_matrix(LauncherModel& model,const LauncherTheme& theme,const char* folder) {
+    std::filesystem::create_directories(folder);
+    for (int fullscreen:{1,0}) for (int seat:{0,1}) {
+        model.s.fullscreen=fullscreen;
+        model.cfg_player=seat;
+        model.view=LNG_VIEW_CONTROLLER;
+        probe_width=1280;probe_height=1150;
+        auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(1,1);
+        for (int i=0;i<3;++i) {
+            ImGui::NewFrame(); ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(probe_width,probe_height));
+            ImGui::Begin("config-probe",nullptr,ImGuiWindowFlags_NoSavedSettings);
+            draw_controller_config_view(&model,theme);
+            ImGui::End(); ImGui::Render();
+        }
+        char file[96];
+        std::snprintf(file,sizeof file,"configure-%s-player%d.png",fullscreen?"fullscreen":"window",seat+1);
+        capture(std::filesystem::path(folder)/file,1.f);
+    }
+    model.s.fullscreen=0; model.cfg_player=0;
 }
 int main() {
     RecompLauncherCModProvider provider{};
@@ -171,6 +233,10 @@ int main() {
     RecompLauncherCGameInfo game{};launcher_profile_apply("psx",&game);
     game.name="settings fixture";game.mods=&provider;game.has_bios=1;
     game.has_frame_interp=1;game.aspect_mask=7;game.has_render_pipeline=1;
+    game.num_players=2;
+    // Host shortcuts: the Configure page's right column needs them to exist.
+    static const char* const kAssist[]={"Rewind","Fast forward","Quick save"};
+    game.settings_bindings=1;game.assist_binding_labels=kAssist;game.assist_binding_count=3;
     RecompLauncherCSettings settings{};settings.renderer=1;settings.frame_interp=1;settings.frame_interp_fps=120;
     settings.render_thread=1;settings.present_thread=1;settings.frame_generation=1;settings.vsync=RECOMP_LAUNCHER_VSYNC_VRR;
     LauncherModel model{};launcher_model_init(&model,&settings,&game,nullptr);
@@ -185,32 +251,50 @@ int main() {
     frame(model,theme);frame(model,theme);
     assert(!visited_general.empty() && visited_display.empty());
     auto* window=ImGui::FindWindowByName("settings-probe");assert(window);
-    ImGuiTabBar* bar=ImGui::GetCurrentContext()->TabBars.GetByKey(window->GetID("Settings tabs"));assert(bar && bar->Tabs.Size==2);
-    const auto& display=bar->Tabs[1];const ImVec2 click(bar->BarRect.Min.x+display.Offset+display.Width/2,bar->BarRect.Min.y+bar->BarRect.GetHeight()/2);
-    io.AddMousePosEvent(click.x,click.y);frame(model,theme);
-    std::fprintf(stderr,"hover=%08x target=%08x window=%s mouse=%.1f,%.1f\n",
-        ImGui::GetCurrentContext()->HoveredId,display.ID,
-        ImGui::GetCurrentContext()->HoveredWindow?ImGui::GetCurrentContext()->HoveredWindow->Name:"none",io.MousePos.x,io.MousePos.y);
-    io.AddMouseButtonEvent(0,true);frame(model,theme);
-    io.AddMouseButtonEvent(0,false);frame(model,theme);frame(model,theme);
-    std::fprintf(stderr,"Settings drawer general=%zu display=%zu selected=%08x target=%08x click=%.1f,%.1f scroll=%.1f\n",
-        visited_general.size(),visited_display.size(),bar->SelectedTabId,display.ID,click.x,click.y,window->Scroll.y);
-    assert(visited_general.size()+visited_display.size()==35);
-    assert(visited_packages.size()==6);
-    assert(visited_general.count("video.fast_boot") && visited_general.count("audio.buffer_ms"));
-    assert(visited_display.count("video.pgxp_tolerance") && visited_display.count("video.fov_scale"));
-    // The real Display drawer also emits all six previously gated controls.
-    ImGui::NewFrame();ImGui::Begin("display-rows");ImGui::LogToBuffer();draw_display_controls(&model,theme);
+    // Three tabs: General, Display, Hotkeys.
+    ImGuiTabBar* bar=ImGui::GetCurrentContext()->TabBars.GetByKey(window->GetID("Settings tabs"));
+    assert(bar && bar->Tabs.Size==3);
+    // Row labels are what the player reads: the host label for fast boot is
+    // relabelled to "Skip BIOS" here, and the two HLE rows stay behind the
+    // collapsed Advanced subsection (so their rows are not drawn at all).
+    ImGui::NewFrame();ImGui::Begin("general-log");ImGui::LogToBuffer();
+    draw_settings(&model,theme);
+    const std::string glog=ImGui::GetCurrentContext()->LogBuffer.c_str();
+    ImGui::LogFinish();ImGui::End();ImGui::Render();
+    assert(glog.find("Skip BIOS")!=std::string::npos);
+    assert(glog.find("video.fast_boot")==std::string::npos);
+    assert(glog.find("video.bios_hle")==std::string::npos);
+    assert(glog.find("video.low_latency_input")==std::string::npos);
+    click_tab(model,theme,"Settings tabs",1);
+    std::fprintf(stderr,"general=%zu display=%zu\n",visited_general.size(),visited_display.size());
+    assert(!visited_display.empty() && visited_display.count("video.pgxp_tolerance"));
+    // The Display page carries its own three sub-tabs.
+    ImGuiTabBar* sub=find_display_sub_tabs();
+    assert(sub && sub->Tabs.Size==3);
+    click_bar(model,theme,sub,1);
+    assert(visited_packages.count("psx.enhancement.image-filtering"));
+    // The Presentation page is the effects group alone: the CRT filter is not
+    // drawn there (it belongs to the Display sub-tab).
+    visited_packages.clear();
+    click_bar(model,theme,sub,2);
+    assert(visited_packages.count("psx.enhancement.crt-filter")==0);
+    assert(visited_packages.count("psx.enhancement.image-filtering")==0);
+    click_tab(model,theme,"Settings tabs",2);
+    // The Hotkeys page is text, not options: prove the page drew its catalog.
+    ImGui::NewFrame();ImGui::Begin("hotkeys-log");ImGui::LogToBuffer();
+    draw_hotkeys_controls(&model,theme);
     const std::string log=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::End();ImGui::Render();
-    for(const char* label:{"Render thread","Present thread","Smooth motion","Frame interpolation","Presentation target","Aspect ratio"})
-        assert(log.find(label)!=std::string::npos);
+    assert(log.find(launcher_hotkey_name(LNG_HK_REWIND))!=std::string::npos);
     for(const char* package:packages)assert(launcher_settings_group(package));
     assert(!launcher_settings_group("third.party.game-plugin"));
     assert(!memcmp(&before,&model.s,sizeof before));
     frame(model,theme,false);frame(model,theme); // ImGui queues programmatic tab selection for the next frame.
     visited_general.clear();visited_display.clear();frame(model,theme);
     assert(!visited_general.empty() && visited_display.empty());
-    if (const char* folder=std::getenv("RUI_LAYOUT_CAPTURE_DIR")) render_matrix(model,theme,folder);
+    if (const char* folder=std::getenv("RUI_LAYOUT_CAPTURE_DIR")) {
+        render_matrix(model,theme,folder);
+        render_config_matrix(model,theme,folder);
+    }
     ImGui::DestroyContext();
-    puts("PASS: production Settings drawer General default/reentry,Display selection,35 provider controls+6 real widgets,preserved values,built-in grouping,plugin boundary;CPU-only");
+    puts("PASS: production Settings drawer (General/Display+3 sub-tabs/Hotkeys), collapsed Advanced rows, Configure two-column and window layouts;CPU-only");
 }

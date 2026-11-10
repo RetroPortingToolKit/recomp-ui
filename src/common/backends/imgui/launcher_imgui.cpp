@@ -1883,6 +1883,50 @@ void kv(const char* k, const char* v, const LauncherTheme& th,
         ImGui::TextUnformatted(b); ImGui::PopStyleColor();
     }
 }
+// One segment of a segmented control. The label is centred in BOTH axes inside
+// its own box (ImGui::Button only centres horizontally, on the text baseline),
+// so "Mouse in port 1" and "Mouse in port 2" sit on the same optical centre and
+// neither one drifts with the glyphs its own digit happens to produce.
+static bool segment_button(const char* id, const char* label, ImVec2 size,
+                           bool selected, bool enabled, const LauncherTheme& th) {
+    ImGui::PushID(id);
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const ImVec2 max(min.x + size.x, min.y + size.y);
+    const bool pressed = ImGui::InvisibleButton("##segment", size);
+    const bool hovered = enabled && ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const LngColor& bg = selected ? th.accent
+                        : (hovered ? th.control_hovered : th.control);
+    dl->AddRectFilled(min, max, imcol(bg), px(th.radius_sm));
+    dl->AddRect(min, max, imcol(th.border), px(th.radius_sm));
+    const char* text = ui_text(label);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    dl->AddText(ImVec2(std::floor(min.x + (size.x - ts.x) * 0.5f),
+                       std::floor(min.y + (size.y - ts.y) * 0.5f)),
+                imcol(selected ? th.accent_text
+                               : (enabled ? th.text : th.text_muted)),
+                text);
+    ImGui::PopID();
+    return enabled && pressed;
+}
+
+// A one-glyph button whose glyph is centred in BOTH axes. ImGui::Button centres
+// its label horizontally only and draws it on the text baseline, which leaves a
+// bare "-" or "+" sitting low and left of the middle of its box. The glyph is
+// drawn after the (empty) button so the frame, hover and press states are still
+// ImGui's own.
+static bool glyph_button(const char* id, const char* glyph, ImVec2 size) {
+    ImGui::PushID(id);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::Button("##glyph", size);
+    const ImVec2 ts = ImGui::CalcTextSize(glyph);
+    const ImVec2 pos(std::floor(at.x + (size.x - ts.x) * 0.5f),
+                     std::floor(at.y + (size.y - ts.y) * 0.5f));
+    ImGui::GetWindowDrawList()->AddText(pos, ImGui::GetColorU32(ImGuiCol_Text), glyph);
+    ImGui::PopID();
+    return pressed;
+}
+
 // `total_w` > 0 stretches the value field so the whole widget measures exactly
 // that — which is what lets a right-anchored stepper line its LEFT edge up
 // with the dropdowns above it instead of floating a few pixels inside them.
@@ -1893,10 +1937,13 @@ void stepper(const char* id, int value, const char* suffix, int* out_delta,
     const float bh = px(30), bw = px(32), gap = px(6);
     float fw = px(58);
     if (total_w > 0.0f) {
+        // Fill the reserved width exactly: a value field narrower than the box
+        // pulls the "+" inwards, so the widget would no longer be flush with
+        // the control column around it.
         const float want = total_w - bw * 2.0f - gap * 2.0f;
         if (want > fw) fw = want;
     }
-    if (ImGui::Button("-", ImVec2(bw, bh))) *out_delta = -5;
+    if (glyph_button("minus", "-", ImVec2(bw, bh))) *out_delta = -5;
     ImGui::SameLine(0, gap);
     // value centered in a fixed-width field so "+" never shifts with the digits
     char buf[32]; snprintf(buf, sizeof(buf), "%d%s", value, suffix);
@@ -1907,7 +1954,7 @@ void stepper(const char* id, int value, const char* suffix, int* out_delta,
     ImGui::TextUnformatted(buf);
     ImGui::SameLine(0, 0);
     ImGui::SetCursorPosX(cx + fw + gap);
-    if (ImGui::Button("+", ImVec2(bw, bh))) *out_delta = +5;
+    if (glyph_button("plus", "+", ImVec2(bw, bh))) *out_delta = +5;
     ImGui::PopID();
 }
 
@@ -1947,7 +1994,6 @@ void row_label(const char* text, const LauncherTheme& th, float col_w = 0.0f) {
  * than colliding with the text.
  */
 static bool g_psx_compact_settings = false;
-static void draw_psx_picture_controls(LauncherModel* m);
 static float settings_label_width() {
     return std::min(px(190), ImGui::GetContentRegionAvail().x * 0.48f);
 }
@@ -3352,7 +3398,13 @@ static int dash_card_columns(float availw, float gap, float cardw, int count) {
 }
 
 static void draw_quick_mods(LauncherModel* m,const LauncherTheme& th);
-static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, bool display);
+/* PSX Settings pages: GENERAL / DISPLAY / HOTKEYS (see launcher_psx_settings.inc). */
+enum { PSX_SETTINGS_GENERAL = 0, PSX_SETTINGS_DISPLAY = 1, PSX_SETTINGS_HOTKEYS = 2 };
+static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, int page);
+/* Per-device host options (mouse / JogCon / anti-deadzone / Select shortcuts),
+ * drawn with the controller they belong to on the Configure page. */
+void draw_psx_pad_options(LauncherModel* m, const LauncherTheme& th, int player);
+bool psx_player_has_jogcon(const LauncherModel* m, int player);
 
 void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
@@ -4270,20 +4322,14 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         const float seg_w = (cw - gap) * 0.5f;
         for (int port = 1; port <= 2; ++port) {
             if (port > 1) ImGui::SameLine(0, gap);
-            const bool sel = pair_port == port;
-            char lbl[48];
-            std::snprintf(lbl, sizeof(lbl), "%s %d##mouseport", ui_text("Mouse in port"), port);
-            ImGui::PushID(port);
-            ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
-            ImGui::PushStyleColor(ImGuiCol_Text, sel ? col(th.accent_text) : col(th.text));
-            if (ImGui::Button(lbl, ImVec2(seg_w, px(28)))) {
+            char lbl[48], sid[24];
+            std::snprintf(lbl, sizeof(lbl), "%s %d", ui_text("Mouse in port"), port);
+            std::snprintf(sid, sizeof(sid), "mouseport%d", port);
+            if (segment_button(sid, lbl, ImVec2(seg_w, px(28)),
+                               pair_port == port, true, th)) {
                 launcher_model_set_mouse_pair_port(m, port);
                 launcher_binds_refresh(m);
             }
-            ImGui::PopStyleColor(4);
-            ImGui::PopID();
         }
         ImGui::Dummy(ImVec2(0, px(4)));
         // The pad (or keyboard) in the other port, for the same player.
@@ -4466,20 +4512,14 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
         const float seg_w = (cw - seg_gap) * 0.5f;
         for (int port = 1; port <= 2; ++port) {
             if (port > 1) ImGui::SameLine(0, seg_gap);
-            const bool sel = pair_port == port;
-            char lbl[48];
-            std::snprintf(lbl, sizeof(lbl), "%s %d##mouseport", ui_text("Mouse in port"), port);
-            ImGui::PushID(port);
-            ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
-            ImGui::PushStyleColor(ImGuiCol_Text, sel ? col(th.accent_text) : col(th.text));
-            if (ImGui::Button(lbl, ImVec2(seg_w, px(28)))) {
+            char lbl[48], sid[24];
+            std::snprintf(lbl, sizeof(lbl), "%s %d", ui_text("Mouse in port"), port);
+            std::snprintf(sid, sizeof(sid), "mouseport%d", port);
+            if (segment_button(sid, lbl, ImVec2(seg_w, px(28)),
+                               pair_port == port, true, th)) {
                 launcher_model_set_mouse_pair_port(m, port);
                 launcher_binds_refresh(m);
             }
-            ImGui::PopStyleColor(4);
-            ImGui::PopID();
         }
         ImGui::Dummy(ImVec2(0, px(4)));
         // The pad (or keyboard) in the other port, for the same player.
@@ -5409,7 +5449,6 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
             ImGui::TextColored(col(th.text_muted), "%s", ui_text(note));
     }
 
-    if (g_psx_compact_settings) draw_psx_picture_controls(m);
     if (launcher_model_internal_resolution_offered(m)) {
         /* The host's own resolution vocabulary (PSX: Native / 720p / 1080p /
          * 1440p / 4K / 5K / 8K / Match display, plus any legacy Nx entry it
@@ -5745,6 +5784,13 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     // volume stepper, which stretches its value field to reach it -- so the
     // column is flush on both sides.
     const float cb = ImGui::GetFrameHeight();   // a checkbox is square
+    /* One control width for the whole card. In the PSX compact layout the
+     * fields are fitted to the card, so a control hard-coded to 150 would sit
+     * narrower than the rows above and below it (and the volume stepper's
+     * right edge would not line up with them). */
+    const float ctrl_w = g_psx_compact_settings
+                             ? settings_fit_w("Volume", th, 0, true)
+                             : ctrl_w;
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
     const SystemProfile* audio_prof = (const SystemProfile*)m->profile;
@@ -5757,8 +5803,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
             launcher_model_cycle_freq(m);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose the host audio output sample rate. Game and music speed stay unchanged.");
     }
-    row_label_right("Volume", th, px(SETTINGS_CTRL_W));
-    int dv = 0; stepper("vol", m->s.volume, "%", &dv, px(SETTINGS_CTRL_W));
+    row_label_right("Volume", th, ctrl_w);
+    int dv = 0; stepper("vol", m->s.volume, "%", &dv, ctrl_w);
     if (dv) launcher_model_volume_delta(m, dv);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Adjust the game's output volume.");
 
@@ -6355,11 +6401,15 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
         last_settings_frame = frame;
         if (ImGui::BeginTabBar("Settings tabs")) {
             if (ImGui::BeginTabItem(ui_text("General"), nullptr, first ? ImGuiTabItemFlags_SetSelected : 0)) {
-                draw_psx_settings_page(m, th, false);
+                draw_psx_settings_page(m, th, PSX_SETTINGS_GENERAL);
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem(ui_text("Display"))) {
-                draw_psx_settings_page(m, th, true);
+                draw_psx_settings_page(m, th, PSX_SETTINGS_DISPLAY);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(ui_text("Hotkeys"))) {
+                draw_psx_settings_page(m, th, PSX_SETTINGS_HOTKEYS);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
@@ -6905,16 +6955,74 @@ static void bind_row_label(const char* label, const ImVec4& colour,
 // ControllerSpec.buttons[]/button_count (launcher_system.h) so each system
 // renders its own real vocabulary (SNES: A/B/X/Y/L/R/...; PSX: Triangle/
 // Circle/Cross/Square/L1/L2/R1/R2/L3/R3/...) instead of a hardcoded SNES set.
-void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
-    const int p = m->cfg_player;
+
+/* Two stacked, right-aligned actions. Rename sits on the row that follows the
+ * Input source control and Delete on its own row directly below it, at the same
+ * width and against the same right edge, so the pair reads as one column
+ * instead of Delete floating alone at the far right of a row of its own (where
+ * it was also off the text baseline of the row it shared). */
+static void cfg_action_column(const char* rename_label, const char* delete_label,
+                              float col_w, bool can_rename, bool can_delete,
+                              bool* rename_clicked, bool* delete_clicked) {
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    if (right - col_w > ImGui::GetCursorPosX()) ImGui::SameLine(right - col_w);
+    else ImGui::SameLine();
+    ImGui::BeginDisabled(!can_rename);
+    *rename_clicked = ImGui::Button(rename_label, ImVec2(col_w, px(30)));
+    ImGui::EndDisabled();
+    if (!can_rename && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ui_text("Choose a gamepad as the input source first."));
+    // The next row, at the same right edge: ImGui advances a line only when the
+    // next item is submitted without SameLine, so place the cursor explicitly.
+    const float next_y = ImGui::GetCursorPosY() + px(30.0f) +
+                         ImGui::GetStyle().ItemSpacing.y;
+    ImGui::SetCursorPos(ImVec2(right - col_w, next_y));
+    ImGui::BeginDisabled(!can_delete);
+    *delete_clicked = ImGui::Button(delete_label, ImVec2(col_w, px(30)));
+    ImGui::EndDisabled();
+    if (!can_delete && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ui_text("Choose a gamepad as the input source first."));
+    ImGui::NewLine();
+}
+
+/* Player tabs above the Controller card. Every seat the launcher can ever show
+ * gets a tab, so the header is the same shape on a one-player title as on an
+ * eight-player one; the seats this title cannot fill are greyed and inert. */
+static int draw_cfg_player_tabs(LauncherModel* m, const LauncherTheme& th, int current) {
+    const int seats = launcher_model_visible_player_count(m);
+    const int shown = LNG_MAX_PLAYERS;
+    const float gap = px(4.0f);
+    const float full = ImGui::GetContentRegionAvail().x;
+    int per_row = shown;
+    float seg = (full - gap * (float)(shown - 1)) / (float)shown;
+    if (seg < px(88.0f)) {
+        per_row = 4;
+        seg = (full - gap * 3.0f) / 4.0f;
+    }
+    int picked = current;
+    ImGui::PushID("cfgtabs");
+    for (int i = 0; i < shown; ++i) {
+        if (i % per_row != 0) ImGui::SameLine(0, gap);
+        const bool enabled = i < seats;
+        char lbl[32], sid[16];
+        std::snprintf(lbl, sizeof(lbl), "%s %d", ui_text("Player"), i + 1);
+        std::snprintf(sid, sizeof(sid), "tab%d", i);
+        if (segment_button(sid, lbl, ImVec2(seg, px(30)), i == current && enabled,
+                           enabled, th) && enabled)
+            picked = i;
+    }
+    ImGui::PopID();
+    ImGui::Dummy(ImVec2(0, px(6)));
+    if (picked != current) launcher_model_open_config(m, picked);
+    return picked;
+}
+
+// The controller card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_source(LauncherModel* m, const LauncherTheme& th, int p) {
     const SystemProfile* cfg_prof = (const SystemProfile*)m->profile;
     const bool cfg_psx = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "psx");
     const bool cfg_snes = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "snes");
     const bool cfg_n64 = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "n64");
-    if (cfg_psx && m->s.player_src[p] == 2 &&
-        m->s.player_gamepad_guid[p][0] && !m->player_pad_name[p][0])
-        launcher_binds_hydrate_psx_pad_names(m);
-
     // The pad next to Player 1's PS1 Mouse (PS1B-279) is Player 1's, in the
     // other port: say so, and offer no second mouse there.
     const bool cfg_pair_pad = launcher_model_mouse_pair_port(m) &&
@@ -6926,8 +7034,17 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         else
             ImGui::Text("%s %d", ui_text("CONTROLLER - PLAYER"), p + 1);
         ImGui::PopStyleColor(); ImGui::Spacing();
+        /* Input source and the per-controller actions share one row: the combo
+         * takes what the action column leaves, so the two never collide and
+         * Delete is never pushed off the card. */
         row_label("Input source", th);
-        ImGui::SetNextItemWidth(px(200));
+        const float card_right = ImGui::GetWindowContentRegionMax().x;
+        const float action_w = px(150.0f);
+        const float action_gap = px(th.spacing_md);
+        const float combo_x = ImGui::GetCursorPosX();
+        float combo_w = card_right - action_w - action_gap - combo_x;
+        if (combo_w < px(120.0f)) combo_w = px(120.0f);
+        ImGui::SetNextItemWidth(combo_w);
         if (ImGui::BeginCombo("##csrc", ui_text(launcher_model_player_src_label(m, p)))) {
             draw_source_selectables(m, p, cfg_pair_pad ? kPickPadOnly : kPickSeat);
             ImGui::EndCombo();
@@ -7083,25 +7200,16 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             static char s_rename_buf[64] = {};
             const bool can_pad = m->s.player_src[p] == 2 &&
                                  m->s.player_gamepad_guid[p][0];
-            ImGui::SameLine();
-            if (!can_pad) ImGui::BeginDisabled();
-            if (ImGui::Button(ui_text("Rename Gamepad"))) {
+            bool want_rename = false, want_delete = false;
+            cfg_action_column(ui_text("Rename Gamepad"), ui_text("Delete Gamepad"),
+                              action_w, can_pad, can_pad,
+                              &want_rename, &want_delete);
+            if (want_rename) {
                 std::snprintf(s_rename_buf, sizeof(s_rename_buf), "%s",
                               m->player_pad_name[p]);
                 s_rename_open = true;
             }
-            if (!can_pad) ImGui::EndDisabled();
-
-            // Delete sits on the right of the Input source row.
-            {
-                const float del_w = px(130.0f);
-                const float right = ImGui::GetWindowContentRegionMax().x;
-                ImGui::SameLine(right - del_w);
-                if (!can_pad) ImGui::BeginDisabled();
-                if (ImGui::Button(ui_text("Delete Gamepad"), ImVec2(del_w, 0)))
-                    launcher_binds_delete_psx_gamepad(m, p + 1);
-                if (!can_pad) ImGui::EndDisabled();
-            }
+            if (want_delete) launcher_binds_delete_psx_gamepad(m, p + 1);
 
             if (s_rename_open) ImGui::OpenPopup(ui_text("Rename Gamepad"));
             ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -7119,7 +7227,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                const bool ok = s_rename_buf[0] != '\0';
+                const bool ok = s_rename_buf[0] != 0;
                 ImGui::BeginDisabled(!ok);
                 if ((ImGui::Button("OK", ImVec2(px(120), 0)) || enter) && ok) {
                     launcher_binds_rename_psx_gamepad(m, p + 1, s_rename_buf);
@@ -7130,11 +7238,16 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::EndPopup();
             }
         }
-        // Deadzone: a drag slider, not a stepper. The stepper moves in 5%
-        // steps, which is the wrong granularity for a stick whose resting
-        // noise a player is trying to just clear -- 8% and 12% are different
-        // controllers. Whole percent, because the runner consumes a raw stick
-        // radius derived from this and a fraction would not survive the trip.
+        /* Deadzone: a drag slider, not a stepper. The stepper moves in 5%
+         * steps, which is the wrong granularity for a stick whose resting noise
+         * a player is trying to just clear -- 8% and 12% are different
+         * controllers. Whole percent, because the runner consumes a raw stick
+         * radius derived from this and a fraction would not survive the trip.
+         *
+         * The bar starts under the Input source control (same left edge) and
+         * ends where that control ends, so it lines up with the rows above
+         * instead of hanging off the label. */
+        ImGui::Dummy(ImVec2(0, px(4)));
         row_label("Deadzone", th);
         {
             int dz = m->s.deadzone[p];
@@ -7143,13 +7256,25 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             // gets the full scale rather than a handle pinned at the end
             // showing a number the slider would silently rewrite.
             const int hi = dz > 50 ? 100 : 50;
-            ImGui::SetNextItemWidth(px(240));
+            ImGui::SetCursorPosX(combo_x);
+            ImGui::SetNextItemWidth(combo_w);
             if (ImGui::SliderInt("##dz", &dz, 0, hi, "%d%%",
                                  ImGuiSliderFlags_AlwaysClamp))
                 launcher_model_set_deadzone(m, p, dz);
         }
+        // Per-device host options (PS1 Mouse sensitivity/capture, JogCon force
+        // feedback, anti-deadzone, fallback Select): they belong to the device
+        // this card configures, not to the machine's Settings.
+        if (cfg_psx) {
+            ImGui::Dummy(ImVec2(0, px(4)));
+            draw_psx_pad_options(m, th, p);
+        }
     } end_panel();
+    return true;
+}
 
+// The pak card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_pak(LauncherModel* m, const LauncherTheme& th, int p) {
     // Pak for THIS controller port, so it's reachable from the Controller page
     // without going back to the dashboard. Literally the same picker and the
     // same kind body the dashboard draws — one pak surface, one set of
@@ -7169,7 +7294,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             ImGui::PopID();
         } end_panel();
     }
+    return p < launcher_model_pak_ports(m);
+}
 
+// The mouse card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_mouse(LauncherModel* m, const LauncherTheme& th, int p) {
     // MOUSE card (opt-in, has_mouse_controls games only — Snap): shown whenever
     // this player's source is a keyboard family. Sensitivity + Invert X/Y +
     // three rebindable mouse buttons, each mapping to an N64 action. Placed
@@ -7219,7 +7348,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             }
         } end_panel();
     }
+    return m->has_mouse_controls && m->s.player_src[p] == 1;
+}
 
+// The motion card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_motion(LauncherModel* m, const LauncherTheme& th, int p) {
     // MOTION card (opt-in): the host owns controller discovery and axis
     // mapping; recomp-ui owns only the portable sensitivity setting.
     if (m->has_gyro_controls && p == 0) {
@@ -7315,7 +7448,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             ImGui::PopStyleColor();
         } end_panel();
     }
+    return m->has_gyro_controls && p == 0;
+}
 
+// The camera card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_camera(LauncherModel* m, const LauncherTheme& th, int p) {
     /* Voxel/3D camera bindings are feature-driven, not a permanent NES
      * capability. The card appears only while at least one enabled feature
      * advertises camera_controls, and only on Player 1's page because the
@@ -7391,11 +7528,17 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
         } end_panel();
     }
+    return p == 0 && enabled_camera_controls(m);
+}
 
+// The binds card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_binds(LauncherModel* m, const LauncherTheme& th, int p) {
+    const SystemProfile* cfg_prof = (const SystemProfile*)m->profile;
+    const bool cfg_psx = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "psx");
     // Some systems ship no rebindable input layer (N64 Snap / PMS-J read no
     // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
     // Controller view is source+deadzone only.
-    if (m->hide_rebind) return;
+    if (m->hide_rebind) return false;
 
     if (begin_panel("cfg_binds", 0)) {
         // Responsive grid: fit as many label+chip columns as the width allows
@@ -7421,6 +7564,9 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         // keyboard map when no gamepad is selected, and the capture handler
         // already accepts keys and mouse buttons into either slot.
         if (is_psx) {
+            // Half-width cards cannot hold the four action buttons on one
+            // row; they fall back to two rows instead of overflowing the card.
+            const bool cfg_narrow = ImGui::GetContentRegionAvail().x < px(620.0f);
             const bool has_pad_src = m->s.player_src[p] == 2 &&
                                      m->s.player_gamepad_guid[p][0];
 
@@ -7429,11 +7575,24 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
             ImGui::PopStyleColor();
             // Both slots have a visible chip (see the grid below), so the
-            // hint only has to say how to edit them.
+            // hint only has to say how to edit them. In a half-width card it
+            // goes on its own line and wraps instead of running off the edge.
             if (!has_pad_src) {
-                ImGui::SameLine();
-                ImGui::TextColored(col(th.text_muted),
-                    "  (click to rebind, right-click to clear; yellow = bound more than once)");
+                static const char* kHint =
+                    "(click to rebind, right-click to clear; yellow = bound more than once)";
+                // Same line only when the sentence actually fits beside the
+                // title; otherwise it takes its own wrapped line instead of
+                // running off the card (the card is half-width in the
+                // two-column Configure layout).
+                if (ImGui::GetContentRegionAvail().x <
+                    ImGui::CalcTextSize(kHint).x + px(16.0f)) {
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextColored(col(th.text_muted), "%s", kHint);
+                    ImGui::PopTextWrapPos();
+                } else {
+                    ImGui::SameLine();
+                    ImGui::TextColored(col(th.text_muted), "  %s", kHint);
+                }
             }
             ImGui::Spacing();
 
@@ -7476,16 +7635,25 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     return n;
                 };
                 const float cell_w = label_col_w + 2.0f * chip_w + chip_gap + px(16.0f);
-                if (ImGui::BeginTable("psx_key_binds", LNG_PSX_GAMEPAD_BIND_COLS,
+                // As many columns as the card can actually hold: the bindings
+                // card is half-width in the two-column Configure layout, and a
+                // fixed 3x8 grid there overflows the card and clips the
+                // right-most chips.
+                int cols = (int)((ImGui::GetContentRegionAvail().x + chip_gap) / cell_w);
+                if (cols < 1) cols = 1;
+                if (cols > LNG_PSX_GAMEPAD_BIND_COLS) cols = LNG_PSX_GAMEPAD_BIND_COLS;
+                const int rows = (LNG_PSX_PAD_BUTTON_COUNT + cols - 1) / cols;
+                if (ImGui::BeginTable("psx_key_binds", cols,
                                       ImGuiTableFlags_SizingFixedFit)) {
-                    for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c)
+                    for (int c = 0; c < cols; ++c)
                         ImGui::TableSetupColumn(nullptr,
                             ImGuiTableColumnFlags_WidthFixed, cell_w);
-                    for (int row = 0; row < LNG_PSX_GAMEPAD_BIND_ROWS; ++row) {
-                        for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c) {
-                            const int order_i = c * LNG_PSX_GAMEPAD_BIND_ROWS + row;
-                            const int b = kPsxGamepadBindOrder[order_i];
+                    for (int row = 0; row < rows; ++row) {
+                        for (int c = 0; c < cols; ++c) {
+                            const int order_i = c * rows + row;
                             ImGui::TableNextColumn();
+                            if (order_i >= LNG_PSX_PAD_BUTTON_COUNT) continue;
+                            const int b = kPsxGamepadBindOrder[order_i];
                             ImGui::PushID(b);
                             bind_row_label(spec.buttons[b].label,
                                            col(th.text_muted), label_col_w,
@@ -7576,7 +7744,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 {
                     const float save_w = px(120.0f);
                     const float right = ImGui::GetWindowContentRegionMax().x;
-                    ImGui::SameLine(right - 2.0f * save_w - ImGui::GetStyle().ItemSpacing.x);
+                    if (cfg_narrow) ImGui::NewLine();
+                    else ImGui::SameLine(right - 2.0f * save_w - ImGui::GetStyle().ItemSpacing.x);
                     if (ImGui::Button("Load Profile", ImVec2(save_w, 0))) {
                         const int player = p + 1;
                         ui_pick_file(m, "Load keyboard profile", {"*.ini"},
@@ -7587,7 +7756,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                             s_kb_profile_loaded_until = ImGui::GetTime() + 3.0;
                         });
                     }
-                    ImGui::SameLine(right - save_w);
+                    if (cfg_narrow) ImGui::SameLine();
+                    else ImGui::SameLine(right - save_w);
                     if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
                         launcher_binds_save_psx_keyboard(m, p + 1);
                         s_kb_profile_saved_until = ImGui::GetTime() + 2.5;
@@ -7622,16 +7792,21 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 }
                 const float chip_w = px(140.0f);
                 const float cell_w = label_col_w + chip_w + px(16.0f);
-                if (ImGui::BeginTable("psx_pad_binds", LNG_PSX_GAMEPAD_BIND_COLS,
+                int cols = (int)((ImGui::GetContentRegionAvail().x + px(6.0f)) / cell_w);
+                if (cols < 1) cols = 1;
+                if (cols > LNG_PSX_GAMEPAD_BIND_COLS) cols = LNG_PSX_GAMEPAD_BIND_COLS;
+                const int rows = (LNG_PSX_PAD_BUTTON_COUNT + cols - 1) / cols;
+                if (ImGui::BeginTable("psx_pad_binds", cols,
                                       ImGuiTableFlags_SizingFixedFit)) {
-                    for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c)
+                    for (int c = 0; c < cols; ++c)
                         ImGui::TableSetupColumn(nullptr,
                             ImGuiTableColumnFlags_WidthFixed, cell_w);
-                    for (int row = 0; row < LNG_PSX_GAMEPAD_BIND_ROWS; ++row) {
-                        for (int c = 0; c < LNG_PSX_GAMEPAD_BIND_COLS; ++c) {
-                            const int order_i = c * LNG_PSX_GAMEPAD_BIND_ROWS + row;
-                            const int b = kPsxGamepadBindOrder[order_i];
+                    for (int row = 0; row < rows; ++row) {
+                        for (int c = 0; c < cols; ++c) {
+                            const int order_i = c * rows + row;
                             ImGui::TableNextColumn();
+                            if (order_i >= LNG_PSX_PAD_BUTTON_COUNT) continue;
+                            const int b = kPsxGamepadBindOrder[order_i];
                             ImGui::PushID(b);
                             bind_row_label(spec.buttons[b].label,
                                            col(th.text_muted), label_col_w,
@@ -7679,7 +7854,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 {
                     const float save_w = px(120.0f);
                     const float right = ImGui::GetWindowContentRegionMax().x;
-                    ImGui::SameLine(right - save_w);
+                    if (cfg_narrow) ImGui::NewLine();
+                    else ImGui::SameLine(right - save_w);
                     if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
                         launcher_binds_save_psx_gamepad(m, p + 1);
                         s_profile_saved_until = ImGui::GetTime() + 2.5;
@@ -7980,7 +8156,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         }
         } // !is_psx
     } end_panel();
+    return !m->hide_rebind;
+}
 
+// The zapper card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_zapper(LauncherModel* m, const LauncherTheme& th, int p) {
     // Zapper (light gun) block — NES Zapper games only (gi.zapper). The mouse
     // is the gun on a PC: position aims, left click pulls the trigger. Both
     // switches persist to keybinds.ini's [zapper] section immediately (same
@@ -8001,14 +8181,104 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 launcher_model_toggle_zapper_crosshair(m);
         } end_panel();
     }
+    return m->zapper;
+}
 
+// The assist card, addressable on its own so the Configure view can lay it out.
+static bool cfg_card_assist(LauncherModel* m, const LauncherTheme& th, int p) {
     /* Named host actions stand on their own; see the note in
-     * draw_assist_binding_editor. */
+     * draw_assist_binding_editor. The PSX runtime fires them from Player 1's
+     * pad only, so every other player's page shows the same card greyed with
+     * the reason, rather than a list that would silently do nothing. */
     if (m->assist_binding_count > 0 && m->assist_binding_labels) {
         if (begin_panel("cfg_assist_binds", 0)) {
-            draw_controller_assist_shortcuts(m, th);
+            if (p != 0) {
+                ImGui::TextColored(col(th.text_muted), "%s", ui_text(
+                    "Host shortcuts fire from Player 1's controller."));
+                ImGui::Dummy(ImVec2(0, px(4)));
+                ImGui::BeginDisabled();
+                draw_controller_assist_shortcuts(m, th);
+                ImGui::EndDisabled();
+            } else {
+                draw_controller_assist_shortcuts(m, th);
+            }
         } end_panel();
     }
+    return m->assist_binding_count > 0 && m->assist_binding_labels;
+}
+
+void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+    int p = m->cfg_player;
+    const SystemProfile* cfg_prof = (const SystemProfile*)m->profile;
+    const bool cfg_psx = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "psx");
+    if (cfg_psx && m->s.player_src[p] == 2 &&
+        m->s.player_gamepad_guid[p][0] && !m->player_pad_name[p][0])
+        launcher_binds_hydrate_psx_pad_names(m);
+
+    // Which player this page edits comes from the tab header, so reaching
+    // Player 3 no longer means going back a step and opening its Configure.
+    p = draw_cfg_player_tabs(m, th, p);
+
+    /* Full-screen launcher: the controller card and the bindings that belong to
+     * it on the left, the host shortcuts and the other per-pad cards on the
+     * right. In a window there is not enough width for two columns that each
+     * still hold a legible row, so the same cards follow one another as before.
+     */
+    const bool two_col = m->s.fullscreen != 0 &&
+                         ImGui::GetContentRegionAvail().x >= px(760.0f);
+    if (!two_col) {
+        cfg_card_source(m, th, p);
+        cfg_card_pak(m, th, p);
+        cfg_card_mouse(m, th, p);
+        cfg_card_motion(m, th, p);
+        cfg_card_camera(m, th, p);
+        cfg_card_binds(m, th, p);
+        cfg_card_zapper(m, th, p);
+        cfg_card_assist(m, th, p);
+        return;
+    }
+
+    const float gap = px(th.spacing_md);
+    const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+
+    // Host option rows right-align their control inside the card, the way the
+    // Settings cards do: at half width the default left-aligned field would run
+    // past the card edge.
+    g_psx_compact_settings = true;
+    begin_container("cfg_left", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
+    cfg_card_source(m, th, p);
+    if (!m->hide_rebind) {
+        ImGui::Dummy(ImVec2(0, gap));
+        cfg_card_binds(m, th, p);
+    }
+    end_container();
+    const float left_bottom = ImGui::GetItemRectMax().y;
+
+    // The right column starts at the top of the left one, so HOST SHORTCUTS sits
+    // beside CONTROLLER - PLAYER 1 rather than under the bindings grid.
+    ImGui::SetCursorScreenPos(ImVec2(origin.x + half + gap, origin.y));
+    begin_container("cfg_right", ImVec2(half, 0), ImGuiChildFlags_AutoResizeY);
+    {
+        bool drew = false;
+        auto separate = [&]() { if (drew) ImGui::Dummy(ImVec2(0, gap)); };
+        separate();
+        if (cfg_card_assist(m, th, p)) drew = true;
+        const bool has_pak = p < launcher_model_pak_ports(m);
+        if (has_pak) { separate(); cfg_card_pak(m, th, p); drew = true; }
+        const bool has_mouse = m->has_mouse_controls && m->s.player_src[p] == 1;
+        if (has_mouse) { separate(); cfg_card_mouse(m, th, p); drew = true; }
+        const bool has_motion = m->has_gyro_controls && p == 0;
+        if (has_motion) { separate(); cfg_card_motion(m, th, p); drew = true; }
+        const bool has_camera = p == 0 && enabled_camera_controls(m);
+        if (has_camera) { separate(); cfg_card_camera(m, th, p); drew = true; }
+        if (m->zapper) { separate(); cfg_card_zapper(m, th, p); drew = true; }
+    }
+    end_container();
+    const float right_bottom = ImGui::GetItemRectMax().y;
+    g_psx_compact_settings = false;
+    ImGui::SetCursorScreenPos(
+        ImVec2(origin.x, (left_bottom > right_bottom ? left_bottom : right_bottom) + gap));
 }
 
 void panel_controller_config_draw(LauncherModel* m, const LauncherTheme* th) {
