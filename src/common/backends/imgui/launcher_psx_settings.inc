@@ -500,15 +500,14 @@ static void psx_pgxp_card(LauncherModel* m,const LauncherTheme& th) {
     if (begin_panel("PGXP")) {
         eyebrow("PGXP");
         psx_runtime_rows(m,"display","Display",false);
-        // The card is already titled PGXP, so the package's own collapsing
-        // header would only repeat it: its switch is a labelled row and its
-        // options follow directly.
-        ImGui::Dummy(ImVec2(0,px(4)));
-        psx_package_switch_row(m,"psx.enhancement.pgxp","CPU/culling add-on");
-        psx_package_options(m,"psx.enhancement.pgxp");
         psx_advanced_section(m,"display","Display","Advanced");
     }
     end_panel();
+}
+/* The PGXP mod's own switch and options, beside the tuning card: the two
+ * together stay short enough to read without scrolling. */
+static void psx_pgxp_cpu_card(LauncherModel* m,const LauncherTheme& th) {
+    psx_feature_card(m,th,"PGXP CPU / CULLING","psx.enhancement.pgxp");
 }
 static void psx_crt_card(LauncherModel* m,const LauncherTheme& th) {
     const auto* p=m->mods; RecompLauncherCModFeature f{};
@@ -528,20 +527,14 @@ static void psx_crt_card(LauncherModel* m,const LauncherTheme& th) {
     }
     end_panel();
 }
-static void psx_image_quality_tab(LauncherModel* m,const LauncherTheme& th) {
-    // The filters are not optional: this page IS the image pipeline, so a row
-    // that can switch the whole thing off would only be a way to lose the
-    // settings configured here. Turn the package on if an older profile left it
-    // off, then edit its options directly.
+/* The filters are not optional: this card IS the image pipeline, so a row that
+ * could switch the whole thing off would only be a way to lose the settings
+ * configured here. Turn the package on if an older profile left it off, then
+ * edit its options directly. */
+static void psx_image_quality_card(LauncherModel* m,const LauncherTheme& th) {
     const auto* mods=m->mods; RecompLauncherCModFeature f{};
     if (mods && psx_package_feature(m,"psx.enhancement.image-filtering",f) && !f.enabled)
         change_mod_feature(m,f,true);
-    const float full=ImGui::GetContentRegionAvail().x;
-    const float gap=px(th.spacing_md);
-    // Half the page: this card is a short list, and a half-width column keeps it
-    // beside the space the other sub-tabs use.
-    const float col=full>px(640)?(full-gap)*0.5f:full;
-    begin_container("psx_iq",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
     if (begin_panel("Image Quality")) {
         eyebrow("IMAGE QUALITY");
         psx_package_options(m,"psx.enhancement.image-filtering");
@@ -549,42 +542,47 @@ static void psx_image_quality_tab(LauncherModel* m,const LauncherTheme& th) {
         psx_advanced_section(m,"display","Image","Advanced");
     }
     end_panel();
-    end_container();
 }
-static void psx_presentation_tab(LauncherModel* m,const LauncherTheme& th) {
+static void psx_presentation_card(LauncherModel* m,const LauncherTheme& th) {
     if (begin_panel("Presentation")) {
         eyebrow("PRESENTATION");
         psx_runtime_rows(m,"display","Effects",false);
         psx_advanced_section(m,"display","Effects","Advanced");
     }
     end_panel();
-    ImGui::Dummy(ImVec2(0,px(th.spacing_md)));
-    psx_crt_card(m,th);
 }
-/* Two columns fill the page in the full-screen launcher; in a window the cards
- * follow one another, because a window is narrow in both directions. */
-static bool psx_wide_launcher(const LauncherModel* m,float floor) {
-    return m->s.fullscreen!=0 && ImGui::GetContentRegionAvail().x>=px(floor);
-}
-static void psx_display_tab(LauncherModel* m,const LauncherTheme& th) {
+/* Every sub-tab is a row of at most two HALF-WIDTH cards, so a page never
+ * needs a scroll to reach its last row; a narrow window stacks the pair. */
+typedef void (*PsxCardFn)(LauncherModel*, const LauncherTheme&);
+static void psx_card_row(LauncherModel* m,const LauncherTheme& th,const char* id,
+                         PsxCardFn left,PsxCardFn right) {
     const float full=ImGui::GetContentRegionAvail().x;
     const float gap=px(th.spacing_md);
-    // DISPLAY on the left, its PGXP companion on the right, as soon as the page
-    // is wide enough to hold both; a genuinely narrow page stacks them.
-    if (full>=px(760)) {
-        const float col=(full-gap)*0.5f;
-        begin_container("psxdisp_l",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
-        psx_display_card(m,th);
-        end_container();
-        ImGui::SameLine(0,gap);
-        begin_container("psxdisp_r",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
-        psx_pgxp_card(m,th);
-        end_container();
-    } else {
-        psx_display_card(m,th);
-        ImGui::Dummy(ImVec2(0,gap));
-        psx_pgxp_card(m,th);
+    if (!right || full<px(760)) {
+        left(m,th);
+        if (right) { ImGui::Dummy(ImVec2(0,gap)); right(m,th); }
+        return;
     }
+    const float col=(full-gap)*0.5f;
+    char lid[48],rid[48];
+    std::snprintf(lid,sizeof lid,"%s_l",id);
+    std::snprintf(rid,sizeof rid,"%s_r",id);
+    begin_container(lid,ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
+    left(m,th);
+    end_container();
+    ImGui::SameLine(0,gap);
+    begin_container(rid,ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
+    right(m,th);
+    end_container();
+}
+static void psx_display_tab(LauncherModel* m,const LauncherTheme& th) {
+    psx_card_row(m,th,"psxdisp",psx_display_card,psx_image_quality_card);
+}
+static void psx_pgxp_tab(LauncherModel* m,const LauncherTheme& th) {
+    psx_card_row(m,th,"psxpgxp",psx_pgxp_card,psx_pgxp_cpu_card);
+}
+static void psx_presentation_tab(LauncherModel* m,const LauncherTheme& th) {
+    psx_card_row(m,th,"psxpres",psx_presentation_card,psx_crt_card);
 }
 static void psx_display_page(LauncherModel* m,const LauncherTheme& th) {
     draw_psx_presets(m);
@@ -599,8 +597,8 @@ static void psx_display_page(LauncherModel* m,const LauncherTheme& th) {
             psx_display_tab(m,th);
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(ui_text("Image Quality"))) {
-            psx_image_quality_tab(m,th);
+        if (ImGui::BeginTabItem(ui_text("PGXP"))) {
+            psx_pgxp_tab(m,th);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem(ui_text("Presentation"))) {

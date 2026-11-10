@@ -156,7 +156,7 @@ static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const 
     for (int width:{640,960,1280,1920}) for (float dpi:{1.f,1.5f,2.f}) {
         probe_width=(float)width;probe_height=800;
         auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(dpi,dpi);
-        static const char* names[5]={"general","display","display-image","display-presentation","hotkeys"};
+        static const char* names[5]={"general","display","pgxp","display-presentation","hotkeys"};
         // The full-screen launcher is the layout these pages are designed for.
         model.s.fullscreen=1;
         for (int page=0;page<5;++page) {
@@ -267,22 +267,27 @@ int main() {
     assert(glog.find("video.low_latency_input")==std::string::npos);
     click_tab(model,theme,"Settings tabs",1);
     std::fprintf(stderr,"general=%zu display=%zu\n",visited_general.size(),visited_display.size());
-    assert(!visited_display.empty() && visited_display.count("video.pgxp_tolerance"));
-    // The Display page carries its own three sub-tabs.
+    // The Display page carries its own three sub-tabs: Display, PGXP,
+    // Presentation. Each one is a row of two half-width cards, so every page
+    // lists exactly its own packages and nothing else.
     ImGuiTabBar* sub=find_display_sub_tabs();
     assert(sub && sub->Tabs.Size==3);
-    click_bar(model,theme,sub,1);
+    click_bar(model,theme,sub,0);
+    visited_packages.clear();frame(model,theme);
     assert(visited_packages.count("psx.enhancement.image-filtering"));
-    // Presentation carries the CRT filter card now; the Display sub-tab owns
-    // the display rows and PGXP only.
-    visited_packages.clear();
+    assert(visited_packages.count("psx.enhancement.crt-filter")==0);
+    assert(visited_packages.count("psx.enhancement.pgxp")==0);
+    click_bar(model,theme,sub,1);
+    visited_packages.clear();visited_display.clear();frame(model,theme);
+    assert(visited_packages.count("psx.enhancement.pgxp"));
+    assert(visited_packages.count("psx.enhancement.image-filtering")==0);
+    assert(visited_display.count("video.pgxp_tolerance"));
     click_bar(model,theme,sub,2);
+    visited_packages.clear();frame(model,theme);
     assert(visited_packages.count("psx.enhancement.crt-filter"));
     assert(visited_packages.count("psx.enhancement.image-filtering")==0);
-    visited_packages.clear();
+    assert(visited_packages.count("psx.enhancement.pgxp")==0);
     click_bar(model,theme,sub,0);
-    assert(visited_packages.count("psx.enhancement.crt-filter")==0);
-    assert(visited_packages.count("psx.enhancement.image-filtering")==0);
     click_tab(model,theme,"Settings tabs",2);
     // The Hotkeys page is text, not options: prove the page drew its catalog.
     ImGui::NewFrame();ImGui::Begin("hotkeys-log");ImGui::LogToBuffer();

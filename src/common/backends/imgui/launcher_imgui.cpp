@@ -1927,6 +1927,25 @@ static bool glyph_button(const char* id, const char* glyph, ImVec2 size) {
     return pressed;
 }
 
+// A button whose label is centred the same way the glyphs are: by pixel, in
+// both axes, clipped to the button. Bind chips are fixed-width with variable
+// text, so ImGui's own layout leaves short labels wandering off-centre; the
+// caller can still colour the text, because AddText reads the current colour.
+static bool centered_button(const char* id, const char* label, ImVec2 size) {
+    ImGui::PushID(id);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::Button("##centered", size);
+    const ImVec2 ts = ImGui::CalcTextSize(label);
+    const ImVec2 pos(std::floor(at.x + (size.x - ts.x) * 0.5f),
+                     std::floor(at.y + (size.y - ts.y) * 0.5f));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(at, ImVec2(at.x + size.x, at.y + size.y), true);
+    dl->AddText(pos, ImGui::GetColorU32(ImGuiCol_Text), label);
+    dl->PopClipRect();
+    ImGui::PopID();
+    return pressed;
+}
+
 // `total_w` > 0 stretches the value field so the whole widget measures exactly
 // that — which is what lets a right-anchored stepper line its LEFT edge up
 // with the dropdowns above it instead of floating a few pixels inside them.
@@ -6266,6 +6285,14 @@ void panel_solar_draw(LauncherModel* m, const LauncherTheme* th) {
 // catalog, grid byte-identical to the original hardcoded panel. PSX opts into
 // a narrower everyday-transport subset (launcher_system.h), so its grid packs
 // only the set bits — no holes, columns re-wrap around the smaller count.
+// The grid cell width, shared by the table and by the card that holds it: the
+// card is sized to a whole number of these, so its right edge lands on the
+// grid instead of running out to the page edge.
+static const float kHotkeyCellW = 300.0f;
+// The column count the enclosing card was sized for. The card cannot measure
+// its own grid (padding and scrollbar width differ inside a child), so the two
+// agree through this instead of recomputing and disagreeing by one column.
+static int s_hotkey_cols = 0;
 void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("HOTKEYS");
     const SystemProfile* prof = (const SystemProfile*)m->profile;
@@ -6281,8 +6308,11 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
         launcher_binds_reset_hotkeys(m, mask);
     ImGui::Spacing();
     if (prof && prof->id && !std::strcmp(prof->id, "psx")) {
-        int columns = (int)(ImGui::GetContentRegionAvail().x / px(340));
-        columns = columns < 1 ? 1 : (columns > 3 ? 3 : columns);
+        int columns = s_hotkey_cols;
+        if (columns <= 0) {
+            columns = (int)(ImGui::GetContentRegionAvail().x / px(kHotkeyCellW));
+            columns = columns < 1 ? 1 : (columns > 3 ? 3 : columns);
+        }
         if (ImGui::BeginTable("psx_hotkeys", columns)) {
             for (int h = 0; h < LNG_HK_COUNT; ++h) {
                 if (!(mask & (1u << h))) continue;
@@ -6301,7 +6331,13 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
                  * clipped the label on the longer-named actions. */
                 const float add_w = px(26.0f), add_gap = px(4.0f), chip_gap = px(4.0f);
                 const int chips = count > 0 ? count : 1;
-                const float chip_w = chips > 1 ? px(104.0f) : px(150.0f);
+                // Fit every chip inside one grid cell: the row has to end at the
+                // cell's right edge whatever the binding count, otherwise four
+                // keys spill into the next column.
+                const float chip_room = px(kHotkeyCellW) - add_w * 2.0f - add_gap * 2.0f;
+                const float chip_w = chips > 1
+                    ? std::min(px(104.0f), (chip_room - chip_gap * (float)(chips - 1)) / (float)chips)
+                    : std::min(px(150.0f), chip_room);
                 for (int slot = 0; slot < chips; ++slot) {
                     if (slot) ImGui::SameLine(0, chip_gap);
                     ImGui::PushID(slot);
@@ -6320,7 +6356,7 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
                     const char* text = capture ? ui_text("[ press... ]")
                                      : bound   ? bindings[slot]
                                                : ui_text("(unbound)");
-                    if (ImGui::Button(text, ImVec2(chip_w, px(26)))) {
+                    if (centered_button("chip", text, ImVec2(chip_w, px(26)))) {
                         launcher_model_begin_hk_capture(m, (LngHotkey)h);
                         m->capture_hk_slot = slot;
                     }
@@ -6399,7 +6435,7 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
             }
             if (duplicate >= 0) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
             if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
-            if (ImGui::Button(lbl, ImVec2(px(130), 0)))
+            if (centered_button("bind", lbl, ImVec2(px(130), px(26))))
                 launcher_model_begin_hk_capture(m, (LngHotkey)h);
             if (cap) ImGui::PopStyleColor();
             if (duplicate >= 0) {
@@ -6412,9 +6448,21 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
         ImGui::EndTable();
     }
 }
+// How wide the hotkey card has to be to hold its grid and nothing more.
+// Non-PSX profiles keep the full width: their grid is packed with other panels.
+static float hotkeys_panel_logical_width(LauncherModel* m) {
+    const SystemProfile* prof = (const SystemProfile*)m->profile;
+    if (!prof || !prof->id || std::strcmp(prof->id, "psx")) return 0.0f;
+    int columns = (int)(ImGui::GetContentRegionAvail().x / px(kHotkeyCellW));
+    columns = columns < 1 ? 1 : (columns > 3 ? 3 : columns);
+    s_hotkey_cols = columns;
+    return (float)columns * kHotkeyCellW + 26.0f;   /* + window padding */
+}
 void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
-    if (begin_panel("hotkeys", 0)) draw_hotkeys_controls(m, *th);
+    const float w = hotkeys_panel_logical_width(m);
+    if (begin_panel("hotkeys", w)) draw_hotkeys_controls(m, *th);
     end_panel();
+    s_hotkey_cols = 0;
 }
 
 // The settings VIEW composes whichever panels this game's SystemProfile
