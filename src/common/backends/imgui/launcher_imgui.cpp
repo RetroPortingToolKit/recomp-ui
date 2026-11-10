@@ -11956,7 +11956,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                   "%s %s", ui_text("Install"), archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
+    if (mods->install_archive && ImGui::Button(install_label)) {
         ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -11967,7 +11967,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                               "Package installed. Changes apply when you press PLAY.");
         });
     }
-    ImGui::SameLine();
+    if (mods->install_archive) ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", "Search mods and options...",
                              m->mod_search, sizeof(m->mod_search));
@@ -12499,7 +12499,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                   "Install %s", archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
+    if (mods->install_archive && ImGui::Button(install_label)) {
         ui_pick_file(m, "Install Mod Package", {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -12514,7 +12514,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     }
     /* No "Enable all": in a title with many mods it turns on features that
      * need owner files or conflict with each other, all at once. */
-    ImGui::SameLine();
+    if (mods->install_archive) ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
         disable_all_mod_features(m);
     if (ImGui::IsItemHovered())
