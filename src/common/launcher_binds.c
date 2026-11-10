@@ -1177,7 +1177,7 @@ static void psx_fallback_pad_label(const char* guid, char* out, size_t cap) {
     if (guid && guid[0]) {
         size_t n = strlen(guid);
         if (n >= 8)
-            snprintf(out, cap, "Controller â€¦%s", guid + n - 8);
+            snprintf(out, cap, "Controller \xE2\x80\xA6%s", guid + n - 8);
         else
             snprintf(out, cap, "Controller %s", guid);
         return;
