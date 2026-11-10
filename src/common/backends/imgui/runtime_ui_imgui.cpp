@@ -78,7 +78,7 @@ void draw_sections(RecompRuntimeUi *ui, const LauncherTheme &theme,
 }
 
 void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
-                bool touch_friendly) {
+                bool touch_friendly, float desktop_scale = 1.0f) {
     const size_t count = recomp_runtime_ui_page_entry_count(ui);
     for (size_t index = 0; index < count; ++index) {
         char folder[96];
@@ -122,8 +122,8 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
                                 ? theme.row_height + theme.spacing_sm
                                 : theme.row_height;
         const float step_button_w =
-            touch_friendly ? std::max(76.0f, row_h * 0.90f) : 38.0f;
-        const float step_gap = touch_friendly ? 12.0f : 6.0f;
+            touch_friendly ? std::max(76.0f, row_h * 0.90f) : 38.0f * desktop_scale;
+        const float step_gap = touch_friendly ? 12.0f : 6.0f * desktop_scale;
         const float step_controls_w =
             item->type == RECOMP_RUNTIME_UI_INT
                 ? step_button_w * 2.0f + step_gap + theme.spacing_sm
@@ -170,13 +170,13 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
         if (item->description && item->description[0]) {
             draw->AddText(ImVec2(start.x + theme.spacing_md,
                                 start.y + theme.spacing_sm +
-                                    ImGui::GetTextLineHeight() + 2.0f),
+                                    ImGui::GetTextLineHeight() + 2.0f * desktop_scale),
                           u32(theme.text_muted), item->description);
         }
         if (editing_this && enabled) {
             const float field_w = touch_friendly
                 ? std::clamp((end.x - start.x) * 0.42f, 240.0f, 520.0f)
-                : 200.0f;
+                : 200.0f * desktop_scale;
             const float field_h = touch_friendly
                 ? std::max(ImGui::GetFrameHeight(), row_h * 0.72f)
                 : ImGui::GetFrameHeight();
@@ -231,7 +231,7 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
 }
 
 void push_runtime_style(const LauncherTheme &theme, bool touch_friendly,
-                        float opacity) {
+                        float opacity, float desktop_scale = 1.0f) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, theme.radius_lg);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, theme.radius_sm);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, theme.radius_sm);
@@ -242,11 +242,15 @@ void push_runtime_style(const LauncherTheme &theme, bool touch_friendly,
     ImGui::PushStyleVar(
         ImGuiStyleVar_ScrollbarSize,
         touch_friendly ? std::max(30.0f, theme.spacing_lg * 1.5f)
-                       : ImGui::GetStyle().ScrollbarSize);
+                       : ImGui::GetStyle().ScrollbarSize * desktop_scale);
     ImGui::PushStyleVar(
         ImGuiStyleVar_GrabMinSize,
         touch_friendly ? std::max(30.0f, theme.spacing_lg * 1.5f)
-                       : ImGui::GetStyle().GrabMinSize);
+                       : ImGui::GetStyle().GrabMinSize * desktop_scale);
+    const ImVec2 frame_padding = ImGui::GetStyle().FramePadding;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(frame_padding.x * desktop_scale,
+                               frame_padding.y * desktop_scale));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, col(theme.background, 0.98f * opacity));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, col(theme.panel, 0.96f * opacity));
     ImGui::PushStyleColor(ImGuiCol_Border, col(theme.border));
@@ -262,7 +266,7 @@ void push_runtime_style(const LauncherTheme &theme, bool touch_friendly,
 
 void pop_runtime_style() {
     ImGui::PopStyleColor(11);
-    ImGui::PopStyleVar(7);
+    ImGui::PopStyleVar(8);
 }
 
 // The toast: a borderless panel centred near the top of the display, drawn
@@ -325,11 +329,16 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
         IM_COL32(0, 0, 0, static_cast<int>(255.0f * ui->dim + 0.5f)));
 
     const float short_axis = std::min(display.x, display.y);
+    // The host owns framebuffer/DPI coordinates. Size the desktop menu in
+    // that same space, so a 1800-line game does not retain a 680-line panel
+    // and tiny controls. Keep ordinary and small-window layouts unchanged.
+    const float desktop_scale = touch_friendly
+        ? 1.0f : std::clamp(short_axis / 720.0f, 1.0f, 3.0f);
     const float touch_row_height =
         std::clamp(short_axis * 0.085f, 92.0f, 124.0f);
     const float metric_scale =
-        touch_friendly ? touch_row_height / theme.row_height : 1.0f;
-    if (touch_friendly) {
+        touch_friendly ? touch_row_height / theme.row_height : desktop_scale;
+    if (metric_scale != 1.0f) {
         theme.row_height *= metric_scale;
         theme.spacing_sm *= metric_scale;
         theme.spacing_md *= metric_scale;
@@ -339,21 +348,21 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
     }
     const float margin = touch_friendly
         ? std::max(20.0f, short_axis * 0.025f)
-        : 24.0f;
-    const float max_width = touch_friendly ? display.x : 780.0f;
-    const float max_height = touch_friendly ? display.y : 680.0f;
+        : 24.0f * desktop_scale;
+    const float max_width = touch_friendly ? display.x : 780.0f * desktop_scale;
+    const float max_height = touch_friendly ? display.y : 680.0f * desktop_scale;
     const float width = display.x - margin * 2.0f < max_width
                             ? display.x - margin * 2.0f
                             : max_width;
     const float height = display.y - margin * 2.0f < max_height
                              ? display.y - margin * 2.0f
                              : max_height;
-    const bool wide = width >= (touch_friendly ? 900.0f : 640.0f);
+    const bool wide = width >= (touch_friendly ? 900.0f : 640.0f * desktop_scale);
     ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
 
-    push_runtime_style(theme, touch_friendly, ui->opacity);
+    push_runtime_style(theme, touch_friendly, ui->opacity, desktop_scale);
     // The host drives selection through recomp_runtime_ui_handle_input. ImGui's
     // own keyboard/gamepad navigation would move a second, hidden cursor over
     // the same rows, and Enter / A would activate whichever row that one is
@@ -374,6 +383,12 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
             const float font_scale =
                 std::clamp(target_font_px / base_font_px, 1.0f, 4.0f);
             ImGui::SetWindowFontScale(font_scale);
+        } else {
+            // Respect any scale the host already applies, and assign an
+            // absolute value every frame so resizing cannot accumulate it.
+            const float host_scale = io.FontGlobalScale > 0.0f
+                ? io.FontGlobalScale : 1.0f;
+            ImGui::SetWindowFontScale(std::max(1.0f, desktop_scale / host_scale));
         }
         ImGui::PushStyleColor(ImGuiCol_Text, col(theme.accent2));
         ImGui::TextUnformatted(ui->config.title ? ui->config.title : "Settings");
@@ -416,7 +431,7 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
         if (wide) {
             const float sidebar_w = touch_friendly
                 ? std::clamp(width * 0.20f, 280.0f, 520.0f)
-                : 190.0f;
+                : 190.0f * desktop_scale;
             ImGui::BeginChild("##sections", ImVec2(sidebar_w, content_h), true);
             draw_sections(ui, theme, false);
             ImGui::EndChild();
@@ -432,7 +447,7 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
             ImGui::TextUnformatted(page_title);
             ImGui::PopStyleColor();
             ImGui::Separator();
-            draw_items(ui, theme, touch_friendly);
+            draw_items(ui, theme, touch_friendly, desktop_scale);
             ImGui::EndChild();
         } else {
             ImGui::BeginChild("##content", ImVec2(0.0f, content_h), true);
@@ -445,7 +460,7 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
                 recomp_runtime_ui_page_title(ui, page_title, sizeof(page_title));
                 ImGui::TextUnformatted(page_title);
                 ImGui::Separator();
-                draw_items(ui, theme, touch_friendly);
+                draw_items(ui, theme, touch_friendly, desktop_scale);
             } else {
                 draw_sections(ui, theme, true);
             }
