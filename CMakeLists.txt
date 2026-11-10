@@ -610,6 +610,10 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-gb-profile-test PRIVATE src src/common)
     add_test(NAME recomp-ui-gb-profile COMMAND $<TARGET_FILE:recomp-ui-gb-profile-test>)
 
+    add_executable(recomp-ui-dreamcast-profile-test tests/dreamcast_profile_test.c)
+    target_include_directories(recomp-ui-dreamcast-profile-test PRIVATE src src/common)
+    add_test(NAME recomp-ui-dreamcast-profile COMMAND $<TARGET_FILE:recomp-ui-dreamcast-profile-test>)
+
     add_executable(recomp-ui-assist-pad-capture-test
         tests/launcher_assist_pad_capture_test.c
         src/common/launcher_model.c

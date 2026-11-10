@@ -61,6 +61,10 @@ static const int* active_kb_index(const LauncherModel* m, int* out_n) {
         *out_n = LNG_GBA_PAD_BUTTON_COUNT;
         return kGbaKbIndex;
     }
+    if (prof && prof->id && !strcmp(prof->id, "dreamcast")) {
+        *out_n = LNG_DREAMCAST_PAD_BUTTON_COUNT;
+        return kDreamcastKbIndex;
+    }
     *out_n = LNG_SNES_PAD_BUTTON_COUNT;
     return kKbIndexSnes;
 }
@@ -976,8 +980,8 @@ void launcher_binds_load(LauncherModel* m, const char* config_path_in, const cha
         rui_genesis_binds_init(genesis_binds_file_path());   // overlay settings.ini [input.pN] onto engine defaults
     } else if (is_gb_profile(m)) {
         rui_gb_binds_init(gb_binds_file_path());   // load/generate keybinds.ini [controls] (gb-recompiled format)
-    } else {
-        recompui_keybinds_init(NULL);              // load/generate keybinds.ini (exe-anchored)
+    } else if (!m->settings_bindings) {
+        recompui_keybinds_init(keybinds_file_path());
     }
 loaded:
     launcher_binds_refresh(m);
@@ -1078,6 +1082,10 @@ void launcher_binds_set_button(LauncherModel* m, int player, int b, int scancode
     int n = 0;
     const int* kb_index = active_kb_index(m, &n);
     if (b < 0 || b >= n) return;
+    if (m->settings_bindings) {
+        m->s.player_key_bind[player - 1][b] = scancode;
+        return;
+    }
     recompui_keybinds_set_button(player, kb_index[b], (SDL_Scancode)scancode);
     recompui_keybinds_save();
     copy_str(m->binds[player - 1][b], sizeof(m->binds[player - 1][b]),
@@ -1553,6 +1561,10 @@ void launcher_binds_reset_player(LauncherModel* m, int player) {
         if (player != 1) return;
         rui_gb_binds_reset(gb_binds_file_path());
         reload_player_display(m, player);
+        return;
+    }
+    if (m->settings_bindings) {
+        launcher_model_reset_player_bindings(m, player - 1);
         return;
     }
     if (is_snes_profile(m)) {

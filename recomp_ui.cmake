@@ -98,6 +98,9 @@ function(_recomp_ui_utf8_manifest TGT)
     set(_manifest "${RECOMP_UI_ROOT}/windows/recomp_utf8.manifest")
     if(MSVC)
         target_sources(${TGT} PRIVATE "${_manifest}")
+        # Our manifest already supplies asInvoker. Merging the linker's
+        # generated trustInfo can give its attributes the wrong namespace.
+        target_link_options(${TGT} PRIVATE /MANIFESTUAC:NO)
     else()
         set(_rc "${CMAKE_CURRENT_BINARY_DIR}/${TGT}_recomp_utf8_manifest.rc")
         file(WRITE "${_rc}.in" "1 24 \"${_manifest}\"\n")

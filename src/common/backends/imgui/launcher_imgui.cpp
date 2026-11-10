@@ -2274,11 +2274,13 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
                th, !pending, v.region[0] != '\0');
         kv_row("ISO header", pending ? dash : (v.iso_ok ? "OK" : "Mismatch"),
                th, !pending, v.iso_ok);
-        const char* sbi_text = v.sbi_status == RECOMP_SBI_OK ? "OK" :
-                              v.sbi_status == RECOMP_SBI_MISSING ? "Missing" : "N/A";
-        kv_row("SBI File", pending ? dash : sbi_text,
-               th, !pending && v.sbi_status != RECOMP_SBI_NA,
-               v.sbi_status == RECOMP_SBI_OK);
+        if (m->profile && !strcmp(m->profile->id, "psx")) {
+            const char* sbi_text = v.sbi_status == RECOMP_SBI_OK ? "OK" :
+                                  v.sbi_status == RECOMP_SBI_MISSING ? "Missing" : "N/A";
+            kv_row("SBI File", pending ? dash : sbi_text,
+                   th, !pending && v.sbi_status != RECOMP_SBI_NA,
+                   v.sbi_status == RECOMP_SBI_OK);
+        }
         // TOC fingerprinting is a netplay capability, not part of ordinary
         // offline disc identification. Never expose it for offline titles,
         // even if a host accidentally leaves stale netplay fields populated.
@@ -14458,9 +14460,8 @@ void draw_skip_modal(LauncherModel* m) {
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Skip the launcher on boot?", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextWrapped("The launcher will no longer appear - the game boots straight in. "
-                           "Run with \"--launcher\" or set \"SkipLauncher = 0\" in config.ini "
-                           "to bring it back.");
+        ImGui::TextWrapped("The game will start directly next time. "
+                           "Run with \"--launcher\" to open this window again.");
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
             launcher_model_skip_cancel(m); ImGui::CloseCurrentPopup();

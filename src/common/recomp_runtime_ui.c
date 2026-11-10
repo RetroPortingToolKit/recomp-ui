@@ -865,7 +865,7 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
         }
     }
 
-    const char *help = "UP/DOWN SELECT  LEFT/RIGHT CHANGE  ENTER ACCEPT";
+    const char *help = "UP/DOWN SELECT  ENTER OPEN  ESC BACK";
     if (ui->in_section) {
         char folder[96];
         const RecompRuntimeUiItem *item = recomp_runtime_ui_page_entry(
