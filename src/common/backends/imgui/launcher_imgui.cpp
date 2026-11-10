@@ -6291,11 +6291,25 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::TextUnformatted(ui_text(launcher_hotkey_name((LngHotkey)h)));
                 char bindings[4][64] = {};
                 const int count = launcher_binds_hotkey_slots(m, (LngHotkey)h, bindings);
-                for (int slot = 0; slot < count || (slot == count && slot < 4); ++slot) {
+                /* One row per function: its bindings, then + to add one and - to
+                 * drop the last extra. The first (default) binding can only be
+                 * changed, never removed, so a function always has at least one
+                 * key to press — that is why - is greyed at a single binding. */
+                /* Fixed chip widths: one binding gets a comfortable chip, extra
+                 * bindings share the row at a smaller one. Sizing from the
+                 * cell's remaining width measured a different value per row and
+                 * clipped the label on the longer-named actions. */
+                const float add_w = px(26.0f), add_gap = px(4.0f), chip_gap = px(4.0f);
+                const int chips = count > 0 ? count : 1;
+                const float chip_w = chips > 1 ? px(104.0f) : px(150.0f);
+                for (int slot = 0; slot < chips; ++slot) {
+                    if (slot) ImGui::SameLine(0, chip_gap);
                     ImGui::PushID(slot);
-                    const bool capture = m->hk_capturing && m->capture_hk == (LngHotkey)h && m->capture_hk_slot == slot;
+                    const bool bound = slot < count;
+                    const bool capture = m->hk_capturing && m->capture_hk == (LngHotkey)h &&
+                                         m->capture_hk_slot == slot;
                     int duplicate = -1;
-                    if (slot < count) for (int other = 0; other < LNG_HK_COUNT; ++other) {
+                    if (bound) for (int other = 0; other < LNG_HK_COUNT; ++other) {
                         if (other == h || !(mask & (1u << other))) continue;
                         char theirs[4][64] = {};
                         const int n = launcher_binds_hotkey_slots(m, (LngHotkey)other, theirs);
@@ -6303,25 +6317,42 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
                             if (launcher_binds_hotkeys_equal(bindings[slot], theirs[index])) duplicate = other;
                     }
                     if (duplicate >= 0) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
-                    if (ImGui::Button(capture ? ui_text("[ press... ]") : slot < count ? bindings[slot] : ui_text("Add binding"), ImVec2(px(180), 0))) {
+                    const char* text = capture ? ui_text("[ press... ]")
+                                     : bound   ? bindings[slot]
+                                               : ui_text("(unbound)");
+                    if (ImGui::Button(text, ImVec2(chip_w, px(26)))) {
                         launcher_model_begin_hk_capture(m, (LngHotkey)h);
                         m->capture_hk_slot = slot;
                     }
                     if (duplicate >= 0) {
                         ImGui::PopStyleColor();
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Also assigned to %s", ui_text(launcher_hotkey_name((LngHotkey)duplicate)));
-                    }
-                    if (slot < count) {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton(ui_text("Remove"))) {
-                            launcher_binds_set_hotkey_slot(m, (LngHotkey)h, slot, 0, 0);
-                            launcher_model_cancel_hk_capture(m);
-                            ImGui::PopID();
-                            break;
-                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Also assigned to %s",
+                                              ui_text(launcher_hotkey_name((LngHotkey)duplicate)));
                     }
                     ImGui::PopID();
                 }
+                ImGui::SameLine(0, add_gap);
+                const bool can_add = count < 4;
+                ImGui::BeginDisabled(!can_add);
+                if (glyph_button("hk_add", "+", ImVec2(add_w, px(26)))) {
+                    launcher_model_begin_hk_capture(m, (LngHotkey)h);
+                    m->capture_hk_slot = count;
+                }
+                ImGui::EndDisabled();
+                if (!can_add && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", ui_text("Up to four keys for this action."));
+                ImGui::SameLine(0, add_gap);
+                const bool can_remove = count > 1;
+                ImGui::BeginDisabled(!can_remove);
+                if (glyph_button("hk_del", "-", ImVec2(add_w, px(26)))) {
+                    launcher_binds_set_hotkey_slot(m, (LngHotkey)h, count - 1, 0, 0);
+                    launcher_model_cancel_hk_capture(m);
+                }
+                ImGui::EndDisabled();
+                if (!can_remove && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", ui_text(
+                        "The default binding can only be changed, not removed."));
                 ImGui::Spacing();
                 ImGui::PopID();
             }

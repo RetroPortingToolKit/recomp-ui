@@ -529,14 +529,27 @@ static void psx_crt_card(LauncherModel* m,const LauncherTheme& th) {
     end_panel();
 }
 static void psx_image_quality_tab(LauncherModel* m,const LauncherTheme& th) {
+    // The filters are not optional: this page IS the image pipeline, so a row
+    // that can switch the whole thing off would only be a way to lose the
+    // settings configured here. Turn the package on if an older profile left it
+    // off, then edit its options directly.
+    const auto* mods=m->mods; RecompLauncherCModFeature f{};
+    if (mods && psx_package_feature(m,"psx.enhancement.image-filtering",f) && !f.enabled)
+        change_mod_feature(m,f,true);
+    const float full=ImGui::GetContentRegionAvail().x;
+    const float gap=px(th.spacing_md);
+    // Half the page: this card is a short list, and a half-width column keeps it
+    // beside the space the other sub-tabs use.
+    const float col=full>px(640)?(full-gap)*0.5f:full;
+    begin_container("psx_iq",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
     if (begin_panel("Image Quality")) {
         eyebrow("IMAGE QUALITY");
-        psx_package_switch_row(m,"psx.enhancement.image-filtering","Enabled");
         psx_package_options(m,"psx.enhancement.image-filtering");
         psx_runtime_rows(m,"display","Image",false);
         psx_advanced_section(m,"display","Image","Advanced");
     }
     end_panel();
+    end_container();
 }
 static void psx_presentation_tab(LauncherModel* m,const LauncherTheme& th) {
     if (begin_panel("Presentation")) {
@@ -545,6 +558,8 @@ static void psx_presentation_tab(LauncherModel* m,const LauncherTheme& th) {
         psx_advanced_section(m,"display","Effects","Advanced");
     }
     end_panel();
+    ImGui::Dummy(ImVec2(0,px(th.spacing_md)));
+    psx_crt_card(m,th);
 }
 /* Two columns fill the page in the full-screen launcher; in a window the cards
  * follow one another, because a window is narrow in both directions. */
@@ -554,7 +569,9 @@ static bool psx_wide_launcher(const LauncherModel* m,float floor) {
 static void psx_display_tab(LauncherModel* m,const LauncherTheme& th) {
     const float full=ImGui::GetContentRegionAvail().x;
     const float gap=px(th.spacing_md);
-    if (psx_wide_launcher(m,820)) {
+    // DISPLAY on the left, its PGXP companion on the right, as soon as the page
+    // is wide enough to hold both; a genuinely narrow page stacks them.
+    if (full>=px(760)) {
         const float col=(full-gap)*0.5f;
         begin_container("psxdisp_l",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
         psx_display_card(m,th);
@@ -562,15 +579,11 @@ static void psx_display_tab(LauncherModel* m,const LauncherTheme& th) {
         ImGui::SameLine(0,gap);
         begin_container("psxdisp_r",ImVec2(col,0),ImGuiChildFlags_AutoResizeY);
         psx_pgxp_card(m,th);
-        ImGui::Dummy(ImVec2(0,gap));
-        psx_crt_card(m,th);
         end_container();
     } else {
         psx_display_card(m,th);
         ImGui::Dummy(ImVec2(0,gap));
         psx_pgxp_card(m,th);
-        ImGui::Dummy(ImVec2(0,gap));
-        psx_crt_card(m,th);
     }
 }
 static void psx_display_page(LauncherModel* m,const LauncherTheme& th) {

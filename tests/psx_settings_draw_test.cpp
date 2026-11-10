@@ -273,10 +273,14 @@ int main() {
     assert(sub && sub->Tabs.Size==3);
     click_bar(model,theme,sub,1);
     assert(visited_packages.count("psx.enhancement.image-filtering"));
-    // The Presentation page is the effects group alone: the CRT filter is not
-    // drawn there (it belongs to the Display sub-tab).
+    // Presentation carries the CRT filter card now; the Display sub-tab owns
+    // the display rows and PGXP only.
     visited_packages.clear();
     click_bar(model,theme,sub,2);
+    assert(visited_packages.count("psx.enhancement.crt-filter"));
+    assert(visited_packages.count("psx.enhancement.image-filtering")==0);
+    visited_packages.clear();
+    click_bar(model,theme,sub,0);
     assert(visited_packages.count("psx.enhancement.crt-filter")==0);
     assert(visited_packages.count("psx.enhancement.image-filtering")==0);
     click_tab(model,theme,"Settings tabs",2);
