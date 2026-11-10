@@ -14,7 +14,9 @@ int main(void) {
     assert(game.settings_bindings && game.has_bios && game.has_deadzone_pct);
     assert(!game.pad_mode_supported && !game.pad_mode_selectable);
     assert(!game.has_renderer && !game.has_turbo_loads && !game.has_skip_fmv);
-    assert(profile->save.kind == SAVE_NONE);
+    assert(profile->save.kind == SAVE_MEMCARD);
+    assert(profile->save.slots == 1);
+    assert(game.memcard_requires_host && game.memcard_blocks == 200);
     assert(profile->controller.button_count == 15);
     assert(strcmp(profile->controller.buttons[10].label, "Start") == 0);
     assert(kDreamcastKbIndex[8] == 4 && kDreamcastKbIndex[9] == 5);

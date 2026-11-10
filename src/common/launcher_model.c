@@ -475,6 +475,13 @@ void launcher_model_init(LauncherModel* m,
         m->import_sbi_cb        = game->import_sbi;
         m->card_manager = game->card_manager;
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
+        m->memcard_create_cb = game->memcard_create;
+        m->memcard_requires_host = game->memcard_requires_host;
+        m->memcard_default_blocks = game->memcard_blocks > 0 ? game->memcard_blocks : 15;
+        m->memcard_name = game->memcard_name;
+        m->memcard_patterns = game->memcard_patterns;
+        m->memcard_pattern_count = game->memcard_pattern_count;
+        m->memcard_description = game->memcard_description;
         m->bios_verify_cb       = game->bios_verify;
         m->persist_setup_cb     = game->persist_setup;
         m->persist_setup_discs_cb = game->persist_setup_discs;  // NULL on older hosts
@@ -1755,6 +1762,10 @@ void launcher_model_request_restore_defaults(LauncherModel* m) {
 void launcher_model_restore_defaults(LauncherModel* m) {
     if (!launcher_model_can_restore_defaults(m)) return;
     m->s = m->default_settings;
+    for (int slot = 0; slot < 2; ++slot) {
+        m->s.memcard_enabled[slot] = lm_memcard_enabled_from_host(m->s.memcard_enabled[slot]);
+        lm_inspect_memcard(m, slot);
+    }
     {
         int d = m->s.rewind_depth;
         if (d != 50 && d != 100 && d != 150 && d != 200)
@@ -3258,6 +3269,14 @@ bool launcher_model_can_open_mods(const LauncherModel* m) {
 
 bool launcher_model_can_launch(const LauncherModel* m) {
     if (!m) return false;
+    if (m->memcard_requires_host) {
+        int slots = m->memcard_slots > 0 ? m->memcard_slots :
+            (m->profile && m->profile->save.slots > 0 ? m->profile->save.slots : 2);
+        if (slots > 2) slots = 2;
+        for (int slot = 0; slot < slots; ++slot)
+            if (m->s.memcard_enabled[slot] &&
+                (!m->memcard_inspected[slot] || !m->memcard_valid[slot])) return false;
+    }
     if (!m->rom_present || strcmp(m->rom_size, "--") == 0) return false;
     if (m->rom_patch_supported && m->s.rom_patch_enabled &&
         !m->s.rom_patch_path[0]) return false;
@@ -3926,6 +3945,9 @@ static void lm_inspect_memcard(LauncherModel* m, int slot) {
     if (slot < 0 || slot > 1) return;
     m->memcard_inspected[slot] = false;
     m->memcard_valid[slot]     = false;
+    m->memcard_capacity[slot] = m->memcard_default_blocks > 0 ? m->memcard_default_blocks : 15;
+    m->memcard_allocated[slot] = 0;
+    m->memcard_error[slot][0] = 0;
     if (!m->memcard_inspect_cb || !m->s.memcard_path[slot][0]) return;
     RecompLauncherCMemcard mc; memset(&mc, 0, sizeof(mc));
     if (!m->memcard_inspect_cb(m->s.memcard_path[slot], &mc)) return;
@@ -3934,6 +3956,12 @@ static void lm_inspect_memcard(LauncherModel* m, int slot) {
     m->memcard_blocks_used[slot] = bits;
     m->memcard_valid[slot]       = mc.valid != 0;
     m->memcard_inspected[slot]   = true;
+    if (mc.total_blocks > 0) m->memcard_capacity[slot] = mc.total_blocks;
+    if (m->memcard_capacity[slot] != 15)
+        m->memcard_allocated[slot] = clampi(mc.used_blocks, 0, m->memcard_capacity[slot]);
+    else
+        for (int i = 0; i < 15; ++i) m->memcard_allocated[slot] += (bits >> i) & 1;
+    safe_copy(m->memcard_error[slot], sizeof(m->memcard_error[slot]), mc.status);
 }
 
 // Which of the 15 blocks the panel paints as occupied, most-authoritative
@@ -3958,6 +3986,10 @@ uint16_t launcher_model_memcard_blocks_used(const LauncherModel* m, int slot) {
 
 void launcher_model_set_memcard_path(LauncherModel* m, int slot, const char* path) {
     if (slot < 0 || slot > 1) return;
+    if (path && strlen(path) >= sizeof(m->s.memcard_path[slot])) {
+        safe_copy(m->memcard_error[slot], sizeof(m->memcard_error[slot]), "The card path is too long. The previous selection was kept.");
+        return;
+    }
     safe_copy(m->s.memcard_path[slot], sizeof(m->s.memcard_path[slot]), path ? path : "");
     // A newly browsed-in card is not known to be blank; only
     // launcher_model_new_memcard() re-arms this flag.
@@ -4059,7 +4091,17 @@ void launcher_model_toggle_virtual_stylus(LauncherModel* m) {
 
 void launcher_model_new_memcard(LauncherModel* m, int slot, const char* path) {
     if (slot < 0 || slot > 1 || !path || !path[0]) return;
-    if (recompui_memcard_format_file(path) != 0) return;  // I/O failure: leave as-is
+    if (strlen(path) >= sizeof(m->s.memcard_path[slot])) {
+        safe_copy(m->memcard_error[slot], sizeof(m->memcard_error[slot]), "The card path is too long. Choose a shorter destination.");
+        return;
+    }
+    m->memcard_error[slot][0] = 0;
+    if (m->memcard_create_cb) {
+        if (!m->memcard_create_cb(path, m->memcard_error[slot], sizeof(m->memcard_error[slot]))) return;
+    } else if (m->memcard_requires_host) {
+        safe_copy(m->memcard_error[slot], sizeof(m->memcard_error[slot]), "The host has no card formatter.");
+        return;
+    } else if (recompui_memcard_format_file(path) != 0) return;
     launcher_model_set_memcard_path(m, slot, path);
     m->memcard_freshly_formatted[slot] = true;   // known-blank: panel shows 0 / 15
 }

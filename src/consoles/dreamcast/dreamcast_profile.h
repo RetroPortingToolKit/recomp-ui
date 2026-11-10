@@ -27,6 +27,9 @@ static const char* const kDreamcastDiscPatterns[] = { "*.gdi", "*.chd", "*.cdi" 
 static const char* const kPanelsSettingsDreamcast[] = {
     "video", "audio", "system", "input", NULL
 };
+static const char* const kPanelsDashboardDreamcast[] = {
+    "game", "controller", "save", NULL
+};
 
 static const SystemProfile kSystemProfileDreamcast = {
     "dreamcast", "SEGA DREAMCAST", NULL, "Disc",
@@ -34,11 +37,11 @@ static const SystemProfile kSystemProfileDreamcast = {
       NULL, NULL, NULL, 4, 0 },
     /* VMU ownership and inspection belong to the host. The PSX memory-card
      * editor/formatter must never be offered for a Dreamcast VMU. */
-    { SAVE_NONE, 0, NULL },
+    { SAVE_MEMCARD, 1, NULL },
     { 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1 },
     { 1, NULL },
     0,
-    kPanelsDashboardCommon, kPanelsSettingsDreamcast, kPanelsControllerCommon,
+    kPanelsDashboardDreamcast, kPanelsSettingsDreamcast, kPanelsControllerCommon,
     NULL, 0,
     { kDreamcastDiscPatterns, 3, "Dreamcast disc (.gdi, .chd, .cdi)" },
     NULL, 1, "", NULL,
@@ -57,6 +60,9 @@ static inline void launcher_profile_apply_dreamcast(RecompLauncherCGameInfo* gi)
     gi->has_deadzone_pct = 1;
     gi->has_supersampling = 1;
     gi->settings_bindings = 1;
+    gi->memcard_requires_host = 1;
+    gi->memcard_blocks = 200;
+    gi->memcard_name = "VMU";
 }
 
 #ifdef __cplusplus

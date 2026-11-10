@@ -1698,9 +1698,13 @@ typedef void (*RecompLauncherCPrepareProgressFn)(void* ctx, float pct,
                                                  const char* message);
 
 typedef struct RecompLauncherCMemcard {
-    int           valid;          // 128 KB + "MC" magic present
-    int           used_blocks;    // 0..15
+    int           valid;          // host inspection accepted the image
+    int           used_blocks;    // allocation count; legacy PS1 capacity is 15
     unsigned char block_used[15]; // per-block: 1 = occupied
+    /* Zero retains the PS1 layout above. Larger media use used_blocks as an
+     * allocation count and display capacity rather than the PS1 block grid. */
+    int total_blocks;
+    char status[160];
 } RecompLauncherCMemcard;
 
 // One Transfer Pak slot's inspection result (filled by the tpak_inspect
@@ -2486,6 +2490,16 @@ typedef struct RecompLauncherCGameInfo {
      * (callers that predate the field) keeps the profile's count. Appended for
      * ABI stability. */
     int                memcard_slots;
+    /* Optional host-owned card format. Required hosts never use the PS1
+     * formatter. create must refuse existing destinations and return 1 only
+     * after a complete new card was written. All strings/patterns are borrowed. */
+    int                memcard_requires_host;
+    int                memcard_blocks;
+    const char*        memcard_name;
+    const char* const* memcard_patterns;
+    int                memcard_pattern_count;
+    const char*        memcard_description;
+    int (*memcard_create)(const char* path, char* error, size_t error_size);
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1

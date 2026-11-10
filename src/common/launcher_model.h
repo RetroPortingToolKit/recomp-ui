@@ -230,6 +230,14 @@ typedef struct {
     bool        memcard_freshly_formatted[2];
     bool        memcard_valid[2];      // last inspect: image is a valid 128KB "MC" card
     bool        memcard_inspected[2];  // a host memcard_inspect callback populated blocks/valid
+    int         memcard_capacity[2], memcard_allocated[2];
+    char        memcard_error[2][160];
+    int         memcard_requires_host, memcard_default_blocks;
+    const char* memcard_name;
+    const char* const* memcard_patterns;
+    int         memcard_pattern_count;
+    const char* memcard_description;
+    int (*memcard_create_cb)(const char*, char*, size_t);
 
     // ---- host verification/inspection callbacks (borrowed from GameInfo) ----
     // When non-NULL these drive the REAL disc verdict + memcard block usage

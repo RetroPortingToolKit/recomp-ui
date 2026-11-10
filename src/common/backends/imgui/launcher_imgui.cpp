@@ -487,12 +487,15 @@ static bool builtin_picker_matches(const std::filesystem::path& path) {
 /* Where the browser opens. The caller's hint wins; the rest is the generic
  * "somewhere the player recognises" chain. */
 static std::filesystem::path builtin_picker_initial_path(
-        LauncherModel* m, const std::string& hint) {
+        LauncherModel* m, const std::string& hint, bool allow_missing_file = false) {
     std::error_code ec;
     if (!hint.empty()) {
         std::filesystem::path hinted(hint);
         if (std::filesystem::is_regular_file(hinted, ec) ||
             std::filesystem::is_directory(hinted, ec))
+            return hinted;
+        if (allow_missing_file && hinted.has_filename() &&
+            std::filesystem::is_directory(hinted.parent_path(), ec))
             return hinted;
     }
     if (m && m->rom_full[0]) {
@@ -514,13 +517,11 @@ static std::filesystem::path builtin_picker_initial_path(
 /* Prefer native (zenity/kdialog on Linux, tinyfiledialogs elsewhere). Fall
  * back to the in-app browser when native is unavailable or returns -1. */
 static bool prefer_builtin_file_picker(void) {
-#if defined(__linux__)
     if (const char* env = std::getenv("RECOMP_UI_BUILTIN_FILE_PICKER")) {
         return env[0] != '\0' && std::strcmp(env, "0") != 0 &&
                std::strcmp(env, "false") != 0 &&
                std::strcmp(env, "FALSE") != 0;
     }
-#endif
     return false;
 }
 
@@ -551,9 +552,12 @@ static void open_builtin_picker(LauncherModel* m, PickRequest&& req) {
     std::snprintf(g_picker.title, sizeof(g_picker.title), "%s",
                   !req.title.empty() ? req.title.c_str() : fallback_title);
 
-    std::filesystem::path initial = builtin_picker_initial_path(m, req.start_path);
+    std::filesystem::path initial = builtin_picker_initial_path(
+        m, req.start_path, req.mode == PickMode::SaveFile);
     std::error_code ec;
-    if (std::filesystem::is_regular_file(initial, ec)) {
+    if (std::filesystem::is_regular_file(initial, ec) ||
+        (req.mode == PickMode::SaveFile && initial.has_filename() &&
+         std::filesystem::is_directory(initial.parent_path(), ec))) {
         if (req.mode != PickMode::Folder)
             std::snprintf(g_picker.selected, sizeof(g_picker.selected), "%s",
                           initial.string().c_str());
@@ -625,26 +629,30 @@ static void ui_pick(LauncherModel* m, PickRequest req) {
 static void ui_pick_file(LauncherModel* m, const char* title,
                          std::vector<std::string> patterns,
                          const char* description,
-                         std::function<void(const char*)> on_pick) {
+                         std::function<void(const char*)> on_pick,
+                         const char* start_path = nullptr) {
     PickRequest req;
     req.mode = PickMode::OpenFile;
     if (title) req.title = title;
     req.patterns = std::move(patterns);
     if (description) req.description = description;
     req.on_pick = std::move(on_pick);
+    if (start_path) req.start_path = start_path;
     ui_pick(m, std::move(req));
 }
 
 static void ui_pick_save_file(LauncherModel* m, const char* title,
                               std::vector<std::string> patterns,
                               const char* description,
-                              std::function<void(const char*)> on_pick) {
+                              std::function<void(const char*)> on_pick,
+                              const char* start_path = nullptr) {
     PickRequest req;
     req.mode = PickMode::SaveFile;
     if (title) req.title = title;
     req.patterns = std::move(patterns);
     if (description) req.description = description;
     req.on_pick = std::move(on_pick);
+    if (start_path) req.start_path = start_path;
     ui_pick(m, std::move(req));
 }
 
@@ -2754,6 +2762,8 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
     const uint16_t used = launcher_model_memcard_blocks_used(m, slot);
     int used_count = 0;
     for (int i = 0; i < 15; ++i) if (used & (1u << i)) ++used_count;
+    const int capacity = m->memcard_capacity[slot] > 0 ? m->memcard_capacity[slot] : 15;
+    if (capacity != 15) used_count = m->memcard_allocated[slot];
 
     // --- Header: memory-card image on the LEFT; the Enabled toggle (top-right)
     // and the card name + block count (under the toggle) on the RIGHT. The
@@ -2802,14 +2812,14 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
     for (const char* q = mp; *q; ++q) if (*q == '/' || *q == '\\') base = q + 1;
     char label[40];
     if (base[0]) snprintf(label, sizeof(label), "%s", base);
-    else         snprintf(label, sizeof(label), "%s %d", ui_text("Memory Card"), slot + 1);
+    else         snprintf(label, sizeof(label), "%s %d", m->memcard_name ? m->memcard_name : ui_text("Memory Card"), slot + 1);
     ImGui::SetCursorPos(ImVec2(rc_x, top_y + frame_h + px(10.0f)));
     ImGui::PushStyleColor(ImGuiCol_Text, col(enabled ? th.accent : th.text_muted));
     ImGui::TextUnformatted(label);
     ImGui::PopStyleColor();
 
     // Block count under the name.
-    char cap[16]; snprintf(cap, sizeof(cap), "%d / 15", used_count);
+    char cap[32]; snprintf(cap, sizeof(cap), "%d / %d", used_count, capacity);
     ImGui::SetCursorPos(ImVec2(rc_x, top_y + frame_h + px(10.0f) + line_h + px(6.0f)));
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
     ImGui::TextUnformatted(cap);
@@ -2824,7 +2834,9 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * body_alpha);
 
     // 15-block usage grid, full width under the image.
-    {
+    if (capacity != 15) {
+        ImGui::ProgressBar((float)used_count / (float)capacity, ImVec2(-1, px(18)), "");
+    } else {
         const int   kB   = 15;
         const float bgap = px(4.0f);
         const float availw = ImGui::GetContentRegionAvail().x;
@@ -2845,6 +2857,12 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
     // Gap above Browse/New only — bottom inset is Child WindowPadding (same as
     // the top). An extra bottom Dummy doubled the pad and looked top-heavy.
     static const char* kCardPatterns[] = { "*.mcd", "*.mcr", "*.mc" };
+    std::vector<std::string> card_patterns(std::begin(kCardPatterns), std::end(kCardPatterns));
+    if (m->memcard_patterns && m->memcard_pattern_count > 0 && m->memcard_pattern_count <= 16)
+        card_patterns.assign(m->memcard_patterns, m->memcard_patterns + m->memcard_pattern_count);
+    const char* card_description = m->memcard_description ? m->memcard_description : "PS1 memory card (.mcd .mcr .mc)";
+    if (m->memcard_error[slot][0])
+        ImGui::TextWrapped("%s", m->memcard_error[slot]);
     const float cw = ImGui::GetContentRegionAvail().x;
     const float bw = (cw - px(th.spacing_sm)) * 0.5f;
     const float btn_h = px(32.0f);
@@ -2856,22 +2874,29 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
         ImGui::Dummy(ImVec2(0, btn_gap));
     }
     if (ImGui::Button(ui_text("Browse"), ImVec2(bw, btn_h))) {
-        ui_pick_file(m, "Select memory card image", {"*.mcd", "*.mcr", "*.mc"},
-                     "PS1 memory card (.mcd .mcr .mc)",
+        ui_pick_file(m, "Select memory card image", card_patterns,
+                     card_description,
                      [m, slot](const char* path) {
                          if (path) launcher_model_set_memcard_path(m, slot, path);
-                     });
+                     }, m->memcard_requires_host ? m->s.memcard_path[slot] : nullptr);
     }
     ImGui::SameLine(0, px(th.spacing_sm));
     if (ImGui::Button(ui_text("New"), ImVec2(bw, btn_h))) {
+        std::string destination;
+        if (m->memcard_requires_host && m->s.memcard_path[slot][0]) {
+            const std::string extension = !card_patterns.empty() && card_patterns[0].rfind("*.", 0) == 0
+                ? card_patterns[0].substr(1) : ".bin";
+            destination = (std::filesystem::path(m->s.memcard_path[slot]).parent_path() /
+                            ("new-card" + extension)).string();
+        }
         // "New" picks a DESTINATION (the file need not exist yet — a save
         // dialog, not the open dialog Browse uses), then writes a real,
         // freshly formatted blank 128KB card there and adopts it.
         ui_pick_save_file(m, "Create new memory card",
-                          {"*.mcd", "*.mcr", "*.mc"}, "PS1 memory card (.mcd)",
+                          card_patterns, card_description,
                           [m, slot](const char* path) {
                               if (path) launcher_model_new_memcard(m, slot, path);
-                          });
+                          }, destination.empty() ? nullptr : destination.c_str());
     }
 
     ImGui::PopStyleVar();  // body_alpha
@@ -2886,7 +2911,8 @@ void draw_memcard_slot(LauncherModel* m, const LauncherTheme& th, int slot) {
 int avail_save(const LauncherModel* m) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const SaveKind kind = prof ? prof->save.kind : SAVE_NONE;
-    if (kind == SAVE_MEMCARD) return 1;
+    if (kind == SAVE_MEMCARD) return !m->memcard_requires_host ||
+        (m->memcard_inspect_cb && m->memcard_create_cb);
     if (kind == SAVE_SRAM)    return m->saves_supported;
     return 0;
 }
