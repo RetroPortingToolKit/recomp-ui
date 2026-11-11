@@ -42,12 +42,18 @@ inline RuiTextEdit rui_mod_text_control(const char* value, char* next,
 template<class Picker, class Completed>
 bool rui_mod_text_browse(const RecompLauncherCModProvider* provider,
         const char* package,const char* feature,const char* option,
-        const char* label,Picker pick,Completed completed) {
+        const char* label,Picker pick,Completed completed,
+        const char* pending_edit=nullptr) {
     RecompLauncherCModTextPathV1 info{};
     if (!recomp_launcher_get_mod_text_path_v1(provider,package,feature,option,&info)) return false;
     std::vector<std::string> patterns;
     for(int i=0;i<info.pattern_count;++i) patterns.emplace_back(info.patterns[i]);
     const std::string pkg=package,feat=feature?feature:"",opt=option;
+    // Clicking Browse can also commit an edited text field. Apply that value
+    // first: a synchronous picker selection must remain the final value, and
+    // cancelling an asynchronous picker must still retain the typed edit.
+    if (pending_edit) completed(launcher_mod_text_path_set(provider,package,
+        feature,option,pending_edit)!=0);
     pick(label,std::move(patterns),info.filter_description,
         [provider,pkg,feat,opt,completed](const char* selected) {
             if(selected && selected[0]) completed(launcher_mod_text_path_set(provider,pkg.c_str(),

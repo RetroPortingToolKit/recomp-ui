@@ -11757,7 +11757,10 @@ static bool draw_mod_text_option(LauncherModel* m, const char* package_id,
                 if (!stored) mod_note_error(m);
                 else if (m->has_bios && m->bios_verify_for_rom_cb)
                     launcher_model_refresh_bios_status(m);
-            });
+            }, edit.changed ? next : nullptr);
+        // The picker bridge commits any simultaneous text edit before opening
+        // the dialog. Do not replay that edit after a synchronous selection.
+        return false;
     }
     return edit.changed;
 }

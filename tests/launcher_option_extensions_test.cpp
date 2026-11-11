@@ -58,6 +58,24 @@ static void metadata() {
     pending("test dir/seed.apsm");assert(completed && stored && store.feature_calls==1 && store.value=="test dir/seed.apsm");
     Store reloaded;{ std::ifstream file(store_file);std::getline(file,reloaded.value); }
     assert(reloaded.value=="test dir/seed.apsm"); // real provider-owned disk roundtrip
+    // A text edit deactivated by Browse must commit before a synchronous
+    // native selection, not overwrite the selected filename afterwards.
+    int edited_calls=store.feature_calls;
+    auto synchronous_picker=[&](const char*,std::vector<std::string>,const char*,
+                                std::function<void(const char*)> cb) {
+        assert(store.value=="typed-before-browse.apsm" && store.feature_calls==edited_calls+1);
+        cb("selected-after-edit.apsm");
+    };
+    assert(rui_mod_text_browse(&provider,"example.mod","randomizer","seed","Seed",
+        synchronous_picker,[&](bool result){assert(result);},"typed-before-browse.apsm"));
+    assert(store.value=="selected-after-edit.apsm" && store.feature_calls==edited_calls+2);
+    { std::ifstream file(store_file);std::getline(file,reloaded.value); }
+    assert(reloaded.value=="selected-after-edit.apsm");
+    // The fallback picker is deferred; cancellation retains the typed edit.
+    assert(rui_mod_text_browse(&provider,"example.mod","randomizer","seed","Seed",picker,
+        [&](bool result){assert(result);},"typed-before-cancel.apsm"));
+    edited_calls=store.feature_calls;pending(nullptr);
+    assert(store.value=="typed-before-cancel.apsm" && store.feature_calls==edited_calls);
     assert(launcher_mod_text_path_set(&provider,"example.mod","randomizer","seed","") && store.value.empty());
     assert(launcher_mod_text_path_set(&provider,"example.mod",nullptr,"seed","typed.apsm") && store.package_calls==1);
     store.reject=true;assert(!launcher_mod_text_path_set(&provider,"example.mod",nullptr,"seed","rejected.apsm") && store.value=="typed.apsm");
