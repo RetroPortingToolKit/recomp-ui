@@ -11967,6 +11967,11 @@ static void change_mod_feature(LauncherModel* m, const RecompLauncherCModFeature
 
 static bool mod_feature_less(const ModFeatureListItem& lhs,
                              const ModFeatureListItem& rhs) {
+#if defined(RECOMP_UI_PINNED_MOD_GROUP)
+    const bool lhs_pinned = std::strcmp(lhs.feature.group, RECOMP_UI_PINNED_MOD_GROUP) == 0;
+    const bool rhs_pinned = std::strcmp(rhs.feature.group, RECOMP_UI_PINNED_MOD_GROUP) == 0;
+    if (lhs_pinned != rhs_pinned) return lhs_pinned;
+#endif
     const int group = std::strcmp(lhs.feature.group, rhs.feature.group);
     if (group != 0) return group < 0;
     const int name = std::strcmp(lhs.feature.name, rhs.feature.name);
@@ -12250,6 +12255,13 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", ui_text("Search features, groups, packages..."),
                              m->mod_search, sizeof(m->mod_search));
+#if defined(RECOMP_UI_ADVANCED_MOD_PREFIX)
+    const ImGuiID advanced_key = ImGui::GetID("##show_advanced_mods");
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    bool show_advanced = storage->GetBool(advanced_key);
+    if (ImGui::Checkbox(ui_text(RECOMP_UI_ADVANCED_MOD_LABEL), &show_advanced))
+        storage->SetBool(advanced_key, show_advanced);
+#endif
     if (m->mod_status[0]) {
         ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
@@ -12275,6 +12287,12 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             !launcher_mod_feature_listed(mods, &item.feature)) {
             continue;
         }
+#if defined(RECOMP_UI_ADVANCED_MOD_PREFIX)
+        constexpr char advanced_prefix[] = RECOMP_UI_ADVANCED_MOD_PREFIX;
+        if (!show_advanced && std::strncmp(item.feature.package_id, advanced_prefix,
+                                          sizeof(advanced_prefix) - 1) == 0)
+            continue;
+#endif
         ++listed_count;
         if (first_listed < 0) first_listed = index;
         if (index == m->mod_selected) selected_listed = true;
