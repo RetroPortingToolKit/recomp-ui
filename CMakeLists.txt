@@ -69,7 +69,22 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/recomp_ui.cmake)
 recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
+add_executable(recomp-ui-input-report tools/input_report.c src/common/launcher_input_report.c)
+target_include_directories(recomp-ui-input-report PRIVATE src src/common)
+target_compile_definitions(recomp-ui-input-report PRIVATE ${RUI_SDL_DEFS})
+target_link_libraries(recomp-ui-input-report PRIVATE ${RUI_SDL_TARGET})
 if(BUILD_TESTING)
+    add_executable(recomp-ui-input-report-test tests/launcher_input_report_test.c src/common/launcher_input_report.c)
+    target_include_directories(recomp-ui-input-report-test PRIVATE src src/common)
+    target_compile_definitions(recomp-ui-input-report-test PRIVATE ${RUI_SDL_DEFS})
+    target_link_libraries(recomp-ui-input-report-test PRIVATE ${RUI_SDL_TARGET})
+    if(MSVC)
+        target_compile_options(recomp-ui-input-report-test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(recomp-ui-input-report-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME recomp-ui-input-report COMMAND recomp-ui-input-report-test
+        "${CMAKE_CURRENT_BINARY_DIR}/input-report-test.jsonl")
     find_package(Threads REQUIRED)
     add_executable(recomp-ui-launcher-mod-commit-job-test
         tests/launcher_mod_commit_job_test.cpp)
@@ -708,6 +723,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_input_report.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -728,6 +744,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-netplay-handoff-test
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_input_report.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c

@@ -14,6 +14,7 @@
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
 #include "launcher_input.h"
+#include "launcher_input_report.h"
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
@@ -15115,6 +15116,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         // Re-poll connected gamepads every frame so hot-plugged pads (e.g. a
         // DualSense powered on after launch) appear without a relaunch.
         if (!launch_commit.job.pending()) {
+            launcher_input_report_tick(m);
             g_pad_count = launcher_input_poll(
                 g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
 
@@ -15249,6 +15251,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     }
 
     launcher_boot_timing_mark("rui:action_requested");
+    launcher_input_report_stop(m);
     launcher_input_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     g_artwork.clear();

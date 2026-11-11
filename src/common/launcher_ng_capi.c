@@ -14,6 +14,7 @@
 #include "launcher_boot_timing.h"
 #include "launcher_files.h"
 #include "launcher_model.h"
+#include "launcher_input_report.h"
 #include "launcher_platform.h"
 #include "launcher_settings.h"
 #include "launcher_theme.h"
@@ -217,6 +218,13 @@ int recomp_launcher_run_window(const char* window_title,
     launcher_binds_load(&model, game ? game->config_path : NULL,
                                 game ? game->keybinds_path : NULL);
     const RecompLauncherCSettings before = model.s;
+    const char* input_report_path = getenv("RECOMP_INPUT_REPORT");
+    if (input_report_path && input_report_path[0]) {
+        const char* input_report_duration = getenv("RECOMP_INPUT_REPORT_MS");
+        unsigned report_ms = input_report_duration ? (unsigned)strtoul(input_report_duration,NULL,10) : 10000u;
+        (void)launcher_input_report_start(input_report_path,&model,
+                game?game->config_path:NULL,game?game->keybinds_path:NULL,report_ms);
+    }
     launcher_boot_timing_mark("rui:model+binds_ready");
 
     LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
