@@ -674,6 +674,9 @@ if(BUILD_TESTING)
         src/common/ips_patch.c src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-netplay-view-test PRIVATE src src/common src/consoles/psx)
     add_test(NAME recomp-ui-netplay-view COMMAND $<TARGET_FILE:recomp-ui-netplay-view-test>)
+    add_executable(recomp-ui-netplay-delay-test tests/netplay_delay_test.c)
+    target_include_directories(recomp-ui-netplay-delay-test PRIVATE src/common)
+    add_test(NAME recomp-ui-netplay-delay COMMAND $<TARGET_FILE:recomp-ui-netplay-delay-test>)
     target_include_directories(recomp-ui-launcher-model-cache-test PRIVATE
         src src/common src/consoles/psx)
     # Readers also probe beside their executable. Keep them out of the setup

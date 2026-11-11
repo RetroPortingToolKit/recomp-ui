@@ -16,6 +16,7 @@
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
 #include "launcher_input.h"
+#include "launcher_netplay_delay.h"
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
@@ -7574,20 +7575,9 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
     }
 }
 
-/* Delay-sync only (no rollback / prediction runway). At ~60 Hz, one frame is
- * ~16.67 ms, so one-way RTT coverage is ceil(RTT_ms / 33.33) frames. Add a
- * jitter/TURN pad — Battleship's lower tiers assume prediction absorbs the
- * rest of the path and are too aggressive here. */
+/* Delay-sync needs both the remote input and its returning confirmation. */
 static int np_delay_frames_from_rtt_ms(int rtt_ms) {
-    if (rtt_ms < 0) rtt_ms = 0;
-    /* ceil(rtt / 33.333) via integer ceil: (rtt + 32) / 33, floor at 1. */
-    int one_way_frames = (rtt_ms + 32) / 33;
-    if (one_way_frames < 1) one_way_frames = 1;
-    const int kJitterPad = 3; /* ICE/TURN variance + scheduling slack */
-    int delay = one_way_frames + kJitterPad;
-    if (delay < 3) delay = 3;   /* delay-only floor (above Battleship's D=2) */
-    if (delay > 20) delay = 20;
-    return delay;
+    return launcher_delay_sync_frames_from_rtt_ms(rtt_ms);
 }
 
 /* Rollback D from measured lobby RTT (§59: WAN-aware tiers).
@@ -9273,8 +9263,8 @@ static void np_lobby_start(LauncherModel* m,
         (void)np->rollback_set(np->ctx, m->netplay_rollback ? 1 : 0);
     const bool use_rb = m->netplay_rollback;
     const int max_rtt = np_lobby_max_peer_rtt_ms(m, np);
-    /* Auto D: rollback uses §59 WAN-aware tiers; delay-sync uses the padded
-     * one-way formula. Manual keeps the match settings panel's value.
+    /* Auto D: rollback uses §59 WAN-aware tiers; delay-sync covers the full
+     * input/confirmation round trip. Manual keeps the settings panel's value.
      *
      * No TURN penalty. force_turn is a delay-floor HINT that does not change
      * online transport (§108: online is always the lobby SFU), and TURN is
@@ -9541,8 +9531,8 @@ static void draw_lobby_match_settings(LauncherModel* m, const LauncherTheme& th,
                         "Forced TURN floors at 6 (lobby RTT underestimates "
                         "the relay path).\n\n"
                         "With delay-sync (Disable Rollback on), auto D covers "
-                        "one-way RTT at 60 Hz plus a 3-frame jitter pad:\n"
-                        "  D = ceil(RTT_ms / 33.3) + 3  (min 3, max 20)\n\n"
+                        "the input/confirmation round trip plus a 3-frame jitter pad:\n"
+                        "  D = ceil(RTT_ms * 60 / 1000) + 3  (min 4, max 20)\n\n"
                         "Too low stalls when packets arrive late. Too high adds "
                         "input lag for everyone.");
                     ImGui::PopTextWrapPos();
