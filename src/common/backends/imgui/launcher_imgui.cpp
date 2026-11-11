@@ -2717,6 +2717,9 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::Button(ui_text("Clear"), ImVec2(bw, px(30))))
         launcher_model_clear_sram(m);             // backs up to .bak, then deletes
     ImGui::EndDisabled();
+    if (m->sram_status[0]) {
+        ImGui::PushTextWrapPos();ImGui::TextUnformatted(m->sram_status);ImGui::PopTextWrapPos();
+    }
 }
 
 // ---- panel adapters: LauncherPanelDrawFn = void(LauncherModel*, const LauncherTheme*) ----

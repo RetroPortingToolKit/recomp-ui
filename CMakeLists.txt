@@ -585,6 +585,7 @@ if(BUILD_TESTING)
     # Includes launcher_binds.c and links the model for the real set_source.
     add_executable(recomp-ui-snes-pad-defaults-test
         tests/snes_pad_defaults_test.c
+        src/common/pad_binds.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -687,6 +688,13 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-netplay-delay-test tests/netplay_delay_test.c)
     target_include_directories(recomp-ui-netplay-delay-test PRIVATE src/common)
     add_test(NAME recomp-ui-netplay-delay COMMAND $<TARGET_FILE:recomp-ui-netplay-delay-test>)
+    add_executable(recomp-ui-sram-import-test tests/launcher_sram_import_test.c
+        src/common/launcher_model.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-sram-import-test PRIVATE src src/common src/consoles/psx)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sram-import-fixtures")
+    add_test(NAME recomp-ui-sram-import COMMAND recomp-ui-sram-import-test
+        "${CMAKE_CURRENT_BINARY_DIR}/sram-import-fixtures")
     target_include_directories(recomp-ui-launcher-model-cache-test PRIVATE
         src src/common src/consoles/psx)
     # Readers also probe beside their executable. Keep them out of the setup

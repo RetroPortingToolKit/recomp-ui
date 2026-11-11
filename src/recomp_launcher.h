@@ -2480,7 +2480,11 @@ typedef struct RecompLauncherCGameInfo {
     int                has_vsync_vrr;
     /* Keep failed or mod-owned frame generation out of the pipeline settings. */
     int                frame_generation_hidden;
+    /* Optional native cartridge-save byte count; zero accepts any nonempty
+     * raw save. A host can reject truncated/container exports before copying. */
+    size_t             native_save_bytes;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_BYTES 1
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1

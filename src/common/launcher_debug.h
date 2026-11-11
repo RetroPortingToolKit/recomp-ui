@@ -16,6 +16,7 @@
 //   wait:N                               idle N frames (let layout settle)
 //   shot:PATH                            write a PNG of the current frame
 //   quit                                 exit the launcher
+//   import-save:PATH                     import an exact native save path (no picker)
 //
 // Example:
 //   LNG_SCRIPT="wait:5;shot:a.png;view:settings;wait:5;shot:b.png;quit"

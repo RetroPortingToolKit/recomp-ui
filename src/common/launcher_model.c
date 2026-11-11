@@ -382,6 +382,7 @@ void launcher_model_init(LauncherModel* m,
         m->msu1_patch_path      = game->msu1_patch_path;
         m->saves_supported      = game->sram_path != NULL;
         m->sram_path            = game->sram_path;
+        m->native_save_bytes   = game->native_save_bytes;
         m->has_solar_sensor     = game->has_solar_sensor != 0;
     m->in_session           = game->in_session != 0;
     m->has_open_launcher_hotkey = game->has_open_launcher_hotkey != 0;
@@ -4159,16 +4160,49 @@ static bool lm_copy_file(const char* src, const char* dst) {
     char buf[8192]; size_t n; bool ok = true;
     while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
         if (fwrite(buf, 1, n, out) != n) { ok = false; break; }
-    fclose(in); fclose(out);
+    if (ferror(in)) ok = false;
+    fclose(in); if (fclose(out) != 0) ok = false;
     return ok;
 }
 
 void launcher_model_import_sram(LauncherModel* m, const char* src) {
     if (!m->sram_path || !m->sram_path[0] || !src || !src[0]) return;
-    char bak[600]; snprintf(bak, sizeof(bak), "%s.bak", m->sram_path);
+    FILE* input=fopen(src,"rb");
+    long length=-1;
+    if(input) {if(fseek(input,0,SEEK_END)==0)length=ftell(input);fclose(input);}
+    if(length<=0 || (m->native_save_bytes && (size_t)length!=m->native_save_bytes)) {
+        snprintf(m->sram_status,sizeof(m->sram_status),
+                 "Save import rejected: %ld bytes; expected %zu native save bytes.",length,m->native_save_bytes);
+        fprintf(stderr,"[launcher:save-import] rejected source=\"%s\" target=\"%s\" bytes=%ld expected=%zu\n",src,m->sram_path,length,m->native_save_bytes);
+        return;
+    }
+    char bak[1024],temporary[1024];
+    if(snprintf(bak,sizeof(bak),"%s.bak",m->sram_path)>=(int)sizeof(bak) ||
+       snprintf(temporary,sizeof(temporary),"%s.import.tmp",m->sram_path)>=(int)sizeof(temporary)) {
+        safe_copy(m->sram_status,sizeof(m->sram_status),"Save path is too long.");return;
+    }
+    FILE* staged=fopen(temporary,"rb");
+    if(staged) {fclose(staged);safe_copy(m->sram_status,sizeof(m->sram_status),"A prior save import is still staged; existing save was kept.");return;}
+    if(!lm_copy_file(src,temporary)) {
+        remove(temporary);safe_copy(m->sram_status,sizeof(m->sram_status),"Could not stage save import; existing save was kept.");return;
+    }
     FILE* existing = fopen(m->sram_path, "rb");
-    if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); }  // back up first
-    lm_copy_file(src, m->sram_path);
+    if (existing) {
+        fclose(existing);
+        if(!lm_copy_file(m->sram_path,bak)) {
+            remove(temporary);safe_copy(m->sram_status,sizeof(m->sram_status),"Could not back up existing save; import cancelled.");return;
+        }
+    }
+#if defined(_WIN32)
+    int replaced=MoveFileExA(temporary,m->sram_path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)!=0;
+#else
+    int replaced=rename(temporary,m->sram_path)==0;
+#endif
+    if(!replaced) {
+        remove(temporary);safe_copy(m->sram_status,sizeof(m->sram_status),"Could not replace save; existing save was kept.");return;
+    }
+    snprintf(m->sram_status,sizeof(m->sram_status),"Imported %ld native save bytes.",length);
+    fprintf(stderr,"[launcher:save-import] imported source=\"%s\" target=\"%s\" bytes=%ld backup=\"%s\"\n",src,m->sram_path,length,bak);
 }
 
 void launcher_model_clear_sram(LauncherModel* m) {

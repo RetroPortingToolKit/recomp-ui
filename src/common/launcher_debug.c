@@ -214,6 +214,8 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "import-save:", 12) == 0) {
+        launcher_model_import_sram(m,c+12);
     } else if (strncmp(c, "mod-select:", 11) == 0) {
         m->mod_selected = atoi(c + 11);
     } else if (strncmp(c, "resource-import:", 16) == 0) {

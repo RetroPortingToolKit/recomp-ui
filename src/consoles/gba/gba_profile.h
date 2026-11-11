@@ -80,6 +80,7 @@ static const SystemProfile kSystemProfileGba = {
         kGbaPadButtons, LNG_GBA_PAD_BUTTON_COUNT,
         "pad_gba.tga", NULL, NULL,     // handheld art; no analog/digital pair
         /* max_players */ 1, /* has_pad_mode */ 0, /* link seats are netplay-only: create_max_slots */
+        /* binds_per_input */ 1, /* modes */ NULL, 0, /* has_pad_binds */ 1,
     },
     // One battery save per cartridge: the runtime presents EEPROM/flash/SRAM
     // uniformly as a single .sav next to the ROM (or game.toml [save].path).

@@ -5,6 +5,7 @@
 #include "keybinds.h"             // engine keyboard-binding store
 #include "launcher_system.h"      // SystemProfile / ControllerSpec.button_count
 #include "pad_binds.h"            // shared per-GUID input.ini store (path rule)
+#include "consoles/gba/gba_pad_binds.h"
 #include "consoles/psx/psx_binds.h"   // PSX-native keybind bridge (psx_keybinds.c format)
 #include "consoles/psx/psx_pad_binds.h" // PSX gamepad input.ini per-GUID bridge
 #include "consoles/n64/n64_binds.h"   // N64-native input.cfg bridge (keyboard table)
@@ -127,6 +128,16 @@ void launcher_binds_hydrate_psx_pad_names(LauncherModel* m);
 static int is_n64_profile(const LauncherModel* m) {
     const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
     return prof && prof->id && !strcmp(prof->id, "n64");
+}
+
+static int is_gba_profile(const LauncherModel* m) {
+    const SystemProfile* prof=m?(const SystemProfile*)m->profile:NULL;
+    return prof && prof->id && !strcmp(prof->id,"gba");
+}
+static const char* gba_input_ini_path(void) {
+    static char path[1024];
+    rui_pad_binds_sibling_path(g_launcher_keybinds_path,"input.ini",path,sizeof(path));
+    return path;
 }
 
 static const char* n64_binds_file_path(void) {
@@ -354,6 +365,11 @@ static void reload_player_display(LauncherModel* m, int player) {
     for (int b = 0; b < n; ++b) {
         SDL_Scancode sc = recompui_keybinds_get_button(player, kb_index[b]);
         copy_str(m->binds[player - 1][b], sizeof(m->binds[player - 1][b]), scancode_label(sc));
+    }
+    if (is_gba_profile(m) && player==1) {
+        for(int b=0;b<10;++b)
+            rui_pad_binds_label(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0],b,
+                               m->pad_binds[0][b],sizeof(m->pad_binds[0][b]));
     }
     if (is_snes_profile(m)) {
         char controls[LNG_SNES_PAD_BUTTON_COUNT][48];
@@ -1043,6 +1059,13 @@ void launcher_binds_set_field(LauncherModel* m, int player, int b, int slot,
 
 void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
                                    int kind, int code, int axis_dir) {
+    if (is_gba_profile(m)) {
+        if(player!=1 || b<0 || b>=10 || !m->s.player_gamepad_guid[0][0])return;
+        const char* path=gba_input_ini_path();
+        rui_pad_binds_set(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],b,kind,code,axis_dir);
+        rui_pad_binds_remember(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],m->player_pad_name[0],-1);
+        launcher_binds_refresh(m);return;
+    }
     if (player < 1 || player > LNG_MAX_PLAYERS) return;
     if (is_psx_profile(m)) {
         if (b < 0 || b >= LNG_PSX_PAD_BUTTON_COUNT) return;
@@ -1449,6 +1472,10 @@ int launcher_binds_psx_name_is_custom(const char* guid) {
 }
 
 void launcher_binds_reset_player(LauncherModel* m, int player) {
+    if(is_gba_profile(m) && player==1 && m->s.player_src[0]==2) {
+        rui_pad_binds_reset(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0]);
+        launcher_binds_refresh(m);return;
+    }
     if (is_n64_profile(m)) {
         if (player < 1 || player > LNG_MAX_PLAYERS) return;
         // Reset the half the page is showing, and only that half: a player on
