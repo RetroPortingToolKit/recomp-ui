@@ -203,6 +203,7 @@ function(recomp_target_launcher_ui TGT)
         ${_rui_platform_source}
         ${RUI_SRC}/common/launcher_gl.c
         ${RUI_SRC}/common/launcher_input.c
+        ${RUI_SRC}/common/launcher_input_report.c
         ${RUI_SRC}/common/launcher_files.c
         ${RUI_SRC}/common/launcher_debug.c
         ${RUI_SRC}/common/launcher_binds.c
