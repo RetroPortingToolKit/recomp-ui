@@ -152,7 +152,7 @@ static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const 
     std::filesystem::create_directories(folder);
     std::ofstream out(std::filesystem::path(folder)/"geometry.csv");
     out<<"page,width,dpi,window,x,y,w,h,content_w,content_h\n";
-    std::snprintf(model.s.bios_path,sizeof(model.s.bios_path),"I:/Projects/Recompilations/PS1/Work/eagle/PS1B-529-pin-delivery-20261108/products/0.1.7/medievil/windows-x64/inputs/a-very-long-bios-folder/another-long-folder/SCPH1001.BIN");
+    std::snprintf(model.s.bios_path,sizeof(model.s.bios_path),"D:/Games/PlayStation/Recompilations/a-title-with-a-long-name/releases/0.1.7/medievil/windows-x64/inputs/a-very-long-bios-folder/another-long-folder/SCPH1001.BIN");
     for (int width:{640,960,1280,1920}) for (float dpi:{1.f,1.5f,2.f}) {
         probe_width=(float)width;probe_height=800;
         auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(dpi,dpi);
