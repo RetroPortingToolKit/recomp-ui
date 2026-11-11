@@ -536,7 +536,7 @@ static void snes_gamepad_read_controls(int player,
 
 static void snes_gamepad_write_config_order(int player,
                                             char controls[LNG_SNES_PAD_BUTTON_COUNT][48]) {
-    char value[768] = {};
+    char value[768] = {0};
     for (int i = 0; i < LNG_SNES_PAD_BUTTON_COUNT; ++i) {
         if (i) strncat(value, ", ", sizeof(value) - strlen(value) - 1);
         strncat(value, controls[i], sizeof(value) - strlen(value) - 1);
@@ -1233,7 +1233,7 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
             } else {
                 const int known = rui_psx_pad_binds_known_count(path);
                 for (int i = 0; i < known; ++i) {
-                    char guid[40] = {}, name[64] = {};
+                    char guid[40] = {0}, name[64] = {0};
                     if (!rui_psx_pad_binds_known_at(path, i, guid, (int)sizeof(guid),
                                                     name, (int)sizeof(name)))
                         continue;
@@ -1264,7 +1264,7 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
             m->player_pad_id[p] = pads[live].id;
             if (custom) {
                 // Keep the user's rename in the model / dropdown.
-                char reg[64] = {};
+                char reg[64] = {0};
                 rui_psx_pad_binds_name(path, guid, reg, (int)sizeof(reg));
                 if (reg[0])
                     copy_str(m->player_pad_name[p],
@@ -1282,7 +1282,7 @@ void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
         }
 
         // Disconnected: registry name, else a non-generic fallback.
-        char reg[64] = {};
+        char reg[64] = {0};
         rui_psx_pad_binds_name(path, guid, reg, (int)sizeof(reg));
         if (reg[0] && strcmp(reg, "Gamepad") != 0)
             copy_str(m->player_pad_name[p], sizeof(m->player_pad_name[p]), reg);
@@ -1302,7 +1302,7 @@ void launcher_binds_apply_psx_pad_profile(LauncherModel* m, int player) {
     const char* guid = m->s.player_gamepad_guid[player];
     if (!guid[0]) return;
     const char* path = psx_input_ini_path();
-    char name[64] = {};
+    char name[64] = {0};
     rui_psx_pad_binds_name(path, guid, name, (int)sizeof(name));
     if (name[0] && strcmp(name, "Gamepad") != 0)
         copy_str(m->player_pad_name[player], sizeof(m->player_pad_name[player]),
