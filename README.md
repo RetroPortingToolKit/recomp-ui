@@ -23,6 +23,64 @@ binary core**:
 
 ---
 
+## Host integration helpers
+
+### Host launch options and game version
+
+Hosts can adopt the optional C helpers before their own argument parser:
+
+```c
+int launcher_mode = recomp_launcher_parse_cli_args(&argc, argv);
+/* Load the host's saved settings as usual. */
+recomp_launcher_set_game_version("v1.2.3");
+if (!recomp_launcher_cli_should_skip(launcher_mode, settings.skip_launcher)) {
+    /* Call recomp_launcher_run_window(...) as usual. */
+}
+```
+
+`--no-launcher` and `--skip-launcher` request one direct boot; `--launcher`
+requests the launcher even when the saved preference skips it. The last
+launcher switch wins. The helper removes these switches from argv, preserves
+other arguments, and stops at `--`. It never changes the saved skip setting.
+The host retains its normal required-media checks and direct-boot mod setup.
+These switches require host adoption; linking recomp-ui alone does not parse
+an executable's arguments.
+
+The version setter copies up to 127 bytes and displays the supplied game
+version below the launcher title/platform. NULL clears it; existing hosts that
+do not supply a version keep their current presentation. This metadata is
+process-local and is not a setting or a netplay compatibility identity.
+
+### File-path TEXT options
+
+Existing provider and option structs retain their layouts. A host/provider can
+opt a TEXT option into Browse/Clear with the fixed V1 metadata extension:
+
+```c
+RecompLauncherCModTextPathV1 path = {0};
+snprintf(path.filter_description, sizeof(path.filter_description), "Seed patch");
+path.pattern_count = 1;
+snprintf(path.patterns[0], sizeof(path.patterns[0]), "*.apsm");
+int registered = recomp_launcher_register_mod_text_path_v1(
+    &provider, "example.randomizer", "randomizer", "seed", &path);
+/* Open the launcher, then unregister before destroying/reusing provider. */
+recomp_launcher_unregister_mod_text_paths(&provider);
+```
+
+Check the registration result. Package-level options use NULL/empty feature
+IDs. IDs, filter description and up to eight patterns are copied; the provider
+pointer is an identity key borrowed for the registration's lifetime. Register
+NULL metadata to remove one entry. Call registration/query functions on the UI
+thread or while the launcher is closed.
+
+Browse uses the existing native/in-app picker and writes through the ordinary
+package or feature `set_option` callback; cancel writes nothing. Clear submits
+an empty value. Providers retain validation and saved-path ownership, with no
+fixed-ROM identity requirement added. Unregistered TEXT options keep their
+input-only control. The existing `RECOMP_LAUNCHER_MOD_VALUE_MAX` capacity still
+applies: overlong selections are rejected rather than truncated to another
+filename.
+
 ## Architecture: composition + inheritance
 
 recomp-ui is **one** launcher composed differently per console — never a

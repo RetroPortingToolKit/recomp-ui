@@ -366,6 +366,18 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME recomp-ui-launcher-mod-button COMMAND recomp-ui-launcher-mod-button-test)
 
+    add_executable(recomp-ui-launcher-option-extensions-test
+        tests/launcher_option_extensions_test.cpp
+        src/common/launcher_launch_options.c src/common/launcher_mod_text_path.c
+        src/third_party/imgui/imgui.cpp src/third_party/imgui/imgui_draw.cpp
+        src/third_party/imgui/imgui_tables.cpp src/third_party/imgui/imgui_widgets.cpp)
+    target_include_directories(recomp-ui-launcher-option-extensions-test PRIVATE
+        src src/common src/third_party/imgui)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/option-extension-fixtures")
+    add_test(NAME recomp-ui-launcher-option-extensions
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-option-extensions-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/option-extension-fixtures")
+
     # Cover folders: per-serial folders, relocation, Unicode paths, missing and
     # unsafe serials, ordering and aspect fit. Writes only under the test dir.
     add_executable(recomp-ui-launcher-artwork-folder-test tests/launcher_artwork_folder_test.cpp)

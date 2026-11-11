@@ -1,4 +1,5 @@
 #include "launcher_mod_integer.h"
+#include "launcher_mod_text.h"
 // launcher_imgui.cpp — Dear ImGui (MIT) backend for the next-gen launcher.
 //
 // Draws the shared LauncherModel with Dear ImGui + SDL3 + OpenGL3, at parity
@@ -11739,23 +11740,26 @@ static void mod_option_control(const char* label) {
         std::min(px(230), ImGui::GetContentRegionAvail().x)));
 }
 
-static bool draw_mod_text_option(const RecompLauncherCModOption& option,
+static bool draw_mod_text_option(LauncherModel* m, const char* package_id,
+                                 const char* feature_id,
+                                 const RecompLauncherCModOption& option,
                                  char* next, size_t next_size) {
     mod_option_control(option.label);
-    static char edit[RECOMP_LAUNCHER_MOD_VALUE_MAX];
-    static ImGuiID owner = 0;
-    const ImGuiID id = ImGui::GetID("##text");
-    if (owner != id)
-        std::snprintf(edit, sizeof(edit), "%s", option.value);
-    ImGui::InputText("##text", edit, sizeof(edit));
-    if (ImGui::IsItemActivated()) owner = id;
-    bool changed = false;
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        std::snprintf(next, next_size, "%s", edit);
-        changed = true;
+    const bool path = recomp_launcher_get_mod_text_path_v1(
+        m->mods, package_id, feature_id, option.id, nullptr) != 0;
+    const auto edit = rui_mod_text_control(option.value, next, next_size, path);
+    if (edit.browse) {
+        rui_mod_text_browse(m->mods, package_id, feature_id, option.id, option.label,
+            [m](const char* title, std::vector<std::string> patterns,
+                const char* description, std::function<void(const char*)> picked) {
+                ui_pick_file(m, title, std::move(patterns), description, std::move(picked));
+            }, [m](bool stored) {
+                if (!stored) mod_note_error(m);
+                else if (m->has_bios && m->bios_verify_for_rom_cb)
+                    launcher_model_refresh_bios_status(m);
+            });
     }
-    if (ImGui::IsItemDeactivated() && owner == id) owner = 0;
-    return changed;
+    return edit.changed;
 }
 
 /* Option descriptions run to several sentences; SetTooltip never wraps, so a
@@ -12160,7 +12164,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                     changed = draw_mod_binding_option(option, next, sizeof(next));
                 } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
                     changed = draw_mod_text_option(
-                        option, next, sizeof(next));
+                        m, package.id, nullptr, option, next, sizeof(next));
                 } else {
                     changed = draw_mod_integer_option(
                         option, next, sizeof(next));
@@ -12270,7 +12274,8 @@ static void draw_mod_feature_option(LauncherModel* m,
     } else if (option.type == RECOMP_MOD_OPTION_BINDING) {
         changed = draw_mod_binding_option(option, next, sizeof(next));
     } else if (option.type == RECOMP_MOD_OPTION_TEXT) {
-        changed = draw_mod_text_option(option, next, sizeof(next));
+        changed = draw_mod_text_option(m, feature.package_id, feature.id,
+                                       option, next, sizeof(next));
     } else {
         changed = draw_mod_integer_option(option, next, sizeof(next),
             launcher_audio_buffer_option(feature.package_id, feature.id, option.id));
@@ -14582,6 +14587,8 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         // 1.55x + platform at 1.0x), from the fitted height.
         float line_h  = ImGui::GetTextLineHeight();
         float block_h = line_h * 1.55f + ImGui::GetStyle().ItemSpacing.y + line_h;
+        if (recomp_launcher_get_game_version()[0])
+            block_h += ImGui::GetStyle().ItemSpacing.y + line_h;
         float fit_h = px(brand_h);
         if (g_brand.h > 0) {
             float s = (px(brand_w) / g_brand.w < px(brand_h) / g_brand.h)
@@ -14606,6 +14613,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
             ImGui::TextUnformatted(m->platform);
             ImGui::PopStyleColor();
         }
+        ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+        rui_game_version_text();
+        ImGui::PopStyleColor();
     ImGui::EndGroup();
     {   // right-aligned top-level navigation
         const float gap = px(6.0f);
