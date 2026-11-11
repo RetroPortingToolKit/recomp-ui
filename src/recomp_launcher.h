@@ -2545,6 +2545,48 @@ int recomp_launcher_run_window(const char* window_title,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len);
 
+/* Optional host adoption: consume only launcher switches before the host's
+ * own argument parser. Stop at --; leave every other argument in order.
+ * Last launcher switch wins. These helpers never edit/persist Settings. */
+#define RECOMP_LAUNCHER_HAS_LAUNCH_OPTIONS 1
+enum {
+    RECOMP_LAUNCHER_CLI_DEFAULT = 0,
+    RECOMP_LAUNCHER_CLI_SHOW = 1,
+    RECOMP_LAUNCHER_CLI_SKIP = 2
+};
+int recomp_launcher_parse_cli_args(int* argc, char** argv);
+int recomp_launcher_cli_should_skip(int mode, int saved_skip_launcher);
+/* Copied process-local metadata; set before opening the launcher, NULL clears.
+ * Existing hosts remain unchanged until they supply their game build version. */
+void recomp_launcher_set_game_version(const char* version);
+const char* recomp_launcher_get_game_version(void);
+
+/* Additive, fixed-layout extension: existing provider/option structs are not
+ * enlarged. Register only TEXT options, before opening the UI; feature_id is
+ * NULL/empty for package-level options. IDs/filters are copied, provider is an
+ * identity key borrowed until unregister. Register NULL to remove one entry;
+ * unregister before destroying/reusing a provider. All calls are on the UI
+ * thread, or while the launcher is closed. V1's layout will not be extended.
+ * Filters affect Browse only; providers validate/persist all chosen/typed
+ * values through their ordinary setters. Paths retain MOD_VALUE_MAX's limit. */
+#define RECOMP_LAUNCHER_HAS_MOD_TEXT_PATH_V1 1
+#define RECOMP_LAUNCHER_TEXT_PATH_PATTERNS 8
+typedef struct RecompLauncherCModTextPathV1 {
+    char filter_description[128];
+    int pattern_count;
+    char patterns[RECOMP_LAUNCHER_TEXT_PATH_PATTERNS][64];
+} RecompLauncherCModTextPathV1;
+int recomp_launcher_register_mod_text_path_v1(
+    const RecompLauncherCModProvider* provider, const char* package_id,
+    const char* feature_id, const char* option_id,
+    const RecompLauncherCModTextPathV1* metadata);
+int recomp_launcher_get_mod_text_path_v1(
+    const RecompLauncherCModProvider* provider, const char* package_id,
+    const char* feature_id, const char* option_id,
+    RecompLauncherCModTextPathV1* out);
+void recomp_launcher_unregister_mod_text_paths(
+    const RecompLauncherCModProvider* provider);
+
 /* Valid after run_window returns RECOMP_LAUNCHER_RESULT_RELAUNCH. Copies the
  * executable path produced by rebuild_with_progress. Returns 1 on success. */
 int recomp_launcher_relaunch_exe(char* out, size_t out_cap);
