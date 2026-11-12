@@ -4,11 +4,13 @@
  * reads (nesrecomp's cycle host keeps its bindings in its own config.ini).
  * The same calls without settings_bindings still create the runner's file,
  * so the guard is what makes the difference. Also: the GameInfo ROM-picker
- * override reaches the model. */
+ * override reaches the model. Wii's host-owned mode must also avoid creating
+ * either the custom-path or generic fallback binding file. */
 #include "launcher_model.h"
 #include "launcher_binds.h"
 #include "launcher_profile.h"
 #include "launcher_system.h"
+#include "launcher_platform.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -20,14 +22,14 @@ static int exists(const char *path) {
     return f != NULL;
 }
 
-static void run(const char *keybinds, int host_owned) {
+static void run(const char *keybinds, int host_owned, int wii) {
     static LauncherModel m;
     RecompLauncherCSettings io;
     memset(&io, 0, sizeof(io));
     RecompLauncherCGameInfo gi;
     memset(&gi, 0, sizeof(gi));
-    launcher_profile_apply("nes", &gi);
-    gi.platform = "FAMICOM DISK SYSTEM";   /* a disk title's subtitle: still the NES row */
+    launcher_profile_apply(wii ? "wii" : "nes", &gi);
+    if (!wii) gi.platform = "FAMICOM DISK SYSTEM";
     gi.name = "Test";
     gi.settings_bindings = host_owned;
     gi.keybinds_path = keybinds;
@@ -37,7 +39,7 @@ static void run(const char *keybinds, int host_owned) {
     gi.rom_filter_desc = "Famicom Disk System image (.fds, .qd)";
     memset(&m, 0, sizeof(m));
     launcher_model_init(&m, &io, &gi, "");
-    assert(m.profile && !strcmp(((const SystemProfile *)m.profile)->id, "nes"));
+    assert(m.profile && !strcmp(((const SystemProfile *)m.profile)->id, wii ? "wii" : "nes"));
     assert(m.settings_bindings == (host_owned != 0));
     assert(m.rom_patterns == patterns && m.num_rom_patterns == 2);
     assert(!strcmp(m.rom_filter_desc, "Famicom Disk System image (.fds, .qd)"));
@@ -52,11 +54,22 @@ int main(int argc, char **argv) {
     char path[1024];
     snprintf(path, sizeof(path), "%s/nes_host_keybinds.ini", argc > 1 ? argv[1] : ".");
     remove(path);
-    run(path, 1);
+    run(path, 1, 0);
     assert(!exists(path));        /* host-owned: no runner file appears */
-    run(path, 0);
+    run(path, 0, 0);
     assert(exists(path));         /* the runner's store still seeds its file */
     remove(path);
-    puts("nes host bindings test passed");
+    char generic[2048];
+#if defined(LNG_SDL3)
+    snprintf(generic, sizeof(generic), "%skeybinds.ini", SDL_GetBasePath());
+#else
+    char* base = SDL_GetBasePath();
+    snprintf(generic, sizeof(generic), "%skeybinds.ini", base);
+    SDL_free(base);
+#endif
+    int had_generic = exists(generic);
+    run(path, 1, 1);
+    assert(!exists(path) && exists(generic) == had_generic);
+    puts("NES/Wii host binding stores test passed");
     return 0;
 }

@@ -895,6 +895,11 @@ static void format_hotkey(int keycode, int kmod, char* out, size_t cap) {
 void launcher_binds_load(LauncherModel* m, const char* config_path_in, const char* keybinds_path_in) {
     g_launcher_config_path = config_path_in;
     g_launcher_keybinds_path = keybinds_path_in;
+    /* The host consumes the settings arrays. Do not generate an unrelated
+     * native keybinds.ini that gameplay would never read. NES also hydrates
+     * its optional Zapper switches below; PSX retains its native store. */
+    if (m && m->settings_bindings && !is_nes_profile(m) && !is_psx_profile(m))
+        goto loaded;
     if (is_psx_profile(m)) {
         rui_psx_binds_init(keybinds_file_path());   // load/generate psx_keybinds.c-format keybinds.ini
         rui_psx_pad_binds_init(psx_input_ini_path()); // gamepad maps (input.ini)
@@ -929,6 +934,7 @@ loaded:
 }
 
 void launcher_binds_refresh(LauncherModel* m) {
+    if (m && m->settings_bindings && !is_psx_profile(m)) return;
     for (int p = 1; p <= LNG_MAX_PLAYERS; ++p)
         reload_player_display(m, p);
 }

@@ -19,6 +19,7 @@
 #endif
 
 static int window_available = 1, edit = 0;
+static int edit_bindings;
 static LngAction action = LNG_ACTION_QUIT;
 static RecompLauncherCSettings observed;
 static int opened_width, opened_height, resized_width, resized_height;
@@ -46,6 +47,11 @@ LngAction launcher_backend_run(LauncherPlatform* p, LauncherModel* m,
         p->logical_h = resized_height;
     }
     observed = m->s;
+    if (edit_bindings) {
+        m->s.player_key_bind[0][4] = 9;
+        m->s.player_key_bind[0][5] = 0;
+        m->s.player_pad_bind[0][4] = RECOMP_LAUNCHER_PAD_AXIS(0, 0);
+    }
     if (edit) {
         launcher_model_set_fullscreen(m, edit);
         launcher_model_set_scale(m, 4);
@@ -171,6 +177,21 @@ int main(int argc, char** argv) {
     edit = 0; s = defaults(); run(&game, &s);
     require(observed.fullscreen == 1 && observed.volume == 37,
             "Wii persists edits through the shared launcher");
+    game.settings_bindings = 1;
+    edit = 0; edit_bindings = 1; s = defaults();
+    s.player_key_bind[0][5] = 27;
+    run(&game, &s);
+    edit_bindings = 0; s = defaults(); s.player_key_bind[0][5] = 27;
+    run(&game, &s);
+    require(observed.player_key_bind[0][4] == 9 &&
+            observed.player_key_bind[0][5] == 0 &&
+            observed.player_pad_bind[0][4] == RECOMP_LAUNCHER_PAD_AXIS(0, 0),
+            "host-owned key/axis remaps and explicit unbind survive Quit/restart");
+    game.settings_bindings = 0;
+    s = defaults(); s.player_key_bind[0][5] = 27;
+    run(&game, &s);
+    require(observed.player_key_bind[0][4] == 0 && observed.player_key_bind[0][5] == 27,
+            "binding persistence is opt-in for hosts that consume these arrays");
     read_text(game.config_path, untouched, sizeof(untouched));
 
     /* A PSX host owns TOML; an unknown profile must not be guessed as SNES. */

@@ -9,6 +9,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,8 +34,18 @@ typedef struct {
     FIELD(section, key, field, BOOLEAN, 0, 1, ALWAYS)
 #define OPTIONAL(section, key, field, kind, lo, hi, cap) \
     FIELD(section, key, field, kind, lo, hi, offsetof(RecompLauncherCGameInfo, cap))
+#define BIND(p, b) \
+    OPTIONAL("BindingsP" #p, "Key" #b, player_key_bind[p-1][b], NUMBER, 0, 517, settings_bindings), \
+    OPTIONAL("BindingsP" #p, "Pad" #b, player_pad_bind[p-1][b], NUMBER, 0, INT_MAX, settings_bindings)
+#define BINDS(p) \
+    BIND(p,0), BIND(p,1), BIND(p,2), BIND(p,3), BIND(p,4), BIND(p,5), \
+    BIND(p,6), BIND(p,7), BIND(p,8), BIND(p,9), BIND(p,10), BIND(p,11), \
+    BIND(p,12), BIND(p,13), BIND(p,14), BIND(p,15), BIND(p,16), BIND(p,17), \
+    BIND(p,18), BIND(p,19), BIND(p,20), BIND(p,21), BIND(p,22), BIND(p,23)
 
 static const Setting kSettings[] = {
+    /* Host-owned arrays only. Zero is a persisted unbind, not a default. */
+    BINDS(1), BINDS(2), BINDS(3), BINDS(4), BINDS(5), BINDS(6), BINDS(7), BINDS(8),
     INT("Graphics", "WindowScale", window_scale, 1, 8),
     INT("Graphics", "Fullscreen", fullscreen, 0, 2),
     BOOL("Graphics", "IgnoreAspectRatio", ignore_aspect),
@@ -66,6 +77,8 @@ static const Setting kSettings[] = {
 };
 
 #undef OPTIONAL
+#undef BINDS
+#undef BIND
 #undef BOOL
 #undef INT
 #undef FIELD
