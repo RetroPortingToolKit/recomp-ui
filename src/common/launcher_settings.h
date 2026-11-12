@@ -15,6 +15,8 @@ int launcher_settings_supported(const RecompLauncherCGameInfo* game);
 /* With settings_bindings=1, [BindingsP1]..[BindingsP8] persist Key0..Key23
  * (SDL scancodes/mouse pseudo-scancodes) and Pad0..Pad23 (C ABI encoding).
  * Binding indices come from the active profile. Explicit zero means unbound. */
+/* Games offering custom aspect_labels use numeric [Graphics] ViewMode. It is
+ * bounded by num_aspect_labels and independent of SNES DisplayAspect. */
 void launcher_settings_load(RecompLauncherCSettings* settings,
                             const RecompLauncherCGameInfo* game);
 void launcher_settings_save(const RecompLauncherCSettings* settings,

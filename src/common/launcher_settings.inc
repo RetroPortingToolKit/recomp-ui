@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum { NUMBER, BOOLEAN, TEXT, OUTPUT, VSYNC, SNES_ASPECT } ValueKind;
+typedef enum { NUMBER, BOOLEAN, TEXT, OUTPUT, VSYNC, SNES_ASPECT, VIEW_MODE } ValueKind;
 typedef struct {
     const char* section;
     const char* key;
@@ -54,6 +54,8 @@ static const Setting kSettings[] = {
     OPTIONAL("Graphics", "Shader", shader_path, TEXT, 0, 0, has_shader),
     OPTIONAL("Graphics", "DisplayAspect", aspect_index, SNES_ASPECT, 0, 2,
              has_snes_display_aspect),
+    OPTIONAL("Graphics", "ViewMode", aspect_index, VIEW_MODE, 0, INT_MAX,
+             num_aspect_labels),
     OPTIONAL("Graphics", "FrameBlend", frame_blend, BOOLEAN, 0, 1, has_frame_blend),
     OPTIONAL("Graphics", "VSync", vsync, VSYNC, 1, 3, has_vsync),
     OPTIONAL("Graphics", "Renderer", renderer_id, TEXT, 0, 0, has_renderer),
@@ -99,8 +101,16 @@ int launcher_settings_supported(const RecompLauncherCGameInfo* game) {
 }
 
 static int offered(const Setting* setting, const RecompLauncherCGameInfo* game) {
+    /* The SNES pixel-aspect vocabulary owns the same field. Custom game views
+     * have their own key, bounded by the choices this build actually offers. */
+    if (setting->kind == VIEW_MODE)
+        return !game->has_snes_display_aspect && game->num_aspect_labels > 0;
     return setting->capability == ALWAYS ||
         *(const int*)((const char*)game + setting->capability) != 0;
+}
+
+static int maximum(const Setting* setting, const RecompLauncherCGameInfo* game) {
+    return setting->kind == VIEW_MODE ? game->num_aspect_labels - 1 : setting->maximum;
 }
 
 static const char* config_path(const RecompLauncherCGameInfo* game) {
@@ -115,7 +125,8 @@ static char* trim(char* text) {
 }
 
 static void read_value(const Setting* setting, char* value,
-                       RecompLauncherCSettings* settings) {
+                       RecompLauncherCSettings* settings,
+                       const RecompLauncherCGameInfo* game) {
     char* field = (char*)settings + setting->offset;
     if (setting->kind == TEXT) {
         /* Empty paths clear the choice; oversize/multiline paths are invalid. */
@@ -145,7 +156,7 @@ static void read_value(const Setting* setting, char* value,
         errno = 0;
         long number = strtol(value, &end, 10);
         if (errno || end == value || *end || number < setting->minimum ||
-            number > setting->maximum) return;
+            number > maximum(setting, game)) return;
         parsed = (int)number;
     }
     memcpy(field, &parsed, sizeof(parsed));
@@ -189,7 +200,7 @@ void launcher_settings_load(RecompLauncherCSettings* settings,
                 if (comment) *comment = 0;
                 value = trim(value);
             }
-            read_value(setting, value, settings);
+            read_value(setting, value, settings, game);
             break;
         }
     }
@@ -215,7 +226,7 @@ void launcher_settings_save(const RecompLauncherCSettings* settings,
             memcpy(&current, value, sizeof(current));
             memcpy(&previous, old, sizeof(previous));
             if (current == previous || current < setting->minimum ||
-                current > setting->maximum) continue;
+                current > maximum(setting, game)) continue;
             if (setting->kind == OUTPUT) {
                 static const char* const names[] = {"SDL", "SDL-Software", "OpenGL"};
                 value = names[current];

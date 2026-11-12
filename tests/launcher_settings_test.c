@@ -251,6 +251,48 @@ int main(int argc, char** argv) {
         require(s.aspect_index == i % 3, "SNES aspect aliases match runtime config");
     }
 
+    /* A Wii title's custom views retain explicit stock mode, including zero,
+     * while a fresh profile keeps the host's adaptive default. */
+    RecompLauncherCGameInfo wii = {0};
+    launcher_profile_apply("wii", &wii);
+    static const char* const views[] = {"Original 4:3", "16:9", "21:9", "Fit to screen"};
+    wii.aspect_labels = views; wii.num_aspect_labels = 4;
+    wii.config_path = "wii-view.ini";
+    write_text(wii.config_path, "[Graphics]\nDisplayAspect = 8:7\n[Unknown]\nKeep = yes\n");
+    edit = 0; action = LNG_ACTION_QUIT;
+    s = defaults(); s.aspect_index = 3;
+    run(&wii, &s);
+    require(observed.aspect_index == 3, "fresh Wii settings keep Fit to screen");
+    RecompLauncherCSettings before = s;
+    s.aspect_index = 0;
+    launcher_settings_save(&s, &before, &wii);
+    s = defaults(); s.aspect_index = 3;
+    run(&wii, &s);
+    require(observed.aspect_index == 0, "explicit original view survives restart");
+    read_text(wii.config_path, result, sizeof(result));
+    require(strstr(result, "ViewMode = 0") && strstr(result, "DisplayAspect = 8:7") &&
+            strstr(result, "Keep = yes"), "custom view preserves other settings");
+    const char* const invalid_views[] = {"-1", "4", "99999999999999999999999", "fit", "2x"};
+    for (size_t i = 0; i < sizeof(invalid_views) / sizeof(invalid_views[0]); ++i) {
+        snprintf(result, sizeof(result), "[Graphics]\nViewMode=%s\n", invalid_views[i]);
+        write_text(wii.config_path, result);
+        s = defaults(); s.aspect_index = 3;
+        launcher_settings_load(&s, &wii);
+        require(s.aspect_index == 3, "invalid custom view keeps default");
+    }
+    write_text(wii.config_path, "[Graphics]\nViewMode=2\n");
+    wii.num_aspect_labels = 2; s.aspect_index = 1;
+    launcher_settings_load(&s, &wii);
+    require(s.aspect_index == 1, "custom view bounded by available choices");
+    before = s; s.aspect_index = 2;
+    launcher_settings_save(&s, &before, &wii);
+    read_text(wii.config_path, result, sizeof(result));
+    require(!strcmp(result, "[Graphics]\nViewMode=2\n"), "invalid view never rewritten");
+    game.has_snes_display_aspect = 1;
+    write_text(game.config_path, "[Graphics]\nDisplayAspect=8:7\nViewMode=2\n");
+    s = defaults(); launcher_settings_load(&s, &game);
+    require(s.aspect_index == 1, "custom view key cannot override SNES pixel aspect");
+
     /* Fresh install, default path, and no-op open/close. */
     require(remove("config.ini") == 0, "remove default-path sentinel");
     game.config_path = NULL; edit = 0; action = LNG_ACTION_QUIT;
