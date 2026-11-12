@@ -741,6 +741,7 @@ typedef struct {
     // "dpup", "a", "leftx+", "(unbound)"). Parallel to binds[], filled by
     // launcher_binds.c's per-console bridge alongside the keyboard labels.
     char      pad_binds[LNG_MAX_PLAYERS][LNG_MAX_BUTTONS][32];
+    char      pad_binds_alt[LNG_MAX_PLAYERS][LNG_MAX_BUTTONS][32];
     char      camera_binds[LNG_CAMERA_BIND_COUNT][32];
     char      hotkeys[LNG_HK_COUNT][32];    // [KeyMap] value strings, e.g. "Ctrl+R"
 } LauncherModel;
