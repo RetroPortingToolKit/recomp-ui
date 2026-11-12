@@ -293,6 +293,30 @@ int main(int argc, char** argv) {
     s = defaults(); launcher_settings_load(&s, &game);
     require(s.aspect_index == 1, "custom view key cannot override SNES pixel aspect");
 
+    static const char* const resolutions[] = {"Original", "2x", "4x"};
+    static const int resolution_values[] = {1, 960, 1920};
+    wii.has_supersampling = 1;
+    wii.internal_resolution_labels = resolutions;
+    wii.internal_resolution_values = resolution_values;
+    wii.num_internal_resolutions = 3;
+    write_text(wii.config_path, "[Graphics]\nInternalResolution=960\n[Unknown]\nKeep=yes\n");
+    s = defaults(); s.internal_resolution = 1;
+    launcher_settings_load(&s, &wii);
+    require(s.internal_resolution == 960, "offered internal resolution survives direct boot");
+    before = s; s.internal_resolution = 1920;
+    launcher_settings_save(&s, &before, &wii);
+    s.internal_resolution = 1; launcher_settings_load(&s, &wii);
+    require(s.internal_resolution == 1920, "internal resolution survives settings save and restart");
+    read_text(wii.config_path, result, sizeof(result));
+    require(strstr(result, "Keep=yes") != NULL, "internal resolution edit preserves unknown settings");
+    write_text(wii.config_path, "[Graphics]\nInternalResolution=1440\n");
+    s.internal_resolution = 1; launcher_settings_load(&s, &wii);
+    require(s.internal_resolution == 1, "unoffered internal resolution keeps host default");
+    before = s; s.internal_resolution = 1440;
+    launcher_settings_save(&s, &before, &wii);
+    read_text(wii.config_path, result, sizeof(result));
+    require(!strcmp(result, "[Graphics]\nInternalResolution=1440\n"), "invalid resolution never rewritten");
+
     /* Fresh install, default path, and no-op open/close. */
     require(remove("config.ini") == 0, "remove default-path sentinel");
     game.config_path = NULL; edit = 0; action = LNG_ACTION_QUIT;

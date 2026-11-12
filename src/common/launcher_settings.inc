@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef enum { NUMBER, BOOLEAN, TEXT, OUTPUT, VSYNC, SNES_ASPECT, VIEW_MODE } ValueKind;
+typedef enum { NUMBER, BOOLEAN, TEXT, OUTPUT, VSYNC, SNES_ASPECT, VIEW_MODE, RESOLUTION } ValueKind;
 typedef struct {
     const char* section;
     const char* key;
@@ -56,6 +56,8 @@ static const Setting kSettings[] = {
              has_snes_display_aspect),
     OPTIONAL("Graphics", "ViewMode", aspect_index, VIEW_MODE, 0, INT_MAX,
              num_aspect_labels),
+    OPTIONAL("Graphics", "InternalResolution", internal_resolution, RESOLUTION, -1, INT_MAX,
+             num_internal_resolutions),
     OPTIONAL("Graphics", "FrameBlend", frame_blend, BOOLEAN, 0, 1, has_frame_blend),
     OPTIONAL("Graphics", "VSync", vsync, VSYNC, 1, 3, has_vsync),
     OPTIONAL("Graphics", "Renderer", renderer_id, TEXT, 0, 0, has_renderer),
@@ -105,6 +107,9 @@ static int offered(const Setting* setting, const RecompLauncherCGameInfo* game) 
      * have their own key, bounded by the choices this build actually offers. */
     if (setting->kind == VIEW_MODE)
         return !game->has_snes_display_aspect && game->num_aspect_labels > 0;
+    if (setting->kind == RESOLUTION)
+        return game->has_supersampling && game->num_internal_resolutions > 0 &&
+            game->internal_resolution_values && game->internal_resolution_labels;
     return setting->capability == ALWAYS ||
         *(const int*)((const char*)game + setting->capability) != 0;
 }
@@ -158,6 +163,12 @@ static void read_value(const Setting* setting, char* value,
         if (errno || end == value || *end || number < setting->minimum ||
             number > maximum(setting, game)) return;
         parsed = (int)number;
+    }
+    if (setting->kind == RESOLUTION) {
+        int found = 0;
+        for (int i = 0; i < game->num_internal_resolutions; ++i)
+            if (game->internal_resolution_values[i] == parsed) { found = 1; break; }
+        if (!found) return;
     }
     memcpy(field, &parsed, sizeof(parsed));
 }
@@ -227,6 +238,12 @@ void launcher_settings_save(const RecompLauncherCSettings* settings,
             memcpy(&previous, old, sizeof(previous));
             if (current == previous || current < setting->minimum ||
                 current > maximum(setting, game)) continue;
+            if (setting->kind == RESOLUTION) {
+                int found = 0;
+                for (int j = 0; j < game->num_internal_resolutions; ++j)
+                    if (game->internal_resolution_values[j] == current) { found = 1; break; }
+                if (!found) continue;
+            }
             if (setting->kind == OUTPUT) {
                 static const char* const names[] = {"SDL", "SDL-Software", "OpenGL"};
                 value = names[current];
