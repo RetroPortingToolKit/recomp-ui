@@ -12724,6 +12724,29 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
 
             // The list-row checkbox is the single enable/disable control.
             // The detail pane owns configuration values only.
+            if (feature.option_count > 0) {
+                ImGui::Spacing();
+                ImGui::Separator();
+            }
+            std::string last_group;
+            for (int index = 0; index < feature.option_count; ++index) {
+                RecompLauncherCModOption option{};
+                if (!mods->feature_option_get(
+                        mods->ctx, feature.package_id, feature.id,
+                        index, &option)) {
+                    continue;
+                }
+                if (last_group != option.group) {
+                    last_group = option.group;
+                    ImGui::Spacing();
+                    ImGui::TextColored(
+                        col(th.accent), "%s",
+                        last_group.empty() ? ui_text("Configuration")
+                                           : last_group.c_str());
+                    ImGui::Separator();
+                }
+                draw_mod_feature_option(m, feature, option);
+            }
             if (mods->feature_resource_count &&
                 mods->feature_resource_get &&
                 mods->feature_resource_set_path) {
@@ -12821,29 +12844,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                 }
             }
             draw_mod_feature_diagnostics(m, th, feature);
-            if (feature.option_count > 0) {
-                ImGui::Spacing();
-                ImGui::Separator();
-            }
-            std::string last_group;
-            for (int index = 0; index < feature.option_count; ++index) {
-                RecompLauncherCModOption option{};
-                if (!mods->feature_option_get(
-                        mods->ctx, feature.package_id, feature.id,
-                        index, &option)) {
-                    continue;
-                }
-                if (last_group != option.group) {
-                    last_group = option.group;
-                    ImGui::Spacing();
-                    ImGui::TextColored(
-                        col(th.accent), "%s",
-                        last_group.empty() ? ui_text("Configuration")
-                                           : last_group.c_str());
-                    ImGui::Separator();
-                }
-                draw_mod_feature_option(m, feature, option);
-            }
+
         } else {
             ImGui::TextColored(col(th.text_muted),
                                "%s", ui_text("Install or select a feature to configure it."));
