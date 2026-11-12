@@ -101,6 +101,7 @@ typedef struct {
     // appended additively (older positional initializers zero-fill):
     int widescreen_cells;   // Genesis-ish: "extra cells per side" stepper shown while widescreen is on
     int fmv_filter;         // PSX-ish: how a decoded low-res movie is scaled to the window
+    int hide_legacy_filter; // host has no final-image filtering control
 } VideoSpec;
 
 // ---- Verify module --------------------------------------------------------------

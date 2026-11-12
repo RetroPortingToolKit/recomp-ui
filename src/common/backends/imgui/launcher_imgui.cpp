@@ -3965,7 +3965,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
             if (ImGui::Button(ui_text(launcher_model_scaling_filter_label(m)),
                               ImVec2(px(180), px(30))))
                 launcher_model_cycle_scaling_filter(m);
-        } else {
+        } else if (!m->profile || !m->profile->video.hide_legacy_filter) {
             row_label_right("Linear filtering", th, cb);
             bool filter = m->s.linear_filter != 0;
             if (ImGui::Checkbox("##filter", &filter))
@@ -4201,7 +4201,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         row_label_right("Texture filtering", th, px(SETTINGS_CTRL_W));
         if (ImGui::Button(ui_text(launcher_model_texture_filter_label(m)), ImVec2(px(SETTINGS_CTRL_W), px(30))))
             launcher_model_toggle_texture_filter(m);
-    } else {
+    } else if (!m->profile || !m->profile->video.hide_legacy_filter) {
         row_label_right("Linear filtering", th, cb);
         bool filter = m->s.linear_filter != 0;
         if (ImGui::Checkbox("##filter", &filter)) launcher_model_toggle_filter(m);

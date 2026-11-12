@@ -30,6 +30,7 @@ int main(void) {
         assert(!has_panel(profile->panels_dashboard, "memcard"));
         assert(!game.has_bios && !game.has_renderer && !game.has_supersampling);
         assert(!game.widescreen_supported);
+        assert(profile->video.hide_legacy_filter);
         // A title may add capabilities without being inferred as PSX.
         game.has_renderer = 1;
         game.has_supersampling = 1;

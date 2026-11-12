@@ -1710,8 +1710,8 @@ typedef struct RecompLauncherCGameInfo {
                                           "SUPER NINTENDO". NULL => no subtitle. */
     const char*    theme;              /* built-in theme name: "psx" for the PlayStation look,
                                           NULL/other => default CRT-console theme. */
-    /* config.ini path for hotkeys and SNES launcher settings (surgical edits).
-     * NULL => "config.ini" in cwd (exe-anchored by main). SNES settings are
+    /* config.ini path for hotkeys and SNES/Wii launcher settings (surgical edits).
+     * NULL => "config.ini" in cwd (exe-anchored by main). These settings are
      * loaded and edited keys saved by recomp_launcher_run_window itself on
      * Play, Quit, and Relaunch, even if the host does not write the result.
      * Games pass their --config override here so all edits follow it.

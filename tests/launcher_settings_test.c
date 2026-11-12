@@ -161,6 +161,18 @@ int main(int argc, char** argv) {
     require(strcmp(result, untouched) == 0, "unavailable never writes");
     window_available = 1;
 
+    /* Wii explicitly uses this INI schema too, with capability gates intact. */
+    game.platform = "NINTENDO WII";
+    s = defaults(); edit = 0;
+    run(&game, &s);
+    require(observed.fullscreen == 2 && observed.volume == 37,
+            "Wii reloads its display and audio settings");
+    edit = 1; s = defaults(); run(&game, &s);
+    edit = 0; s = defaults(); run(&game, &s);
+    require(observed.fullscreen == 1 && observed.volume == 37,
+            "Wii persists edits through the shared launcher");
+    read_text(game.config_path, untouched, sizeof(untouched));
+
     /* A PSX host owns TOML; an unknown profile must not be guessed as SNES. */
     const char* platforms[] = {"PLAYSTATION", "SOMETHING ELSE", NULL};
     for (size_t i = 0; i < 3; ++i) {

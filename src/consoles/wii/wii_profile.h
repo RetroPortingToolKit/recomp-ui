@@ -30,7 +30,7 @@ static const SystemProfile kSystemProfileWii = {
     { SAVE_NONE, 0, NULL },
     // Per-title GameInfo capability flags remain authoritative. In particular
     // the profile does not enable widescreen or scaling on an unready host.
-    { 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0 },
+    { 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
     { 0, NULL },
     0, // Hosts expose only the hotkeys their runtime actually consumes.
     kPanelsDashboardCommon, kPanelsSettingsWii, kPanelsControllerCommon,

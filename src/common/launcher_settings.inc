@@ -1,4 +1,4 @@
-/* Settings edited by the SNES launcher belong to the launcher, including
+/* Settings edited by the SNES and Wii launchers belong to the launcher, including
  * when an older host returns immediately on Quit. Use the runtime's existing
  * INI keys so direct-ROM / SkipLauncher boots see the same saved preferences.
  * Do not serialize the ABI struct: it also contains transient netplay state
@@ -80,7 +80,9 @@ static int equal(const char* a, const char* b) {
 int launcher_settings_supported(const RecompLauncherCGameInfo* game) {
     /* Require the actual profile identity. A capability heuristic must never
      * decide that an unknown console's settings.toml is a SNES INI file. */
-    return game && game->platform && equal(game->platform, "SUPER NINTENDO");
+    return game && game->platform &&
+        (equal(game->platform, "SUPER NINTENDO") ||
+         equal(game->platform, "NINTENDO WII"));
 }
 
 static int offered(const Setting* setting, const RecompLauncherCGameInfo* game) {

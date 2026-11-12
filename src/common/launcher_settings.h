@@ -9,7 +9,7 @@ extern "C" {
 
 int launcher_settings_supported(const RecompLauncherCGameInfo* game);
 
-/* The SNES profile uses the established config.ini schema. Other profiles
+/* SNES and Wii profiles use the established config.ini schema. Other profiles
  * retain their host-owned formats. Missing/invalid keys keep host defaults.
  * Only player edits (relative to the initialized model) are written back. */
 void launcher_settings_load(RecompLauncherCSettings* settings,
