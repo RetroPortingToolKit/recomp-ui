@@ -992,6 +992,13 @@ void launcher_binds_set_button_slot(LauncherModel* m, int player, int b,
 }
 
 void launcher_binds_set_button(LauncherModel* m, int player, int b, int scancode) {
+    if (m && m->settings_bindings && !is_psx_profile(m)) {
+        if (player < 1 || player > LNG_MAX_PLAYERS || b < 0 ||
+            b >= launcher_model_active_button_count(m, player - 1) ||
+            scancode < 0 || scancode > 517) return;
+        m->s.player_key_bind[player - 1][b] = scancode;
+        return;
+    }
     if (is_n64_profile(m)) {
         // Keyboard capture into the N64 store routes through the field API
         // (slot 0) so there is exactly one write path for that store.
@@ -1050,6 +1057,18 @@ void launcher_binds_set_field(LauncherModel* m, int player, int b, int slot,
 void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
                                    int kind, int code, int axis_dir) {
     if (player < 1 || player > LNG_MAX_PLAYERS) return;
+    if (m && m->settings_bindings && !is_psx_profile(m)) {
+        if (b < 0 || b >= launcher_model_active_button_count(m, player - 1)) return;
+        int binding = 0;
+        if (kind == LNG_PADBIND_BUTTON && code >= 0 && code < 32)
+            binding = RECOMP_LAUNCHER_PAD_BUTTON(code);
+        else if (kind == LNG_PADBIND_AXIS && code >= 0 && code < 6 &&
+                 (axis_dir == -1 || axis_dir == 1))
+            binding = RECOMP_LAUNCHER_PAD_AXIS(code, axis_dir > 0);
+        else if (kind != LNG_PADBIND_NONE) return;
+        m->s.player_pad_bind[player - 1][b] = binding;
+        return;
+    }
     if (is_psx_profile(m)) {
         if (b < 0 || b >= LNG_PSX_PAD_BUTTON_COUNT) return;
         const char* guid = psx_player_guid(m, player);
@@ -1455,6 +1474,11 @@ int launcher_binds_psx_name_is_custom(const char* guid) {
 }
 
 void launcher_binds_reset_player(LauncherModel* m, int player) {
+    if (m && m->settings_bindings && !is_psx_profile(m)) {
+        if (player >= 1 && player <= LNG_MAX_PLAYERS)
+            launcher_model_reset_player_bindings(m, player - 1);
+        return;
+    }
     if (is_n64_profile(m)) {
         if (player < 1 || player > LNG_MAX_PLAYERS) return;
         // Reset the half the page is showing, and only that half: a player on

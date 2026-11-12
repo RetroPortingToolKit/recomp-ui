@@ -33,6 +33,8 @@ static void run(const char *keybinds, int host_owned, int wii) {
     gi.name = "Test";
     gi.settings_bindings = host_owned;
     gi.keybinds_path = keybinds;
+    io.player_key_bind[0][4] = 27;
+    gi.default_settings = &io;
     static const char *const patterns[] = { "*.fds", "*.qd" };
     gi.rom_patterns = patterns;
     gi.num_rom_patterns = 2;
@@ -48,6 +50,18 @@ static void run(const char *keybinds, int host_owned, int wii) {
     launcher_binds_refresh_camera(&m);
     launcher_binds_set_camera(&m, 0, 4);
     launcher_binds_reset_camera(&m);
+    if (wii && host_owned) {
+        /* These are the real handlers the UI event path calls. */
+        launcher_binds_set_button(&m, 1, 4, 9);
+        launcher_binds_set_pad_button(&m, 1, 4, LNG_PADBIND_AXIS, 0, -1);
+        assert(m.s.player_key_bind[0][4] == 9);
+        assert(m.s.player_pad_bind[0][4] == RECOMP_LAUNCHER_PAD_AXIS(0, 0));
+        launcher_binds_set_button(&m, 1, 4, 0);
+        launcher_binds_set_pad_button(&m, 1, 4, LNG_PADBIND_NONE, 0, 0);
+        assert(!m.s.player_key_bind[0][4] && !m.s.player_pad_bind[0][4]);
+        launcher_binds_reset_player(&m, 1);
+        assert(m.s.player_key_bind[0][4] == 27);
+    }
 }
 
 int main(int argc, char **argv) {
