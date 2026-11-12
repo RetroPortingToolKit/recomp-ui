@@ -44,6 +44,7 @@ assert_console_asset_names(
 assert_console_asset_names(
     nds
     "brand_nds.tga;pad_nds.tga")
+assert_console_asset_names(wii "")
 
 _recomp_ui_resolve_console_assets(_gb_assets gb)
 _recomp_ui_resolve_console_assets(_gbc_assets gbc)

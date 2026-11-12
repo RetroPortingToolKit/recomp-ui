@@ -76,11 +76,17 @@ sets `RECOMP_UI_SDL3=ON` or supplies the ecosystem-level
 and the definitions produced on the target.
 
 `CONSOLE` is required and selects the runtime asset manifest for that target:
-`psx`, `snes`, `n64`, `nes`, `gba`, `genesis`, `gb`, or `gbc`. Common fonts
+`psx`, `snes`, `n64`, `nes`, `gba`, `genesis`, `gb`, `gbc`, `nds`, or `wii`. Common fonts
 and launcher chrome are always included; controller, brand, memory-card, and
 cartridge art comes only from the selected console family. `CONSOLE all` is
 reserved for targets that intentionally switch between multiple console
 profiles, such as recomp-ui's standalone preview.
+
+The Wii profile provides the sideways Wii Remote button set and the shared
+host binding settings. Hosts supply verified title paths and own their NAND
+saves; the profile omits SRAM, memory-card and BIOS controls. Video enhancements
+remain per-title capabilities. `CONSOLE wii` stages common fonts and chrome;
+remote art at `assets/consoles/wii/img/pad_wii.tga` is optional.
 
 The schema-driven Mods view is developer opt-in. Configure the consuming build
 with `-DRECOMP_UI_ENABLE_MODS=ON`, then provide a non-null

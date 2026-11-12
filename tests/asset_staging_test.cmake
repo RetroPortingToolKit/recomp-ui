@@ -1,6 +1,9 @@
 if(NOT ASSET_DIR)
     message(FATAL_ERROR "ASSET_DIR is required")
 endif()
+if(NOT CONSOLE)
+    set(CONSOLE psx)
+endif()
 
 file(GLOB _font_paths "${ASSET_DIR}/fonts/*")
 file(GLOB _image_paths "${ASSET_DIR}/img/*")
@@ -24,15 +27,16 @@ set(_expected_fonts
     OpenMoji-black-glyf.ttf)
 set(_expected_images
     brand_mark.tga
-    brand_psx.tga
     flags.png
-    memcard.tga
-    pad_analog.tga
-    pad_digital.tga
     verdict_bad.tga
     verdict_none.tga
     verdict_ok.tga
     verdict_warn.tga)
+if(CONSOLE STREQUAL "psx")
+    list(APPEND _expected_images brand_psx.tga memcard.tga pad_analog.tga pad_digital.tga)
+elseif(NOT CONSOLE STREQUAL "wii")
+    message(FATAL_ERROR "Unsupported staging test console: ${CONSOLE}")
+endif()
 
 list(SORT _font_names)
 list(SORT _image_names)
@@ -41,15 +45,15 @@ list(SORT _expected_images)
 
 if(NOT "${_font_names}" STREQUAL "${_expected_fonts}")
     message(FATAL_ERROR
-        "PSX staged font set mismatch.\n"
+        "${CONSOLE} staged font set mismatch.\n"
         "  expected: ${_expected_fonts}\n"
         "  actual:   ${_font_names}")
 endif()
 if(NOT "${_image_names}" STREQUAL "${_expected_images}")
     message(FATAL_ERROR
-        "PSX staged image set mismatch.\n"
+        "${CONSOLE} staged image set mismatch.\n"
         "  expected: ${_expected_images}\n"
         "  actual:   ${_image_names}")
 endif()
 
-message(STATUS "PSX target staged only common and PlayStation assets")
+message(STATUS "${CONSOLE} target staged only its selected runtime assets")

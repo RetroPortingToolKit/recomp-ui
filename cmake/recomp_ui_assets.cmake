@@ -69,7 +69,13 @@ set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/pad_nds.tga"
     "${RUI_ASSETS}/consoles/nds/img/brand_nds.tga")
 
-set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds)
+# Remote art is optional until a host supplies it. Shared fonts and chrome
+# still form a complete Wii launcher; never stage another console's pad.
+set(_RUI_CONSOLE_ASSETS_wii)
+set(_RUI_CONSOLE_OPTIONAL_ASSETS_wii
+    "${RUI_ASSETS}/consoles/wii/img/pad_wii.tga")
+
+set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds wii)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
 function(_recomp_ui_resolve_console_assets OUT_VAR CONSOLE)
