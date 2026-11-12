@@ -17,7 +17,7 @@ int main() {
     const auto check = [&](bool value, const char* what) {
         if (!value) { std::cerr << "FAIL: " << what << '\n'; ++failures; }
     };
-    const std::string path = folder.u8string();
+    const std::string path = launcher_directory_utf8(folder);
     check(launcher_directory_url(path.c_str(), url, error), "Unicode folder opens");
     check(url.find("folder%20space%20%23%20%25%20%E6%97%A5%E6%9C%AC") != std::string::npos,
           "UTF-8, space, hash and percent bytes are escaped");
@@ -39,15 +39,15 @@ int main() {
 #endif
     const fs::path original = fs::current_path();
     fs::current_path(root);
-    const std::string relative = folder.filename().u8string();
+    const std::string relative = launcher_directory_utf8(folder.filename());
     check(launcher_directory_url(relative.c_str(), url, error), "relative directory is resolved");
     check(url.compare(0, 8, "file:///") == 0, "relative path produces absolute file URL");
     fs::current_path(original);
     const fs::path file = root / "file.txt";
     std::ofstream(file) << "test";
-    check(!launcher_directory_url(file.u8string().c_str(), url, error) && !error.empty(),
+    check(!launcher_directory_url(launcher_directory_utf8(file).c_str(), url, error) && !error.empty(),
           "plain file is refused");
-    check(!launcher_directory_url((root / "missing").u8string().c_str(), url, error) && !error.empty(),
+    check(!launcher_directory_url(launcher_directory_utf8(root / "missing").c_str(), url, error) && !error.empty(),
           "missing directory is refused");
     check(!launcher_directory_url(nullptr, url, error) && !error.empty(), "empty input is refused");
     check(!launcher_directory_url("\xff", url, error), "invalid UTF-8 is handled without throwing");

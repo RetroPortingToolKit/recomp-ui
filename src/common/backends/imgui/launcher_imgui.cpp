@@ -8783,7 +8783,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const bool pressed =
                     ImGui::Button("##kick", ImVec2(kick_btn, kick_btn));
                 {
-                    const char* boot = u8"\U0001F97E";
+                    const char* boot = "\xF0\x9F\xA5\xBE";
                     const ImVec2 rmin = ImGui::GetItemRectMin();
                     const ImVec2 rmax = ImGui::GetItemRectMax();
                     const ImVec2 ts = ImGui::CalcTextSize(boot);
@@ -8804,7 +8804,7 @@ static void draw_lobby_seat_row(LauncherModel* m,
                 const ImVec2 rmax = ImGui::GetItemRectMax();
                 dl->AddRect(rmin, rmax, ImGui::GetColorU32(ImGuiCol_Border),
                             ImGui::GetStyle().FrameRounding);
-                const char* boot = u8"\U0001F97E";
+                const char* boot = "\xF0\x9F\xA5\xBE";
                 const ImVec2 ts = ImGui::CalcTextSize(boot);
                 dl->AddText(ImVec2((rmin.x + rmax.x - ts.x) * 0.5f,
                                    (rmin.y + rmax.y - ts.y) * 0.5f),

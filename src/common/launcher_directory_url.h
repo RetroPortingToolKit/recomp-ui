@@ -7,12 +7,18 @@
 
 /* Encode a resolved directory path without probing it. Keeping this lexical
  * step separate lets callers test UNC URLs without contacting a share. */
+inline std::string launcher_directory_utf8(const std::filesystem::path& path) {
+    const auto bytes = path.u8string();
+    // C++20 uses char8_t here; both language modes carry the same UTF-8 bytes.
+    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+}
+
 inline std::string launcher_directory_path_url(const std::filesystem::path& path) {
-    std::string bytes = path.lexically_normal().u8string();
+    std::string bytes = launcher_directory_utf8(path.lexically_normal());
 #if defined(_WIN32)
     // generic_u8string can collapse a UNC prefix on MinGW. Keep native UTF-8
     // and normalize separators ourselves before identifying the URL authority.
-    const std::string native = path.u8string();
+    const std::string native = launcher_directory_utf8(path);
     const auto separator = [](char c) { return c == '/' || c == '\\'; };
     const bool unc = native.size() >= 2 && separator(native[0]) && separator(native[1]);
     std::replace(bytes.begin(), bytes.end(), '\\', '/');
