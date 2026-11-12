@@ -56,7 +56,7 @@ extern "C" {
  * rom_describe (RecompLauncherCRomRevision). */
 #define RECOMP_LAUNCHER_HAS_ROM_REVISIONS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
-#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
+#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 16
 #define RECOMP_LAUNCHER_HAS_MOD_RESOURCE_IMPORT 1
 
 /* Portable encoding used by host-owned controller bindings. Button and axis
