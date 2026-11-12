@@ -29,11 +29,14 @@ static bool  g_active = false;
 bool launcher_debug_active(void) { return g_active; }
 
 void launcher_debug_init(void) {
+    g_cmd_count = 0;
+    g_cmd_index = 0;
+    g_wait_frames = 0;
+    g_active = false;
     const char* s = SDL_getenv("LNG_SCRIPT");
     if (!s || !s[0]) return;
 
     snprintf(g_script, sizeof(g_script), "%s", s);
-    g_cmd_count = 0;
     char* tok = strtok(g_script, ";");
     while (tok && g_cmd_count < LNG_MAX_CMDS) {
         while (*tok == ' ') ++tok;          // trim leading spaces
