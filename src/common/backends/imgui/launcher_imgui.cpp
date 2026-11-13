@@ -358,6 +358,7 @@ bool download_icon_button(const char* id, float side, bool enabled,
 // g_th moved to external linkage above the anonymous namespace (see note).
 
 LauncherTexture g_boxart, g_pad, g_pad_analog, g_pad_digital, g_brand, g_memcard;
+LauncherTexture g_steam_icon;
 // Optional platform wordmark (SystemProfile.wordmark_image) — rendered in the
 // header instead of the platform text when the asset is present. Absent => text.
 LauncherTexture g_wordmark;
@@ -12837,8 +12838,23 @@ static std::filesystem::path s_steam_target;
 static std::string s_steam_message;
 static int s_steam_account = -1;
 static bool s_steam_done = false;
+static bool s_steam_hidden = false;
+static bool s_steam_visibility_initialized = false;
+
+static bool steam_button_visible() {
+    if (!s_steam_visibility_initialized) {
+        s_steam_visibility_initialized = true;
+        try {
+            s_steam_hidden = launcher_steam::launched_from_steam() ||
+                launcher_steam::locally_added(launcher_steam::executable(), g_launcher_config_path);
+        } catch (...) { s_steam_hidden = true; }
+    }
+    return !s_steam_hidden;
+}
 
 static void refresh_steam() {
+    const auto previous = s_steam_account >= 0 && s_steam_account < static_cast<int>(s_steam_accounts.size())
+        ? s_steam_accounts[s_steam_account].shortcuts : std::filesystem::path{};
     s_steam_accounts.clear();
     s_steam_target.clear();
     s_steam_message.clear();
@@ -12847,9 +12863,25 @@ static void refresh_steam() {
     try {
         s_steam_target = launcher_steam::executable();
         s_steam_accounts = launcher_steam::accounts();
+        for (size_t i = 0; i < s_steam_accounts.size(); ++i) {
+            if (s_steam_accounts[i].shortcuts == previous ||
+                (s_steam_account < 0 && s_steam_accounts[i].most_recent))
+                s_steam_account = static_cast<int>(i);
+        }
         if (s_steam_accounts.size() == 1) s_steam_account = 0;
         if (s_steam_accounts.empty())
-            s_steam_message = ui_text("No Steam account found. Install Steam and sign in once, then try again.");
+            s_steam_message = ui_text("No named Steam profile found. Sign in to Steam once, then refresh.");
+    } catch (const std::exception& e) { s_steam_message = e.what(); }
+}
+
+static void add_steam_shortcut(LauncherModel* m) {
+    try {
+        const bool added = launcher_steam::add(s_steam_accounts[s_steam_account],
+            m->game_name ? m->game_name : "Game", s_steam_target);
+        s_steam_done = s_steam_hidden = true;
+        s_steam_message = added ? ui_text("Added. Open Steam to play from your library.")
+                               : ui_text("This game is already in your Steam library.");
+        (void)launcher_steam::remember_added(s_steam_target, g_launcher_config_path);
     } catch (const std::exception& e) { s_steam_message = e.what(); }
 }
 
@@ -12867,7 +12899,7 @@ static void draw_steam_dialog(LauncherModel* m) {
         if (!s_steam_accounts.empty() && !s_steam_done) {
             ImGui::Spacing();
             const char* label = s_steam_account >= 0
-                ? s_steam_accounts[s_steam_account].label.c_str() : ui_text("Choose a Steam account");
+                ? s_steam_accounts[s_steam_account].label.c_str() : ui_text("Choose your Steam profile");
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##steam_account", label)) {
                 for (size_t i = 0; i < s_steam_accounts.size(); ++i) {
@@ -12887,13 +12919,7 @@ static void draw_steam_dialog(LauncherModel* m) {
         if (!s_steam_done) {
             ImGui::BeginDisabled(s_steam_account < 0 || s_steam_target.empty());
             if (ImGui::Button(ui_text("Add to Steam"))) {
-                try {
-                    const bool added = launcher_steam::add(s_steam_accounts[s_steam_account],
-                        m->game_name ? m->game_name : "Game", s_steam_target);
-                    s_steam_message = added ? ui_text("Added. Open Steam to play from your library.")
-                                            : ui_text("This game is already in your Steam library.");
-                    s_steam_done = true;
-                } catch (const std::exception& e) { s_steam_message = e.what(); }
+                add_steam_shortcut(m);
             }
             ImGui::EndDisabled();
             ImGui::SameLine();
@@ -12914,7 +12940,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const float  play_w = px(210), play_h = px(46);
 #if defined(_WIN32) || defined(__linux__)
     const bool steam_action = m->view == LNG_VIEW_DASHBOARD &&
-                              !m->in_session && m->steam_shortcut_enabled;
+                              !m->in_session && m->steam_shortcut_enabled && steam_button_visible();
 #else
     const bool steam_action = false;
 #endif
@@ -12934,7 +12960,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (m->view == LNG_VIEW_DASHBOARD) {
         bool skip = m->s.skip_launcher != 0;
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
-        const bool compact_skip = steam_action && m->netplay_supported && fullw < px(700);
+        const bool compact_skip = m->netplay_supported && fullw < px(700);
         if (ImGui::Checkbox(ui_text(compact_skip ? "Skip launcher" : "Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
         if (compact_skip && ImGui::IsItemHovered())
@@ -13184,8 +13210,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         (m->view == LNG_VIEW_DASHBOARD || m->view == LNG_VIEW_SETTINGS ||
          m->view == LNG_VIEW_CONTROLLER)) {
         const float net_w = px(170.0f);
-        ImGui::SetCursorScreenPos(ImVec2(play_x - net_w - px(12.0f) -
-                                       (steam_action ? px(44) : 0), cta_y));
+        ImGui::SetCursorScreenPos(ImVec2(play_x - net_w - px(12.0f), cta_y));
         if (ImGui::Button(ui_text("NETPLAY"), ImVec2(net_w, play_h))) {
             /* The fork first. Connecting used to start here, which meant a LAN
              * player dialled a lobby server they were never going to use --
@@ -13201,22 +13226,19 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 
 #if defined(_WIN32) || defined(__linux__)
     if (steam_action) {
-        ImGui::SetCursorScreenPos(ImVec2(play_x - px(44), cta_y + (play_h - px(32)) * 0.5f));
-        if (ImGui::Button("##launcher_more", ImVec2(px(32), px(32))))
-            ImGui::OpenPopup("##launcher_more_menu");
-        const ImVec2 dot_origin = ImGui::GetItemRectMin();
-        for (int i = -1; i <= 1; ++i)
-            ImGui::GetWindowDrawList()->AddCircleFilled(
-                ImVec2(dot_origin.x + px(16 + 6 * i), dot_origin.y + px(16)),
-                px(1.5f), imcol(th.text_muted));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ui_text("More actions"));
-        if (ImGui::BeginPopup("##launcher_more_menu")) {
-            if (ImGui::MenuItem(ui_text("Add to Steam..."))) {
-                refresh_steam();
-                m->steam_shortcut_open = true;
-            }
-            ImGui::EndPopup();
+        const float left_of = play_x - (m->netplay_supported ? px(182) : 0);
+        ImGui::SetCursorScreenPos(ImVec2(left_of - px(44), cta_y + (play_h - px(32)) * 0.5f));
+        if (ImGui::Button("##add_to_steam", ImVec2(px(32), px(32)))) {
+            refresh_steam();
+            if (s_steam_accounts.size() == 1 && !s_steam_target.empty()) add_steam_shortcut(m);
+            m->steam_shortcut_open = true;
         }
+        const ImVec2 icon = ImGui::GetItemRectMin();
+        if (g_steam_icon.id)
+            ImGui::GetWindowDrawList()->AddImage(tid(g_steam_icon),
+                ImVec2(icon.x + px(5), icon.y + px(5)),
+                ImVec2(icon.x + px(27), icon.y + px(27)));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ui_text("Add to Steam"));
     }
 #endif
 
@@ -15111,6 +15133,9 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     g_boxart = launcher_texture_load(
         asset(m->boxart_path && m->boxart_path[0] ? m->boxart_path
                                                   : "assets/img/boxart.tga").c_str());
+    g_steam_icon = m->steam_shortcut_enabled
+        ? launcher_texture_load(asset("assets/img/steam.tga").c_str()) : LauncherTexture{};
+    s_steam_hidden = s_steam_visibility_initialized = false;
     // Controller art comes from the active SystemProfile's ControllerSpec —
     // never hardcoded console filenames in this common backend. Conventions:
     // a 32-bit TGA carries real alpha -> the plain alpha-respecting loader;
@@ -15445,6 +15470,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     launcher_input_shutdown();
     launcher_boot_timing_mark("rui:input_closed");
     launcher_texture_free(&g_boxart);
+    launcher_texture_free(&g_steam_icon);
     launcher_texture_free(&g_pad);
     launcher_texture_free(&g_pad_analog);
     launcher_texture_free(&g_pad_digital);

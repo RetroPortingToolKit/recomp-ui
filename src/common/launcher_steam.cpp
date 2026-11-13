@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <system_error>
@@ -195,20 +196,119 @@ bool append_shortcut(std::string& bytes, const std::string& name, const fs::path
     return true;
 }
 
+namespace {
+struct Login { std::string name, login; bool recent = false; };
+/* loginusers.vdf is a small text KeyValues file. Read quoted/escaped UTF-8
+ * names, comments and nested blocks without assuming display names are IDs. */
+class LoginReader {
+    const std::string& data;
+    size_t pos = 0;
+public:
+    explicit LoginReader(const std::string& s) : data(s) {
+        if (s.compare(0, 3, "\xef\xbb\xbf") == 0) pos = 3;
+    }
+    std::string token() {
+        for (;;) {
+            while (pos < data.size() && std::isspace(static_cast<unsigned char>(data[pos]))) ++pos;
+            if (data.compare(pos, 2, "//") != 0) break;
+            pos = data.find('\n', pos);
+            if (pos == std::string::npos) { pos = data.size(); return {}; }
+        }
+        if (pos == data.size()) return {};
+        char c = data[pos++];
+        if (c == '{' || c == '}') return std::string(1, c);
+        std::string out;
+        if (c != '"') {
+            out += c;
+            while (pos < data.size() && !std::isspace(static_cast<unsigned char>(data[pos])) &&
+                   data[pos] != '{' && data[pos] != '}') out += data[pos++];
+            return out;
+        }
+        while (pos < data.size()) {
+            c = data[pos++];
+            if (c == '"') return out;
+            if (c == '\\' && pos < data.size()) {
+                c = data[pos++];
+                if (c == 'n') c = '\n';
+                else if (c == 't') c = '\t';
+                else if (c != '\\' && c != '"') out += '\\';
+            }
+            out += c;
+        }
+        fail("Incomplete Steam profile names file.");
+    }
+    void skip_block(int depth = 0) {
+        if (depth > 32) fail("Steam profile names are nested too deeply.");
+        for (;;) {
+            auto t = token();
+            if (t.empty()) fail("Incomplete Steam profile names file.");
+            if (t == "}") return;
+            if (t == "{") skip_block(depth + 1);
+        }
+    }
+};
+
+std::map<std::string, Login> login_names(const fs::path& root) {
+    std::map<std::string, Login> names;
+    try {
+        auto text = read(root / "config/loginusers.vdf");
+        LoginReader r(text);
+        if (lower(r.token()) != "users" || r.token() != "{") return names;
+        for (;;) {
+            auto id = r.token();
+            if (id.empty() || id == "}") break;
+            if (r.token() != "{") break;
+            Login profile;
+            for (;;) {
+                auto key = lower(r.token());
+                if (key == "}") break;
+                if (key.empty()) fail("Incomplete Steam profile names file.");
+                auto value = r.token();
+                if (value == "{") { r.skip_block(); continue; }
+                if (key == "personaname") profile.name = value;
+                else if (key == "accountname") profile.login = value;
+                else if (key == "mostrecent") profile.recent = value == "1";
+            }
+            if (profile.name.empty()) profile.name = profile.login;
+            if (profile.name.empty() || id.size() > 20 ||
+                !std::all_of(id.begin(), id.end(), [](unsigned char c) { return c >= '0' && c <= '9'; })) continue;
+            names[std::to_string(static_cast<uint32_t>(std::stoull(id)))] = std::move(profile);
+        }
+    } catch (...) { /* Unidentifiable profiles are not offered as opaque IDs. */ }
+    return names;
+}
+}
+
 std::vector<Account> accounts_in(const std::vector<fs::path>& roots) {
     std::vector<Account> result;
-    std::set<fs::path> seen;
+    std::vector<fs::path> seen;
     for (const auto& root : roots) {
         std::error_code ec;
         auto userdata = fs::weakly_canonical(root / "userdata", ec);
-        if (ec || !fs::is_directory(userdata, ec) || !seen.insert(userdata).second) continue;
+        if (ec || !fs::is_directory(userdata, ec)) continue;
+        bool duplicate = false;
+        for (const auto& prior : seen) {
+            if (fs::equivalent(userdata, prior, ec)) { duplicate = true; break; }
+        }
+        if (duplicate) continue;
+        seen.push_back(userdata);
+        const auto names = login_names(root);
         for (const auto& dir : fs::directory_iterator(userdata)) {
             auto id = utf8(dir.path().filename());
             if (id == "0" || !numeric(id) || !dir.is_directory()) continue;
-            result.push_back({"Steam account " + id +
+            auto profile = names.find(std::to_string(std::stoull(id)));
+            if (profile == names.end()) continue;
+            result.push_back({profile->second.name +
                               (utf8(root).find("com.valvesoftware.Steam") != std::string::npos ? " (Flatpak)" : ""),
-                              dir.path() / "config" / "shortcuts.vdf"});
+                              dir.path() / "config" / "shortcuts.vdf",
+                              profile->second.recent, profile->second.login});
         }
+    }
+    std::map<std::string, size_t> label_counts;
+    for (const auto& account : result) ++label_counts[account.label];
+    for (auto& account : result) {
+        if (label_counts[account.label] > 1 && !account.login_name.empty())
+            account.label += " (" + account.login_name + ")";
     }
     std::sort(result.begin(), result.end(), [](const Account& a, const Account& b) { return a.label < b.label; });
     return result;
@@ -264,6 +364,34 @@ fs::path executable() {
 #else
     fail("Add to Steam is supported on Windows and Linux.");
 #endif
+}
+
+bool launched_from_steam() {
+    for (const char* key : {"SteamAppId", "SteamGameId", "SteamOverlayGameId"}) {
+        const char* value = std::getenv(key);
+        if (value && *value) return true;
+    }
+    return false;
+}
+
+static fs::path marker_path(const char* config_path) {
+    return fs::absolute(from_utf8(config_path && *config_path ? config_path : "config.ini"))
+        .parent_path() / ".recomp-ui-steam-added";
+}
+
+bool locally_added(const fs::path& target, const char* config_path) {
+    std::ifstream f(marker_path(config_path), std::ios::binary);
+    std::string stored;
+    return std::getline(f, stored) && same_target(stored, target);
+}
+
+bool remember_added(const fs::path& target, const char* config_path) {
+    const auto path = marker_path(config_path);
+    fs::create_directories(path.parent_path());
+    std::ofstream f(path, std::ios::binary);
+    f << utf8(target) << '\n';
+    f.flush();
+    return bool(f);
 }
 
 bool running() {
