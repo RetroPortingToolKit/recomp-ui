@@ -81,18 +81,20 @@ bool launcher_capture_png(const char* path, int w, int h) {
     return ok != 0;
 }
 
-// Synthesize a click at logical window coords: warp the cursor (so backends
-// that sample SDL_GetMouseState see it) and push button events (so backends
-// that consume the event queue see it). Covers both ImGui and Clay.
+// Synthesize window-local events. Visible windows also update SDL's mouse
+// position for backends that sample it; hidden tests use queued events only.
 static void synth_click(LauncherPlatform* p, float x, float y) {
+    /* Hidden tests deliver events only to their own window. Warping a hidden
+     * window's mouse can still move the owner's desktop pointer. */
+    const bool hidden = (SDL_GetWindowFlags(p->window) & SDL_WINDOW_HIDDEN) != 0;
 #if defined(LNG_SDL3)
-    SDL_WarpMouseInWindow(p->window, x, y);
+    if (!hidden) SDL_WarpMouseInWindow(p->window, x, y);
 #else
     // SDL2 stores mouse coordinates as integers. Make its existing truncation
     // behavior explicit while preserving SDL3's subpixel coordinates.
     const int event_x = (int)x;
     const int event_y = (int)y;
-    SDL_WarpMouseInWindow(p->window, event_x, event_y);
+    if (!hidden) SDL_WarpMouseInWindow(p->window, event_x, event_y);
 #endif
 
     SDL_Event e;
@@ -129,7 +131,7 @@ static void synth_click(LauncherPlatform* p, float x, float y) {
     SDL_PushEvent(&e);
 }
 
-static void synth_key(SDL_Keycode key) {
+static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
     SDL_Scancode sc = SDL_GetScancodeFromKey(key
 #if defined(LNG_SDL3)
         , NULL
@@ -137,6 +139,7 @@ static void synth_key(SDL_Keycode key) {
         );
     SDL_Event e;
     SDL_zero(e);
+    e.key.windowID = SDL_GetWindowID(p->window);
     e.type = SDL_EVENT_KEY_DOWN;
 #if defined(LNG_SDL3)
     e.key.key = key;
@@ -219,10 +222,10 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         float x = 0, y = 0;
         if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);
     } else if (strncmp(c, "key:", 4) == 0) {
-        if (strcmp(c + 4, "escape") == 0) synth_key(SDLK_ESCAPE);
+        if (strcmp(c + 4, "escape") == 0) synth_key(p, SDLK_ESCAPE);
         else {
             SDL_Keycode k = SDL_GetKeyFromName(c + 4);
-            if (k != SDLK_UNKNOWN) synth_key(k);
+            if (k != SDLK_UNKNOWN) synth_key(p, k);
             else fprintf(stderr, "[dbg] unknown key: %s\n", c + 4);
         }
     } else if (strncmp(c, "text:", 5) == 0) {
