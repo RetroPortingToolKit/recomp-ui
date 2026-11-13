@@ -36,6 +36,7 @@
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
 #include "consoles/vb/vb_profile.h"
+#include "consoles/cdi/cdi_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,6 +76,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (launcher_console_is_gbc(name))  return &kSystemProfileGbc;
     if (launcher_console_is_gb(name))   return &kSystemProfileGb;
     if (launcher_console_is_nds(name))  return &kSystemProfileNds;
+    if (launcher_console_is_cdi(name))  return &kSystemProfileCdi;
     if (lps_streq_ci(name, "smsgg") || lps_streq_ci(name, "sms") || lps_streq_ci(name, "gg"))
         return &kSystemProfile_smsgg;
     if (lps_streq_ci(name, "vb") || lps_streq_ci(name, "virtualboy")) return &kSystemProfile_vb;
@@ -90,6 +92,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
 // or the legacy/SNES-shaped minimal surface).
 static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGameInfo* gi) {
     if (gi && gi->platform && gi->platform[0]) {
+        if (lps_streq_ci(gi->platform, "PHILIPS CD-I")) return &kSystemProfileCdi;
         if (lps_streq_ci(gi->platform, "PLAYSTATION"))       return &kSystemProfilePsx;
         if (lps_streq_ci(gi->platform, "SUPER NINTENDO"))    return &kSystemProfileSnes;
         if (lps_streq_ci(gi->platform, "NINTENDO 64"))       return &kSystemProfileN64;

@@ -111,7 +111,13 @@ typedef struct {
 // placeholder verdict from available facts instead, so the disc-verdict UI
 // always has something real to render even before a host wires this up.
 typedef bool (*VerifyProbeFn)(const LauncherModel* m, VerifyResult* out);
-typedef struct { int mode; /* 0 rom-hash, 1 disc-verdict */ VerifyProbeFn probe; } VerifySpec;
+typedef struct {
+    int mode; /* 0 rom-hash, 1 disc-verdict */
+    VerifyProbeFn probe;
+    // Complete-image verification without PlayStation serial/SBI metadata.
+    // The host's iso_ok field reports whether the supported image matches.
+    int image_hash_only;
+} VerifySpec;
 
 // ---- Hotkeys module: a bitmask over LngHotkey (launcher_model.h) --------------
 // The first 11 entries are the universal catalog. Capability-specific rows

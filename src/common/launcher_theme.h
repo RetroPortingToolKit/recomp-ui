@@ -283,7 +283,30 @@ static inline LauncherTheme launcher_theme_gbc(void) {
 // 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis;
 // anything else -> default CRT). Note the "gb*" order: match "gba" and "gbc"
 // (3rd char) BEFORE the bare "gb" fallback.
+static inline LauncherTheme launcher_theme_cdi(void) {
+    LauncherTheme t = launcher_theme_default();
+    t.background = lng_rgba(.025f,.043f,.059f,1.f);
+    t.background2 = lng_rgba(.043f,.086f,.106f,1.f);
+    t.panel = lng_rgba(.055f,.098f,.122f,1.f);
+    t.panel_hovered = lng_rgba(.075f,.149f,.176f,1.f);
+    t.control = lng_rgba(.075f,.133f,.157f,1.f);
+    t.control_hovered = lng_rgba(.102f,.192f,.220f,1.f);
+    t.border = lng_rgba(.153f,.267f,.298f,1.f);
+    t.accent = lng_rgba(.290f,.855f,.784f,1.f);
+    t.accent_dim = lng_rgba(.161f,.647f,.592f,1.f);
+    t.accent_text = lng_rgba(.020f,.082f,.086f,1.f);
+    t.accent2 = lng_rgba(.941f,.757f,.388f,1.f);
+    t.text = lng_rgba(.937f,.957f,.949f,1.f);
+    t.text_muted = lng_rgba(.580f,.694f,.706f,1.f);
+    t.focus_ring = t.accent2;
+    t.scanlines = 0;
+    return t;
+}
+
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if (name && (name[0]=='c' || name[0]=='C') &&
+        (name[1]=='d' || name[1]=='D') && (name[2]=='i' || name[2]=='I') && !name[3])
+        return launcher_theme_cdi();
     if (name && (name[0] == 'p' || name[0] == 'P') &&
         (name[1] == 's' || name[1] == 'S'))
         return launcher_theme_psx();
