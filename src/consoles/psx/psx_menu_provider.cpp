@@ -26,15 +26,17 @@ const PsxMenuHost *g_host = nullptr;
 RecompRuntimeUi *g_ui = nullptr;
 PsxHostVideoSettings g_video{};    // the menu's working copy, from video_get
 unsigned g_restart = 0;            // restart-only edits made while open
+constexpr unsigned kSessionRestart = 1u << 16;  // a session row saved for the restart
+bool g_restart_armed = false;      // Restart game: the first press asks again
 bool g_pause_in_menu = true;
 bool g_paused = false;
 int g_disc = 1;
 char g_status[160];
 char g_subtitle[96];
 
-// Texture filtering, FMV filtering and smoothing are not menu rows: they are
-// psxrecomp's Image Filtering mod (its options on the Mods page), like the
-// rest of the game's look.
+// The game's look comes from the runtime's look rows (psxrecomp's bundled
+// mods and [video] settings) when it has them; FMV filtering stays on the
+// Mods page.
 const char* const kRenderers[] = {"Software", "OpenGL", "Vulkan"};
 const int kRendererValues[] = {0, 1, 2};
 const char* const kVsync[] = {"Off", "On", "Adaptive", "VRR"};
@@ -65,6 +67,81 @@ RecompRuntimeUiItem g_extra[] = {
      RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
 };
 
+// Session rows: only when the runtime offers them (PsxMenuHost session_*).
+const char *const kPortChoices[] = {"Port 1", "Port 2"};
+const char *const kIresChoices[] = {"1x (Native)", "2x", "3x", "4x", "5x", "6x", "8x"};
+const char *const kAaChoices[] = {"Off", "FXAA", "FXAA (high quality)"};
+const char *const kSmoothChoices[] = {"Game default", "Smooth", "Sharp"};
+const char *const kTextureChoices[] = {"Game default", "Nearest", "Bilinear", "xBR"};
+const char *const kDitherChoices[] = {"Off (true colour)", "Console", "Fine"};
+enum { REINSERT, CONTROLLER_PORT, LOOK_FIRST };
+const RecompRuntimeUiItem g_session_rows[] = {
+    {"media.reinsert", "Disc", "Reinsert current disc", "Open and close the lid with the same disc.",
+     RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
+    {"input.controller_port", "Input", "Controller 1 port",
+     "Move controller 1 to console port 2 or back, as if the plug were moved. Some games ask for it.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, kPortChoices, 2, nullptr},
+    // Look rows: only when the runtime has them (PSX_MENU_HOST_HAS_LOOK_ROWS).
+    {"system.restart_game", "System", "Restart game",
+     "Reset the console: the game starts again from its boot screen. Unsaved progress is lost.",
+     RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr},
+    {"graphics.internal_resolution", "Graphics", "Internal resolution",
+     "Render the 3D picture at a higher scale. Higher is sharper and uses more GPU.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 6, 1, kIresChoices, 7, nullptr},
+    {"graphics.pgxp", "Graphics", "PGXP precision",
+     "Steadier 3D: polygons stop wobbling and textures stop warping. Applies with a quick restart.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"graphics.antialiasing", "Graphics", "Antialiasing",
+     "Smooth jagged edges of the finished picture.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1, kAaChoices, 3, nullptr},
+    {"graphics.crt_filter", "Graphics", "CRT filter",
+     "A period TV look (colour and scanlines). Applies with a quick restart.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"display.scanlines", "Display", "Scanlines",
+     "Dark gaps between display lines, like a CRT. Uses the CRT filter.",
+     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr},
+    {"display.smoothing", "Display", "Smoothing",
+     "How the picture is scaled to the window: Smooth blends pixels, Sharp keeps hard edges.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1, kSmoothChoices, 3, nullptr},
+    {"display.texture_filtering", "Display", "Texture filtering",
+     "Nearest is the console's look; Bilinear softens; xBR rounds pixel-art edges.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 3, 1, kTextureChoices, 4, nullptr},
+    {"display.dithering", "Display", "Dithering",
+     "The console's dither pattern. Off shows true colour; Fine dithers at the internal resolution.",
+     RECOMP_RUNTIME_UI_CHOICE, 0, 2, 1, kDitherChoices, 3, nullptr},
+};
+constexpr size_t kSessionRowCount = sizeof g_session_rows / sizeof g_session_rows[0];
+RecompRuntimeUiItem g_items[sizeof g_extra / sizeof g_extra[0] + kSessionRowCount];
+
+#if defined(PSX_MENU_HOST_HAS_SESSION)
+bool has_session() { return g_host && g_host->session_get && g_host->session_set && g_host->session_enabled; }
+int session_of(const RecompRuntimeUiItem *item) {
+    if (!item || !item->key) return 0;
+    if (!std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE)) return PSX_MENU_SESSION_WINDOW_SCALE;
+    if (!std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VOLUME)) return PSX_MENU_SESSION_VOLUME;
+    if (!std::strcmp(item->key, "input.controller_port")) return PSX_MENU_SESSION_CONTROLLER_PORT;
+    if (!std::strcmp(item->key, "media.reinsert")) return PSX_MENU_SESSION_REINSERT_DISC;
+#if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
+    static const struct { const char *key; int setting; } kLook[] = {
+        {"system.restart_game", PSX_MENU_SESSION_RESTART_GAME},
+        {"graphics.internal_resolution", PSX_MENU_SESSION_INTERNAL_RESOLUTION},
+        {"graphics.pgxp", PSX_MENU_SESSION_PGXP},
+        {"graphics.antialiasing", PSX_MENU_SESSION_ANTIALIASING},
+        {"graphics.crt_filter", PSX_MENU_SESSION_CRT_FILTER},
+        {"display.scanlines", PSX_MENU_SESSION_SCANLINES},
+        {"display.smoothing", PSX_MENU_SESSION_SMOOTHING},
+        {"display.texture_filtering", PSX_MENU_SESSION_TEXTURE_FILTERING},
+        {"display.dithering", PSX_MENU_SESSION_DITHERING},
+    };
+    for (const auto &l : kLook)
+        if (!std::strcmp(item->key, l.key)) return l.setting;
+#endif
+    return 0;
+}
+#else
+bool has_session() { return false; }
+#endif
+
 bool is(const RecompRuntimeUiItem *item, const char *key) { return item && item->key && !std::strcmp(item->key, key); }
 int disc_count() { return g_host && g_host->disc_count ? g_host->disc_count() : 0; }
 bool netplay() { return g_host && g_host->netplay_active && g_host->netplay_active(); }
@@ -81,11 +158,15 @@ void apply_video() {
         status("Applies after the match");
         return;  // never relaunch during netplay
     }
-    g_restart = bits & (PSX_VIDEO_RESTART_RENDERER | PSX_VIDEO_RESTART_RESOLUTION | PSX_VIDEO_RESTART_THREADS);
+    g_restart = (g_restart & kSessionRestart) |
+                (bits & (PSX_VIDEO_RESTART_RENDERER | PSX_VIDEO_RESTART_RESOLUTION | PSX_VIDEO_RESTART_THREADS));
     if (g_restart) status("Applies with a quick restart when you close the menu");
 }
 
 int cb_get(void *, const RecompRuntimeUiItem *item, int *out) {
+#if defined(PSX_MENU_HOST_HAS_SESSION)
+    if (const int s = session_of(item)) return has_session() ? g_host->session_get(s, out) : 0;
+#endif
     if (is(item, RECOMP_RUNTIME_UI_KEY_FULLSCREEN)) *out = g_video.fullscreen;
     else if (is(item, "graphics.renderer")) *out = g_video.renderer;
     else if (is(item, "graphics.render_thread")) *out = g_video.render_thread;
@@ -100,6 +181,19 @@ int cb_get(void *, const RecompRuntimeUiItem *item, int *out) {
 }
 
 int cb_set(void *, const RecompRuntimeUiItem *item, int v) {
+#if defined(PSX_MENU_HOST_HAS_SESSION)
+    if (const int s = session_of(item)) {
+        const int rc = has_session() ? g_host->session_set(s, v) : 0;
+#if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
+        if (rc == PSX_MENU_SESSION_AT_RESTART) {
+            g_restart |= kSessionRestart;
+            status("Applies with a quick restart when you close the menu");
+        }
+#endif
+        if (!rc && netplay()) status("Unavailable online");
+        return rc != 0;
+    }
+#endif
     if (is(item, RECOMP_RUNTIME_UI_KEY_FULLSCREEN)) g_video.fullscreen = v;
     else if (is(item, "graphics.renderer")) {
         if (v < 0 || v >= g_renderers) return 0;
@@ -133,6 +227,25 @@ void close_menu() { recomp_runtime_ui_close(g_ui); }
 
 int cb_action(void *, const RecompRuntimeUiItem *item) {
     if (!g_host) return 0;
+#if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
+    if (is(item, "system.restart_game")) {
+        if (!has_session() || !g_host->session_enabled(PSX_MENU_SESSION_RESTART_GAME)) {
+            status("Restart is unavailable online.");
+            return 0;
+        }
+        if (!g_restart_armed) {
+            g_restart_armed = true;
+            status("Press again to restart the game. Unsaved progress is lost.");
+            return 0;
+        }
+        g_restart_armed = false;
+        g_restart = 0;
+        close_menu();
+        g_host->request_exit(PSX_MENU_EXIT_RELAUNCH);
+        return 0;
+    }
+#endif
+    g_restart_armed = false;
     if (is(item, RECOMP_RUNTIME_UI_KEY_RESUME)) {
         close_menu();
     } else if (is(item, RECOMP_RUNTIME_UI_KEY_RETURN_TO_LAUNCHER)) {
@@ -141,6 +254,14 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
     } else if (is(item, RECOMP_RUNTIME_UI_KEY_QUIT)) {
         close_menu();
         g_host->request_exit(PSX_MENU_EXIT_QUIT);
+#if defined(PSX_MENU_HOST_HAS_SESSION)
+    } else if (is(item, "media.reinsert")) {
+        if (!has_session() || !g_host->session_set(PSX_MENU_SESSION_REINSERT_DISC, 1)) {
+            status("Disc changes are unavailable in this game mode.");
+            return 0;
+        }
+        close_menu();  // the lid cycle runs in the game
+#endif
     } else if (is(item, "media.insert")) {
         const int rc = g_host->disc_insert ? g_host->disc_insert(g_disc) : -1;
         if (rc != 0) {
@@ -153,6 +274,9 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
 }
 
 int cb_enabled(void *, const RecompRuntimeUiItem *item) {
+#if defined(PSX_MENU_HOST_HAS_SESSION)
+    if (const int s = session_of(item)) return has_session() && g_host->session_enabled(s);
+#endif
     if (is(item, "graphics.render_thread")) return g_video.renderer == 1;
     if (is(item, "graphics.present_thread")) return g_video.renderer == 1 && g_video.render_thread;
     if (is(item, "graphics.vsync")) return !g_vsync_overridden;
@@ -169,6 +293,7 @@ void cb_visibility(void *, int open) {
         recomp_runtime_ui_leave_section(g_ui);
         if (g_host->video_get) g_host->video_get(&g_video);
         g_restart = 0;
+        g_restart_armed = false;
         const int mounted = g_host->disc_mounted ? g_host->disc_mounted() : 0;
         g_disc = mounted > 0 ? mounted : 1;
         if (disc_count() > 1) std::snprintf(g_subtitle, sizeof g_subtitle, "Mounted: Disc %d", mounted);
@@ -233,8 +358,24 @@ int p_attach(void *, void *, void *, const PsxMenuHost *host) {
     cfg.features = RECOMP_RUNTIME_UI_STANDARD_FULLSCREEN | RECOMP_RUNTIME_UI_STANDARD_PAUSE_IN_MENU |
                    RECOMP_RUNTIME_UI_STANDARD_RESUME | RECOMP_RUNTIME_UI_STANDARD_RETURN_TO_LAUNCHER |
                    RECOMP_RUNTIME_UI_STANDARD_QUIT;
-    cfg.extra_items = g_extra;
-    cfg.extra_item_count = discs > 1 ? INSERT + 1 : DISC;
+    // Window size, volume, the controller 1 port, a same-disc reinsert and
+    // the look rows come from the runtime's session rows when it has them.
+    const bool session = has_session();
+    if (session)
+        cfg.features |= RECOMP_RUNTIME_UI_STANDARD_WINDOW_SCALE | RECOMP_RUNTIME_UI_STANDARD_VOLUME;
+    cfg.window_scale_max = 4;
+    size_t n = 0;
+    const size_t base = discs > 1 ? INSERT + 1 : DISC;
+    for (size_t i = 0; i < base; ++i) g_items[n++] = g_extra[i];
+    if (session) {
+        if (discs > 0) g_items[n++] = g_session_rows[REINSERT];
+        g_items[n++] = g_session_rows[CONTROLLER_PORT];
+#if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
+        for (size_t i = LOOK_FIRST; i < kSessionRowCount; ++i) g_items[n++] = g_session_rows[i];
+#endif
+    }
+    cfg.extra_items = g_items;
+    cfg.extra_item_count = n;
     g_ui = recomp_runtime_ui_create_standard(&cfg);
     if (!g_ui) { g_host = nullptr; return 0; }
     return 1;
