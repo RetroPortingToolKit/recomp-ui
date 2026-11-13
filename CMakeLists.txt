@@ -611,6 +611,15 @@ if(BUILD_TESTING)
         NAME recomp-ui-psx-profile
         COMMAND $<TARGET_FILE:recomp-ui-psx-profile-test>)
 
+    add_executable(recomp-ui-cdi-profile-test tests/cdi_profile_test.c)
+    target_include_directories(recomp-ui-cdi-profile-test PRIVATE src src/common)
+    if(MSVC)
+        target_compile_options(recomp-ui-cdi-profile-test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(recomp-ui-cdi-profile-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME recomp-ui-cdi-profile COMMAND recomp-ui-cdi-profile-test)
+
     add_executable(recomp-ui-nds-profile-test
         tests/nds_profile_test.c)
     target_include_directories(recomp-ui-nds-profile-test PRIVATE

@@ -73,7 +73,9 @@ set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/pad_nds.tga"
     "${RUI_ASSETS}/consoles/nds/img/brand_nds.tga")
 
-set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds vb)
+# CD-i uses host-owned title artwork and text branding; common chrome only.
+set(_RUI_CONSOLE_ASSETS_cdi "")
+set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds vb cdi)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
 function(_recomp_ui_resolve_console_assets OUT_VAR CONSOLE)
