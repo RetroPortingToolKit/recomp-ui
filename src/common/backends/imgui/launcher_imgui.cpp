@@ -48,6 +48,7 @@
 #include "imgui_impl_opengl3.h"
 
 #include <atomic>
+#include <stdexcept>
 #if defined(_MSC_VER)
   #include <intrin.h>
 #endif
@@ -12832,12 +12833,8 @@ const LauncherPanel kPanelRegistry[] = {
     { nullptr,              LNG_VIEW_DASHBOARD,  0,             nullptr,      nullptr },   // sentinel
 };
 
-// Optional Steam action state, refreshed only when requested by the player.
-static std::vector<launcher_steam::Account> s_steam_accounts;
-static std::filesystem::path s_steam_target;
+// Steam owns account selection and library updates through its URL protocol.
 static std::string s_steam_message;
-static int s_steam_account = -1;
-static bool s_steam_done = false;
 static bool s_steam_hidden = false;
 static bool s_steam_visibility_initialized = false;
 
@@ -12845,91 +12842,41 @@ static bool steam_button_visible() {
     if (!s_steam_visibility_initialized) {
         s_steam_visibility_initialized = true;
         try {
-            s_steam_hidden = launcher_steam::launched_from_steam() ||
-                launcher_steam::locally_added(launcher_steam::executable(), g_launcher_config_path);
-        } catch (...) { s_steam_hidden = true; }
+            const auto target = launcher_steam::executable();
+            const bool from_steam = launcher_steam::launched_from_steam();
+            s_steam_hidden = from_steam || launcher_steam::locally_added(target, g_launcher_config_path);
+            if (from_steam) (void)launcher_steam::remember_added(target, g_launcher_config_path);
+        } catch (...) { s_steam_hidden = false; }
     }
     return !s_steam_hidden;
 }
 
-static void refresh_steam() {
-    const auto previous = s_steam_account >= 0 && s_steam_account < static_cast<int>(s_steam_accounts.size())
-        ? s_steam_accounts[s_steam_account].shortcuts : std::filesystem::path{};
-    s_steam_accounts.clear();
-    s_steam_target.clear();
-    s_steam_message.clear();
-    s_steam_account = -1;
-    s_steam_done = false;
+static void request_steam_shortcut(LauncherModel* m) {
     try {
-        s_steam_target = launcher_steam::executable();
-        s_steam_accounts = launcher_steam::accounts();
-        for (size_t i = 0; i < s_steam_accounts.size(); ++i) {
-            if (s_steam_accounts[i].shortcuts == previous ||
-                (s_steam_account < 0 && s_steam_accounts[i].most_recent))
-                s_steam_account = static_cast<int>(i);
-        }
-        if (s_steam_accounts.size() == 1) s_steam_account = 0;
-        if (s_steam_accounts.empty())
-            s_steam_message = ui_text("No named Steam profile found. Sign in to Steam once, then refresh.");
-        else if (launcher_steam::running())
-            s_steam_message = ui_text("In Steam, choose Steam > Exit. Then click Add to Steam below.");
-    } catch (const std::exception& e) { s_steam_message = e.what(); }
-}
-
-static void add_steam_shortcut(LauncherModel* m) {
-    try {
-        const bool added = launcher_steam::add(s_steam_accounts[s_steam_account],
-            m->game_name ? m->game_name : "Game", s_steam_target);
-        s_steam_done = s_steam_hidden = true;
-        s_steam_message = added ? ui_text("Added. You can reopen Steam now.")
-                               : ui_text("Already added to Steam. You can reopen Steam now.");
-        (void)launcher_steam::remember_added(s_steam_target, g_launcher_config_path);
-    } catch (const std::exception& e) { s_steam_message = e.what(); }
+        const auto url = launcher_steam::prepare_protocol_request(
+            m->game_name ? m->game_name : "Game", launcher_steam::executable(), g_launcher_config_path);
+#if defined(LNG_SDL3)
+        const bool opened = SDL_OpenURL(url.c_str());
+#else
+        const bool opened = SDL_OpenURL(url.c_str()) == 0;
+#endif
+        if (!opened) throw std::runtime_error("Could not open Steam. Check that Steam is installed.");
+        // Dispatch is not confirmation of an add: keep the icon available for
+        // retries. A real launch through Steam sets the persistent hide flag.
+    } catch (const std::exception& e) {
+        s_steam_message = e.what();
+        m->steam_shortcut_open = true;
+    }
 }
 
 static void draw_steam_dialog(LauncherModel* m) {
     if (!m->steam_shortcut_open) return;
-    ImGui::OpenPopup(ui_text("Add to Steam"));
-    ImGui::SetNextWindowSize(ImVec2(px(460), 0), ImGuiCond_Always);
+    ImGui::OpenPopup("Steam##steam_error");
+    ImGui::SetNextWindowSize(ImVec2(px(420), 0), ImGuiCond_Appearing);
     bool open = true;
-    if (ImGui::BeginPopupModal(ui_text("Add to Steam"), &open, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (!s_steam_done) {
-            ImGui::TextWrapped(ui_text("Add %s to your Steam library."),
-                               m->game_name ? m->game_name : ui_text("this game"));
-        }
-        if (!s_steam_accounts.empty() && !s_steam_done) {
-            ImGui::Spacing();
-            const char* label = s_steam_account >= 0
-                ? s_steam_accounts[s_steam_account].label.c_str() : ui_text("Choose your Steam profile");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##steam_account", label)) {
-                for (size_t i = 0; i < s_steam_accounts.size(); ++i) {
-                    ImGui::PushID(static_cast<int>(i));
-                    if (ImGui::Selectable(s_steam_accounts[i].label.c_str(), s_steam_account == static_cast<int>(i)))
-                        s_steam_account = static_cast<int>(i);
-                    ImGui::PopID();
-                }
-                ImGui::EndCombo();
-            }
-        }
-        if (!s_steam_message.empty()) {
-            ImGui::Spacing();
-            ImGui::TextWrapped("%s", s_steam_message.c_str());
-        }
-        ImGui::Spacing();
-        if (!s_steam_done) {
-            ImGui::BeginDisabled(s_steam_account < 0 || s_steam_target.empty());
-            if (ImGui::Button(ui_text("Add to Steam"))) {
-                add_steam_shortcut(m);
-            }
-            ImGui::EndDisabled();
-            if (s_steam_accounts.empty()) {
-                ImGui::SameLine();
-                if (ImGui::Button(ui_text("Refresh"))) refresh_steam();
-            }
-            ImGui::SameLine();
-        }
-        if (ImGui::Button(ui_text(s_steam_done ? "Done" : "Cancel"))) open = false;
+    if (ImGui::BeginPopupModal("Steam##steam_error", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("%s", s_steam_message.c_str());
+        if (ImGui::Button(ui_text("Close"))) open = false;
         if (!open) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
@@ -13232,9 +13179,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         const float left_of = play_x - (m->netplay_supported ? px(182) : 0);
         ImGui::SetCursorScreenPos(ImVec2(left_of - px(44), cta_y + (play_h - px(32)) * 0.5f));
         if (ImGui::Button("##add_to_steam", ImVec2(px(32), px(32)))) {
-            refresh_steam();
-            if (s_steam_accounts.size() == 1 && !s_steam_target.empty()) add_steam_shortcut(m);
-            m->steam_shortcut_open = true;
+            request_steam_shortcut(m);
         }
         const ImVec2 icon = ImGui::GetItemRectMin();
         if (g_steam_icon.id)

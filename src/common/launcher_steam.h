@@ -4,8 +4,9 @@
 #include <string>
 #include <vector>
 
-/* No Steam SDK, shell commands, or client automation. All writes require a
- * stopped client. The path-taking helpers also permit isolated fixture tests. */
+/* Native URL handoff without a Steam SDK, shell commands, or client automation.
+ * The legacy file-writing helpers below require a stopped client and are not
+ * used by the launcher action. */
 namespace launcher_steam {
 struct Account {
     std::string label;
@@ -22,6 +23,9 @@ bool running(); /* Throws if the process list cannot be inspected. */
 bool launched_from_steam();
 bool locally_added(const std::filesystem::path& target, const char* config_path);
 bool remember_added(const std::filesystem::path& target, const char* config_path);
+std::string protocol_url(const std::filesystem::path& target);
+std::string prepare_protocol_request(const std::string& name,
+    const std::filesystem::path& target, const char* config_path);
 /* Throws on invalid/unsupported input; retains all original entries byte for
  * byte. Returns false when this target is already present. */
 bool append_shortcut(std::string& bytes, const std::string& name,

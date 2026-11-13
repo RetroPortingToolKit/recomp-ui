@@ -55,30 +55,27 @@ custom-folder UI. See [the API guide](docs/OPTIONAL_PRESETS.md).
 ## Optional Add to Steam
 
 Set `GameInfo.steam_shortcut_enabled = 1` to expose a small Steam logo button
-to the left of Netplay (or Play) on the dashboard. Clicking adds a non-Steam
-shortcut directly when one account is available; several accounts open an
-account chooser showing Steam display names, with the last-used profile
-selected. Equivalent Steam installation paths are deduplicated. The button
-hides when the launch environment identifies Steam and after a successful add.
-A running Steam client does not hide it;
-if needed, the add dialog asks the player to exit Steam before saving.
+to the left of Netplay (or Play) on the dashboard. It hands off to the running
+Steam client through its URL protocol; Steam handles the active account and
+library changes. The launcher does not ask the player to close Steam.
+
+On Windows, the button opens Steam's native Add a Non-Steam Game chooser.
+Choose Browse and select the game's executable, then confirm in Steam.
+The Windows chooser does not accept an executable path through this protocol.
+On Linux, the button requests a direct import using a persistent desktop entry
+beside the host's config. Sandboxed Steam must have access to the game folder.
 
 A local `.recomp-ui-steam-added` flag beside the host's config remembers the
-executable added, so the button stays hidden on later direct launches. Moving
-the executable makes it available again. Removing this flag restores it.
-The launcher never closes or restarts Steam automatically.
+first launch through Steam, so the button stays hidden on later direct
+launches. Moving the executable makes it available again. Removing this flag
+restores it. Opening Steam's chooser alone does not hide the button, because
+the player may cancel. A running Steam client does not hide it either.
 
-The shortcut uses `GameInfo.name`, the installed executable (the outer
+The Linux shortcut uses `GameInfo.name`, the installed executable (the outer
 `APPIMAGE` path on Linux), and its containing folder. It includes no ROM path
 or launch arguments. Extract/move the game to its permanent folder first;
 moving it afterward requires removing the old Steam entry and adding it again.
-Native and Flatpak Steam data locations are recognized. Sandboxed Steam must
-also have access to the game's folder.
-
-Existing shortcuts are retained byte for byte, repeat additions of the same
-executable are ignored, and the first existing library is backed up beside
-`shortcuts.vdf` as `shortcuts.vdf.recomp-ui.bak`. Invalid or unsupported files
-are left unchanged. Writes use a flushed temporary file and atomic replacement.
+The launcher does not edit Steam's library files or close/restart its client.
 For a harness preview, set `LNG_DEMO_STEAM=1`.
 
 The Steam glyph is from [Simple Icons](https://simpleicons.org/), CC0-1.0.
