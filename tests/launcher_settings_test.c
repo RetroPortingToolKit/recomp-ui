@@ -317,6 +317,20 @@ int main(int argc, char** argv) {
     read_text(wii.config_path, result, sizeof(result));
     require(!strcmp(result, "[Graphics]\nInternalResolution=1440\n"), "invalid resolution never rewritten");
 
+    /* Host game actions keep source, remaps and explicit unbinds on disk. */
+    wii.assist_binding_count = 2;
+    write_text(wii.config_path, "[HostShortcuts]\nKey0=20\nPad0=10\nKey1=8\nPad1=11\n[Unknown]\nKeep=yes\n");
+    s = defaults(); launcher_settings_load(&s, &wii);
+    require(s.assist_key_bind[0] == 20 && s.assist_pad_bind[1] == 11,
+            "host shortcuts load independently of native pad bindings");
+    before = s; s.assist_key_bind[0] = 0; s.assist_pad_bind[1] = 0;
+    launcher_settings_save(&s, &before, &wii);
+    s.assist_key_bind[0] = 20; s.assist_pad_bind[1] = 11;
+    launcher_settings_load(&s, &wii);
+    require(!s.assist_key_bind[0] && !s.assist_pad_bind[1], "host shortcut explicit unbind survives restart");
+    read_text(wii.config_path, result, sizeof result);
+    require(strstr(result, "Keep=yes") != NULL, "host shortcut edits preserve unrelated settings");
+
     /* Fresh install, default path, and no-op open/close. */
     require(remove("config.ini") == 0, "remove default-path sentinel");
     game.config_path = NULL; edit = 0; action = LNG_ACTION_QUIT;

@@ -46,6 +46,10 @@ typedef struct {
 static const Setting kSettings[] = {
     /* Host-owned arrays only. Zero is a persisted unbind, not a default. */
     BINDS(1), BINDS(2), BINDS(3), BINDS(4), BINDS(5), BINDS(6), BINDS(7), BINDS(8),
+    OPTIONAL("HostShortcuts", "Key0", assist_key_bind[0], NUMBER, 0, 517, assist_binding_count),
+    OPTIONAL("HostShortcuts", "Pad0", assist_pad_bind[0], NUMBER, 0, INT_MAX, assist_binding_count),
+    OPTIONAL("HostShortcuts", "Key1", assist_key_bind[1], NUMBER, 0, 517, assist_binding_count),
+    OPTIONAL("HostShortcuts", "Pad1", assist_pad_bind[1], NUMBER, 0, INT_MAX, assist_binding_count),
     INT("Graphics", "WindowScale", window_scale, 1, 8),
     INT("Graphics", "Fullscreen", fullscreen, 0, 2),
     BOOL("Graphics", "IgnoreAspectRatio", ignore_aspect),
