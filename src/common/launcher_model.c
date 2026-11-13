@@ -419,6 +419,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_window_size      = game->has_window_size != 0;
         m->has_renderer         = game->has_renderer != 0;
         m->has_supersampling    = game->has_supersampling != 0;
+        m->has_automatic_quality = game->has_automatic_quality != 0;
         m->has_antialiasing     = game->has_antialiasing != 0;
         m->has_texture_filter   = game->has_texture_filter != 0;
         if (game->texture_filter_labels && game->texture_filter_values &&
@@ -2200,6 +2201,11 @@ const char* launcher_model_renderer_label(const LauncherModel* m) {
 void launcher_model_cycle_supersampling(LauncherModel* m) {
     int v = clampi(m->s.supersampling ? m->s.supersampling : 1, 1, 4);
     m->s.supersampling = (v % 4) + 1;
+}
+
+void launcher_model_toggle_automatic_quality(LauncherModel* m) {
+    if (m && m->has_automatic_quality)
+        m->s.automatic_quality = !m->s.automatic_quality;
 }
 
 bool launcher_model_render_pipeline_offered(const LauncherModel* m) {
