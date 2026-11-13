@@ -13714,7 +13714,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Play now with the bundled OpenBIOS (no rebuild).");
         ImGui::SameLine();
-    } else if (!m->prepare_required_before_continue) {
+    } else if (!m->prepare_required_before_continue || m->setup_prepare_satisfied) {
         const bool ready = launcher_model_can_finish_setup(m);
         char confirm_lbl[64];
         {
