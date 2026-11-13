@@ -14485,8 +14485,7 @@ void draw_skip_modal(LauncherModel* m) {
     if (ImGui::BeginPopupModal("Skip the launcher on boot?", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("The launcher will no longer appear - the game boots straight in. "
-                           "Run with \"--launcher\" or set \"SkipLauncher = 0\" in config.ini "
-                           "to bring it back.");
+                           "Run with \"--launcher\" to bring it back.");
         ImGui::Spacing();
         if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
             launcher_model_skip_cancel(m); ImGui::CloseCurrentPopup();
