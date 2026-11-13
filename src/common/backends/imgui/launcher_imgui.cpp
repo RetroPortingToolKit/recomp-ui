@@ -13109,6 +13109,12 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float  fullw  = ImGui::GetContentRegionAvail().x;
     const float  play_w = px(210), play_h = px(46);
+#if defined(_WIN32) || defined(__linux__)
+    const bool steam_action = m->view == LNG_VIEW_DASHBOARD &&
+                              !m->in_session && m->steam_shortcut_enabled;
+#else
+    const bool steam_action = false;
+#endif
 
     // divider at the very top of the band
     ImGui::GetWindowDrawList()->AddRectFilledMultiColor(
@@ -13125,8 +13131,11 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (m->view == LNG_VIEW_DASHBOARD) {
         bool skip = m->s.skip_launcher != 0;
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
-        if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
+        const bool compact_skip = steam_action && m->netplay_supported && fullw < px(700);
+        if (ImGui::Checkbox(ui_text(compact_skip ? "Skip launcher" : "Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
+        if (compact_skip && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", ui_text("Go straight to the game on startup."));
     } else if (m->view == LNG_VIEW_SETTINGS &&
                launcher_model_can_restore_defaults(m)) {
         ImGui::SetCursorScreenPos(
@@ -13372,7 +13381,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         (m->view == LNG_VIEW_DASHBOARD || m->view == LNG_VIEW_SETTINGS ||
          m->view == LNG_VIEW_CONTROLLER)) {
         const float net_w = px(170.0f);
-        ImGui::SetCursorScreenPos(ImVec2(play_x - net_w - px(12.0f), cta_y));
+        ImGui::SetCursorScreenPos(ImVec2(play_x - net_w - px(12.0f) -
+                                       (steam_action ? px(44) : 0), cta_y));
         if (ImGui::Button(ui_text("NETPLAY"), ImVec2(net_w, play_h))) {
             /* The fork first. Connecting used to start here, which meant a LAN
              * player dialled a lobby server they were never going to use --
@@ -13387,7 +13397,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (m->view == LNG_VIEW_NETPLAY_MODE) return;
 
 #if defined(_WIN32) || defined(__linux__)
-    if (m->view == LNG_VIEW_DASHBOARD && !m->in_session && m->steam_shortcut_enabled) {
+    if (steam_action) {
         ImGui::SetCursorScreenPos(ImVec2(play_x - px(44), cta_y + (play_h - px(32)) * 0.5f));
         if (ImGui::Button("##launcher_more", ImVec2(px(32), px(32))))
             ImGui::OpenPopup("##launcher_more_menu");
