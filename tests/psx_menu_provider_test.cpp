@@ -291,14 +291,18 @@ int main() {
     in(T);
     CHECK(!p->is_open(p->ctx) && g_exit == PSX_MENU_EXIT_RELAUNCH);
     g_exit = -1;
-    // Restart game asks twice, and is refused online.
+    // Restart game asks twice, and is refused online. The second press tells
+    // the host the relaunch is a cold boot before it asks for the relaunch.
+    g_look[PSX_MENU_SESSION_RESTART_GAME] = 0;
     in(T);
     CHECK(go("System", "system.restart_game"));
     in(A);
-    CHECK(p->is_open(p->ctx) && g_exit == -1);
+    CHECK(p->is_open(p->ctx) && g_exit == -1 && g_look[PSX_MENU_SESSION_RESTART_GAME] == 0);
     in(A);
     CHECK(!p->is_open(p->ctx) && g_exit == PSX_MENU_EXIT_RELAUNCH);
+    CHECK(g_look[PSX_MENU_SESSION_RESTART_GAME] == 1);
     g_exit = -1;
+    g_look[PSX_MENU_SESSION_RESTART_GAME] = 0;
     g_netplay = 1;
     in(T);
     CHECK(go("System", "system.restart_game"));
