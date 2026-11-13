@@ -107,12 +107,19 @@ so behavior is identical across every game.
 
 ## Optional Add to Steam
 
-Set `GameInfo.steam_shortcut_enabled = 1` to expose a small **...** button
-beside Play on the dashboard. Its **Add to Steam...** action adds the game as
-a non-Steam shortcut on Windows and Linux. Other hosts show no extra control.
-The player chooses an account if several have used Steam on this machine,
-exits Steam completely, adds the shortcut, then reopens Steam. The launcher
-never closes or restarts Steam automatically.
+Set `GameInfo.steam_shortcut_enabled = 1` to expose a small Steam logo button
+to the left of Netplay (or Play) on the dashboard. Clicking adds a non-Steam
+shortcut directly when one account is available; several accounts open an
+account chooser showing Steam display names, with the last-used profile
+selected. Equivalent Steam installation paths are deduplicated. The button
+hides when the launch environment identifies Steam and after a successful add.
+A running Steam client does not hide it;
+if needed, the add dialog asks the player to exit Steam before saving.
+
+A local `.recomp-ui-steam-added` flag beside the host's config remembers the
+executable added, so the button stays hidden on later direct launches. Moving
+the executable makes it available again. Removing this flag restores it.
+The launcher never closes or restarts Steam automatically.
 
 The shortcut uses `GameInfo.name`, the installed executable (the outer
 `APPIMAGE` path on Linux), and its containing folder. It includes no ROM path
@@ -126,6 +133,8 @@ executable are ignored, and the first existing library is backed up beside
 `shortcuts.vdf` as `shortcuts.vdf.recomp-ui.bak`. Invalid or unsupported files
 are left unchanged. Writes use a flushed temporary file and atomic replacement.
 For a harness preview, set `LNG_DEMO_STEAM=1`.
+
+The Steam glyph is from [Simple Icons](https://simpleicons.org/), CC0-1.0.
 
 ## Consuming it
 

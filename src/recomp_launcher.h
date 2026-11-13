@@ -2487,7 +2487,7 @@ typedef struct RecompLauncherCGameInfo {
      * ABI stability. */
     int                memcard_slots;
 
-    /* Optional dashboard More actions > Add to Steam. Windows/Linux only;
+    /* Optional dashboard Steam icon button. Windows/Linux only;
      * zero-initialized hosts show no extra control. Uses name and the current
      * executable (APPIMAGE on Linux), never a ROM path or temporary mount. */
     int                steam_shortcut_enabled;

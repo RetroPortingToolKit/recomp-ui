@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <cstdlib>
+#include <cctype>
 
 namespace fs = std::filesystem;
 using namespace launcher_steam;
@@ -13,6 +15,13 @@ template<class F> static void refuses(F f) {
 }
 static bool stopped() { return false; }
 static bool active() { return true; }
+static void environment(const char* key, const char* value) {
+#ifdef _WIN32
+    _putenv_s(key, value ? value : "");
+#else
+    if (value) setenv(key, value, 1); else unsetenv(key);
+#endif
+}
 static int calls;
 static bool starting() { return ++calls > 1; }
 static void put(const fs::path& p, const std::string& b) { std::ofstream f(p, std::ios::binary); f.write(b.data(), b.size()); check(bool(f), "fixture write"); }
@@ -21,6 +30,21 @@ static std::string get(const fs::path& p) { std::ifstream f(p, std::ios::binary)
 int main(int argc, char** argv) {
     try {
         check(argc == 2, "fixture directory argument required");
+        const char* steam_keys[] = {"SteamAppId", "SteamGameId", "SteamOverlayGameId"};
+        std::string previous[3]; bool existed[3]{};
+        for (int i = 0; i < 3; ++i) {
+            const char* value = std::getenv(steam_keys[i]);
+            existed[i] = value != nullptr;
+            if (value) previous[i] = value;
+            environment(steam_keys[i], nullptr);
+        }
+        check(!launched_from_steam(), "ordinary launch detected as Steam");
+        for (const char* key : steam_keys) {
+            environment(key, "123456");
+            check(launched_from_steam(), "Steam launch environment not detected");
+            environment(key, nullptr);
+        }
+        for (int i = 0; i < 3; ++i) environment(steam_keys[i], existed[i] ? previous[i].c_str() : nullptr);
         const fs::path target = fs::absolute(argv[0]).lexically_normal();
         std::string b;
         check(append_shortcut(b, "F-Zero Forever", target), "empty library add");
@@ -58,8 +82,22 @@ int main(int argc, char** argv) {
         fs::create_directories(root / "userdata/456/config");
         fs::create_directories(root / "userdata/0/config");
         fs::create_directories(root / "userdata/not-an-account/config");
-        auto found = accounts_in({root, root, root / "missing"});
+        fs::create_directories(root / "config");
+        put(root / "config/loginusers.vdf", R"vdf("users" {
+            // Synthetic Steam profiles, not real account data.
+            "76561197960265851" { "AccountName" "racer_one" "PersonaName" "Racer \"One\"" "MostRecent" "1" }
+            "76561197960266184" { "AccountName" "racer_two" "PersonaName" "Second racer" "MostRecent" "0" }
+        })vdf");
+        auto found = accounts_in({root, root / ".", root / "missing"});
         check(found.size() == 2, "account discovery/deduplication");
+        check(found[0].label == "Racer \"One\"" && found[0].most_recent,
+              "friendly display name, escaping, or last-used profile missing");
+        check(found[1].label == "Second racer", "second friendly profile name missing");
+#ifdef _WIN32
+        auto alias = root.string();
+        for (char& c : alias) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        check(accounts_in({root, fs::path(alias)}).size() == 2, "case aliases duplicated Steam profiles");
+#endif
         const auto account = found.front();
         refuses([&] { add(account, "Game", target, active); });
         check(!fs::exists(account.shortcuts), "running Steam touched library");
@@ -72,6 +110,11 @@ int main(int argc, char** argv) {
         const auto copied = root / fs::path(u8"Game é with spaces.exe");
         fs::copy_file(target, copied);
         fs::permissions(copied, fs::status(target).permissions());
+        const auto config = (root / "config.ini").string();
+        check(!locally_added(copied, config.c_str()), "fresh folder has an added flag");
+        check(remember_added(copied, config.c_str()), "could not save added flag");
+        check(locally_added(copied, config.c_str()), "added flag not remembered");
+        check(!locally_added(target, config.c_str()), "flag hid a different executable");
         calls = 0;
         refuses([&] { add(account, "Second", copied, starting); });
         check(get(account.shortcuts) == original, "Steam starting must block commit");

@@ -10,6 +10,7 @@ set(_RUI_COMMON_FONT_ASSETS
     "${RUI_ASSETS}/common/fonts/NotoSansSymbols2-Regular.ttf")
 
 set(_RUI_COMMON_IMG_ASSETS
+    "${RUI_ASSETS}/common/img/steam.tga"
     "${RUI_ASSETS}/common/img/brand_mark.tga"
     "${RUI_ASSETS}/common/img/verdict_ok.tga"
     "${RUI_ASSETS}/common/img/verdict_warn.tga"
