@@ -374,6 +374,74 @@ bool launched_from_steam() {
     return false;
 }
 
+std::string protocol_url(const fs::path& target) {
+#ifdef _WIN32
+    (void)target;
+    // The desktop client's current Add Game menu uses this route. Its handler
+    // opens Steam's chooser and does not accept a supplied executable path.
+    return "steam://open/addnonsteamgame";
+#else
+    static const char hex[] = "0123456789ABCDEF";
+    std::string url = "steam://addnonsteamgame/";
+    for (unsigned char c : utf8(target)) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
+            url += static_cast<char>(c);
+        else { url += '%'; url += hex[c >> 4]; url += hex[c & 15]; }
+    }
+    return url;
+#endif
+}
+
+std::string prepare_protocol_request(const std::string& name, const fs::path& target,
+                                     const char* config_path) {
+    (void)launch_target(target, nullptr);
+#if defined(__linux__)
+    auto escape = [](const std::string& text) {
+        std::string out;
+        for (char c : text) {
+            if (c == '\\') out += "\\\\";
+            else if (c == '\n') out += "\\n";
+            else if (c == '\r') out += "\\r";
+            else if (c == '\t') out += "\\t";
+            else out += c;
+        }
+        return out;
+    };
+    std::string argument = "\"";
+    for (char c : utf8(target)) {
+        if (c == '\\' || c == '"' || c == '`' || c == '$') argument += '\\';
+        if (c == '%') argument += '%';
+        argument += c;
+    }
+    argument += '"';
+    const auto directory = fs::absolute(from_utf8(config_path && *config_path ? config_path : "config.ini")).parent_path();
+    const auto desktop = directory / (".recomp-ui-steam-" + std::to_string(appid(utf8(target) + name)) + ".desktop");
+    std::ofstream file(desktop, std::ios::binary);
+    file << "[Desktop Entry]\nType=Application\nName=" << escape(name)
+         << "\nExec=" << escape(argument) << "\nPath=" << escape(utf8(target.parent_path()))
+         << "\nTerminal=false\n";
+    file.flush();
+    if (!file) fail("Could not prepare the Steam launcher file.");
+    // Steam for Linux uses this sentinel to import the encoded file directly.
+    const auto sentinel = fs::temp_directory_path() / "addnonsteamgamefile";
+    int fd = open(sentinel.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW, 0600);
+    if (fd < 0) fail("Could not prepare Steam's import request.");
+    close(fd);
+    return protocol_url(desktop);
+#else
+    (void)name; (void)config_path;
+#ifdef _WIN32
+    DWORD size = 0;
+    if (RegGetValueW(HKEY_CLASSES_ROOT, L"steam\\shell\\open\\command", nullptr,
+                     RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND,
+                     nullptr, nullptr, &size) != ERROR_SUCCESS)
+        fail("Steam is not registered on this PC. Install or open Steam, then try again.");
+#endif
+    return protocol_url(target);
+#endif
+}
+
 static fs::path marker_path(const char* config_path) {
     return fs::absolute(from_utf8(config_path && *config_path ? config_path : "config.ini"))
         .parent_path() / ".recomp-ui-steam-added";

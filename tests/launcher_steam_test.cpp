@@ -30,6 +30,15 @@ static std::string get(const fs::path& p) { std::ifstream f(p, std::ios::binary)
 int main(int argc, char** argv) {
     try {
         check(argc == 2, "fixture directory argument required");
+#ifdef _WIN32
+        check(protocol_url(fs::path("a b%#.exe")) == "steam://open/addnonsteamgame",
+              "Windows must use Steam's registered Add Game route without a path");
+#else
+        check(protocol_url(fs::path("a b%#.exe")) ==
+              "steam://addnonsteamgame/a%20b%25%23.exe", "Steam URI must encode path characters");
+        check(protocol_url(fs::path(u8"game-é.exe")) ==
+              "steam://addnonsteamgame/game-%C3%A9.exe", "Steam URI must preserve UTF-8");
+#endif
         const char* steam_keys[] = {"SteamAppId", "SteamGameId", "SteamOverlayGameId"};
         std::string previous[3]; bool existed[3]{};
         for (int i = 0; i < 3; ++i) {
