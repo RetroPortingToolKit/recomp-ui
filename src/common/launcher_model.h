@@ -457,6 +457,7 @@ typedef struct {
     bool     has_window_size;
     bool     has_renderer;
     bool     has_supersampling;
+    bool     has_automatic_quality;
     bool     has_antialiasing;
     bool     has_texture_filter;
     const char* const* texture_filter_labels;   /* host catalog (game info), or NULL */
@@ -928,6 +929,7 @@ const char* launcher_model_renderer_note(const LauncherModel* m);
  * vocabulary) are testable without a full init. */
 void launcher_model_apply_renderer_settings(LauncherModel* m);
 void launcher_model_cycle_supersampling(LauncherModel* m);     // 1x..4x wrap
+void launcher_model_toggle_automatic_quality(LauncherModel* m);
 const char* launcher_model_supersampling_label(const LauncherModel* m);
 /* Every label a cycle-button row can show: `label` of the current value, then
  * of each value `cycle` steps to, until a label repeats (at most

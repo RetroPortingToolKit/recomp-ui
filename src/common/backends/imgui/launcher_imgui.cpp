@@ -3952,7 +3952,7 @@ static void draw_aspect_row(LauncherModel* m, const LauncherTheme& th) {
 // has_fullscreen_toggle no longer gates anything — see recomp_launcher.h).
 bool any_deep_display(const LauncherModel* m) {
     return m->has_window_size || launcher_model_renderer_offered(m) ||
-           m->has_supersampling ||
+           m->has_supersampling || m->has_automatic_quality ||
            m->has_antialiasing || m->has_texture_filter || m->has_screen_kind ||
            m->has_scanlines ||
            m->has_fmv_filter ||
@@ -4291,6 +4291,18 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         const char* note = launcher_model_renderer_note(m);
         if (note && *note)
             ImGui::TextColored(col(th.text_muted), "%s", ui_text(note));
+    }
+
+    if (m->has_automatic_quality) {
+        row_label_right("Automatic quality", th, cb);
+        bool automatic = m->s.automatic_quality != 0;
+        if (ImGui::Checkbox("##automatic_quality", &automatic))
+            launcher_model_toggle_automatic_quality(m);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text(
+            "When enabled, resolution and SSAA are targets. The game may lower "
+            "them to keep up. Gameplay Graphics settings show the current quality."));
+        ImGui::PopTextWrapPos();
     }
 
     if (launcher_model_internal_resolution_offered(m)) {
