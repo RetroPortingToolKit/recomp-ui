@@ -62,7 +62,9 @@ static const char* kViewNames[8] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
     "Assist Tools", "Credits", "Lobby"
 };
-static const char* kSrcNames[3]  = { "None", "Keyboard", "Gamepad" };
+/* Index 3 (RECOMP_LAUNCHER_SRC_MOUSE) and 4 (RECOMP_LAUNCHER_SRC_GUNCON) exist
+ * only where launcher_model_mouse/guncon_source_available() say so. */
+static const char* kSrcNames[5]  = { "None", "Keyboard", "Gamepad", "PS1 Mouse", "GunCon" };
 
 static void safe_copy(char* dst, size_t cap, const char* src) {
     if (!dst || cap == 0) return;
@@ -591,6 +593,9 @@ void launcher_model_init(LauncherModel* m,
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
+        m->has_native_mouse = game->has_native_mouse != 0;
+        m->has_native_guncon = game->has_native_guncon != 0;
+        m->has_native_negcon = game->has_native_negcon != 0;
         m->has_gyro_controls    = game->has_gyro_controls != 0;
         m->has_sharp_filter     = game->has_sharp_filter != 0;
         m->has_affine_filter    = game->has_affine_filter != 0;
@@ -786,6 +791,9 @@ void launcher_model_init(LauncherModel* m,
         for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {
             if (!m->pad_mode_selectable) {
                 m->s.pad_mode[p] = m->locked_pad_mode;
+            } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                       launcher_model_negcon_mode_available(m)) {
+                /* A host-supported PS1 port type extends the profile list. */
             } else if (pm_spec && pm_spec->modes && pm_spec->mode_count > 0) {
                 // Custom mode list (Genesis 3-Button/6-Button): any listed
                 // mode value is valid; anything else snaps to the first
@@ -797,6 +805,10 @@ void launcher_model_init(LauncherModel* m,
             } else if (m->s.pad_mode[p] == 0) {
                 /* Hybrid is mod-only and never selectable: migrate any stale
                  * persisted value. The mod requests it at runtime instead. */
+                m->s.pad_mode[p] = 1;
+            } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                       !launcher_model_negcon_mode_available(m)) {
+                /* The neGcon exists only on PSX. */
                 m->s.pad_mode[p] = 1;
             }
             /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
@@ -823,9 +835,13 @@ void launcher_model_init(LauncherModel* m,
              *
              * Leaving the locked mode intact costs nothing while the keyboard
              * is driving the seat, and is already right the moment the player
-             * attaches a real pad. */
+             * attaches a real pad.
+             *
+             * A keyboard neGcon stays a neGcon: the keyboard drives it
+             * (stick binds twist it, Cross/Square keys press I/II). */
             if (m->pad_mode_selectable &&
                 m->s.player_src[p] == 1 &&
+                m->s.pad_mode[p] != RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
                 m->s.pad_mode[p] = 2;
         }
@@ -4015,6 +4031,8 @@ int launcher_model_netplay_room_max_players(const LauncherModel* m,
 int launcher_model_visible_player_count(const LauncherModel* m) {
     if (!m) return 1;
     int n = m->player_count > 0 ? m->player_count : 1;
+    if (n==1 && m->has_native_mouse && (m->s.player_src[0]==RECOMP_LAUNCHER_SRC_MOUSE ||
+        m->s.player_src[1]==RECOMP_LAUNCHER_SRC_MOUSE)) n=2;
     if (n > LNG_MAX_PLAYERS) n = LNG_MAX_PLAYERS;
     if (launcher_model_multitap_available(m) && !m->s.multitap_enabled) {
         if (n > 2) n = 2;
@@ -4607,6 +4625,8 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
     if (!m->pad_mode_supported || !m->pad_mode_selectable) return;
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     if (!pad_mode_is_psx_legacy(m)) return;
+    /* A neGcon is the device in the port, whichever host input drives it. */
+    if (m->s.pad_mode[player] == RECOMP_LAUNCHER_PAD_MODE_NEGCON) return;
     if (m->s.player_src[player] == 1)
         m->s.pad_mode[player] = 2;   // D-Pad / digital (no sticks)
     else if (m->s.player_src[player] == 2)
@@ -4618,10 +4638,19 @@ void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
     player = clampi(player, 0, 1);
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const ControllerSpec* spec = prof ? &prof->controller : NULL;
+    if (mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON && launcher_model_negcon_mode_available(m)) {
+        m->s.pad_mode[player] = mode;
+        return;
+    }
     if (spec && spec->modes && spec->mode_count > 0) {
         // Custom mode list (Genesis): accept listed mode values only.
         for (int i = 0; i < spec->mode_count; ++i)
             if (spec->modes[i].mode == mode) { m->s.pad_mode[player] = mode; return; }
+        return;
+    }
+    /* neGcon (PSX): any input source may drive it, the keyboard included. */
+    if (mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON) {
+        if (launcher_model_negcon_mode_available(m)) m->s.pad_mode[player] = mode;
         return;
     }
     /* Keyboard has no sticks — Analog is unavailable. */
@@ -4629,6 +4658,12 @@ void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
     mode = clampi(mode, 0, 2);
     if (mode == 0) mode = 1;   /* Hybrid is mod-only -> snap to Analog */
     m->s.pad_mode[player] = mode;
+}
+
+int launcher_model_negcon_mode_available(const LauncherModel* m) {
+    /* The neGcon is a PSX controller; other profiles have no such pad type. */
+    const SystemProfile* prof=m?(const SystemProfile*)m->profile:NULL;
+    return m && m->has_native_negcon && prof && prof->id && !strcmp(prof->id,"psx");
 }
 
 int launcher_model_active_button_count(const LauncherModel* m, int player) {
@@ -4647,9 +4682,27 @@ int launcher_model_active_button_count(const LauncherModel* m, int player) {
     return bc;
 }
 
+int launcher_model_mouse_source_available(const LauncherModel* m) {
+    /* The PS1 Mouse is a PSX port device; no other profile has one. */
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    return (m && m->has_native_mouse && prof && prof->id && strcmp(prof->id, "psx") == 0) ? 1 : 0;
+}
+
+int launcher_model_guncon_source_available(const LauncherModel* m) {
+    const SystemProfile* prof=m?(const SystemProfile*)m->profile:NULL;
+    return m && m->has_native_guncon && prof && prof->id && !strcmp(prof->id,"psx");
+}
+int launcher_model_source_is_pointer(int kind) {
+    return kind==RECOMP_LAUNCHER_SRC_MOUSE || kind==RECOMP_LAUNCHER_SRC_GUNCON;
+}
 void launcher_model_cycle_player_src(LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = (m->s.player_src[player] + 1) % 3;  // None/Kbd/Pad
+    for (int i=0;i<5;++i) {
+        m->s.player_src[player]=(m->s.player_src[player]+1)%5;
+        if (m->s.player_src[player]==RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m)) continue;
+        if (m->s.player_src[player]==RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m)) continue;
+        break;
+    }
     apply_default_pad_mode_for_source(m, player);
 }
 
@@ -4667,7 +4720,12 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = clampi(kind, 0, 2);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        kind = 0;
+    if (kind == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        kind = 0;
+    kind = clampi(kind, 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    m->s.player_src[player] = kind;
     if (kind == 2) {
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
@@ -4683,6 +4741,82 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
         m->s.player_gamepad_guid[player][0] = '\0';
     }
     apply_default_pad_mode_for_source(m, player);
+}
+
+// ---- PS1 Mouse + pad (PS1B-279) --------------------------------------------
+// Mouse titles often want a pad in the other console port for the same player
+// (Syndicate Wars keeps pause and view rotation on the pad; Quake II moves on
+// the pad and aims with the mouse). A one-player title shows one card, so the
+// second port has no card of its own: the Player 1 card owns both ports while
+// either holds the mouse. Seats stay ports (seat 0 = port 1, seat 1 = port 2),
+// so the host needs nothing new: it already round-trips every seat.
+
+int launcher_model_mouse_pair_available(const LauncherModel* m) {
+    return launcher_model_mouse_source_available(m) && LNG_MAX_PLAYERS >= 2 &&
+           m->player_count == 1;
+}
+
+int launcher_model_mouse_pair_port(const LauncherModel* m) {
+    if (!launcher_model_mouse_pair_available(m)) return 0;
+    if (m->s.player_src[0] == RECOMP_LAUNCHER_SRC_MOUSE) return 1;
+    if (m->s.player_src[1] == RECOMP_LAUNCHER_SRC_MOUSE) return 2;
+    return 0;
+}
+
+int launcher_model_mouse_pair_pad_seat(const LauncherModel* m) {
+    const int port = launcher_model_mouse_pair_port(m);
+    return port == 1 ? 1 : port == 2 ? 0 : -1;
+}
+
+/* Swap everything that belongs to a seat's device between seats 0 and 1. */
+static void swap_seats_0_1(LauncherModel* m) {
+    int t;
+    char g[sizeof(m->s.player_gamepad_guid[0])];
+    char n[sizeof(m->player_pad_name[0])];
+    uint32_t id;
+    t = m->s.player_src[0]; m->s.player_src[0] = m->s.player_src[1]; m->s.player_src[1] = t;
+    t = m->s.pad_mode[0];   m->s.pad_mode[0]   = m->s.pad_mode[1];   m->s.pad_mode[1]   = t;
+    t = m->s.deadzone[0];   m->s.deadzone[0]   = m->s.deadzone[1];   m->s.deadzone[1]   = t;
+    memcpy(g, m->s.player_gamepad_guid[0], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[0], m->s.player_gamepad_guid[1], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[1], g, sizeof(g));
+    memcpy(n, m->player_pad_name[0], sizeof(n));
+    memcpy(m->player_pad_name[0], m->player_pad_name[1], sizeof(n));
+    memcpy(m->player_pad_name[1], n, sizeof(n));
+    id = m->player_pad_id[0]; m->player_pad_id[0] = m->player_pad_id[1]; m->player_pad_id[1] = id;
+    id = m->s.player_gamepad_instance[0]; m->s.player_gamepad_instance[0] = m->s.player_gamepad_instance[1]; m->s.player_gamepad_instance[1] = id;
+}
+
+void launcher_model_set_mouse_pair_port(LauncherModel* m, int port) {
+    const int cur = launcher_model_mouse_pair_port(m);
+    if (!cur || (port != 1 && port != 2) || port == cur) return;
+    swap_seats_0_1(m);
+}
+
+void launcher_model_set_primary_source(LauncherModel* m, int kind,
+                                       uint32_t pad_id, const char* pad_name,
+                                       const char* pad_guid) {
+    if (!launcher_model_mouse_pair_available(m)) {
+        launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+        return;
+    }
+    const int port = launcher_model_mouse_pair_port(m);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE) {
+        if (port) return;   /* already the mouse player */
+        /* The keyboard or pad Player 1 had becomes the pad in port 2, unless
+         * port 2 already has a device. */
+        if (m->s.player_src[1] == 0 && m->s.player_src[0] != 0) swap_seats_0_1(m);
+        launcher_model_set_source(m, 0, RECOMP_LAUNCHER_SRC_MOUSE, 0, NULL, NULL);
+        return;
+    }
+    /* Leaving the mouse: the pick goes to port 1. The mouse leaves its port;
+     * a pad kept in port 2 stays there (a one-player title reads it only
+     * after a live port swap), unless it is the very pad just picked. */
+    if (port == 2) launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
+    launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+    if (kind == 2 && pad_guid && pad_guid[0] && m->s.player_src[1] == 2 &&
+        strcmp(m->s.player_gamepad_guid[1], pad_guid) == 0)
+        launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
 }
 
 // ---- mouse controls --------------------------------------------------------
@@ -4909,7 +5043,11 @@ const char* launcher_model_freq_label(const LauncherModel* m) {
 
 const char* launcher_model_player_src_label(const LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    int src = clampi(m->s.player_src[player], 0, 2);
+    int src = clampi(m->s.player_src[player], 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    if (src == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        src = 0;
+    if (src == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        src = 0;
     if (src == 2) {
         // Never show the generic "Gamepad" placeholder when we have a concrete
         // pad name (or at least a GUID-backed label filled by sync/hydrate).
