@@ -6631,7 +6631,10 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         //
         // N64 (bpi >= 2) is untouched: its two chips are primary and ALTERNATE
         // binds for the same input, and both are live.
-        const bool two_chip = (bpi >= 2);
+        const SystemProfile* bind_prof = (const SystemProfile*)m->profile;
+        const bool gba_pad_alternates = pad_src && !settings_player_binds &&
+            bind_prof && bind_prof->id && !strcmp(bind_prof->id,"gba");
+        const bool two_chip = (bpi >= 2) || gba_pad_alternates;
         const float chip_w   = two_chip ? px(118.0f) : px(160.0f);
         const float chip_gap = px(6.0f);
         const float cell_w = two_chip
@@ -6701,21 +6704,28 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 } else if (pad_src) {
                     // GAMEPAD chip only: the player's source is a pad, so a key
                     // bind on this row would map something nothing reads.
-                    ImGui::PushID("pad");
+                    for (int slot=0;slot<(gba_pad_alternates?2:1);++slot) {
+                    if (slot) ImGui::SameLine(0,chip_gap);
+                    ImGui::PushID(slot);
                     const bool cap_pad = m->capturing && m->capture_pad &&
-                                         !m->capture_assist && m->capture_btn == b;
+                                         !m->capture_assist && m->capture_btn == b && m->capture_slot==slot;
                     char settings_pad[48];
                     settings_pad_label(m->s.player_pad_bind[p][b],
                                        settings_pad, sizeof settings_pad);
                     const char* pl = settings_player_binds
                         ? settings_pad
-                        : (m->pad_binds[p][b][0]
-                            ? m->pad_binds[p][b] : "(unbound)");
+                        : (slot ? m->pad_binds_alt[p][b] : m->pad_binds[p][b]);
+                    if (!pl[0]) pl="(unbound)";
                     if (cap_pad) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
-                    if (ImGui::Button(cap_pad ? "[ press a button... ]" : pl, ImVec2(chip_w, 0)))
+                    if (ImGui::Button(cap_pad ? "[ press a button... ]" : pl, ImVec2(chip_w, 0))) {
                         launcher_model_begin_pad_capture(m, b);
+                        m->capture_slot=slot;
+                    }
+                    if (ImGui::IsItemHovered() && gba_pad_alternates)
+                        ImGui::SetTooltip("%s binding. Both inputs can be used independently.",slot?"Alternate":"Primary");
                     if (cap_pad) ImGui::PopStyleColor();
                     ImGui::PopID();
+                    }
                 } else {
                     // KEY chip only: keyboard is the source (or the console has
                     // no pad binds at all).
@@ -14815,8 +14825,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             if (m->capture_assist || host_player_binds)
                 launcher_model_set_captured_pad(m, 0);
             else
-                launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
-                                              LNG_PADBIND_NONE, 0, 0);
+                launcher_binds_set_pad_button_slot(m, m->cfg_player + 1, m->capture_btn,
+                                                   m->capture_slot, LNG_PADBIND_NONE, 0, 0);
         } else if (m->capturing) {
             const SystemProfile* prof = (const SystemProfile*)m->profile;
             if (m->capture_assist || host_player_binds) {
@@ -14892,7 +14902,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * bind whose selected device has not resolved to a live pad, or the
          * mapping lands in some other controller's profile. */
         const bool guid_store = psx_cap ||
-            (cap_prof && cap_prof->id && !strcmp(cap_prof->id, "n64"));
+            (cap_prof && cap_prof->id && (!strcmp(cap_prof->id, "n64") || !strcmp(cap_prof->id,"gba")));
         /* Which SDL device may bind.
          *
          * player_pad_id is set when the player picks a pad from the Input
@@ -14947,8 +14957,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                     ? RECOMP_LAUNCHER_PAD_BUTTON(code)
                     : RECOMP_LAUNCHER_PAD_AXIS(code, axis_dir > 0));
             else
-                launcher_binds_set_pad_button(m, m->cfg_player + 1, m->capture_btn,
-                                              kind, code, axis_dir);
+                launcher_binds_set_pad_button_slot(m, m->cfg_player + 1, m->capture_btn,
+                                                   m->capture_slot, kind, code, axis_dir);
             if (m->map_all_active)
                 launcher_model_map_all_advance(m);
             else

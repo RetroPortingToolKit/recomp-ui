@@ -367,9 +367,12 @@ static void reload_player_display(LauncherModel* m, int player) {
         copy_str(m->binds[player - 1][b], sizeof(m->binds[player - 1][b]), scancode_label(sc));
     }
     if (is_gba_profile(m) && player==1) {
-        for(int b=0;b<10;++b)
+        for(int b=0;b<RUI_GBA_PAD_ACTIONS;++b) {
             rui_pad_binds_label(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0],b,
                                m->pad_binds[0][b],sizeof(m->pad_binds[0][b]));
+            rui_pad_binds_label(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0],b+RUI_GBA_PAD_ACTIONS,
+                               m->pad_binds_alt[0][b],sizeof(m->pad_binds_alt[0][b]));
+        }
     }
     if (is_snes_profile(m)) {
         char controls[LNG_SNES_PAD_BUTTON_COUNT][48];
@@ -1116,14 +1119,24 @@ void launcher_binds_set_field(LauncherModel* m, int player, int b, int slot,
     launcher_binds_refresh(m);
 }
 
-void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
-                                   int kind, int code, int axis_dir) {
+void launcher_binds_set_pad_button_slot(LauncherModel* m, int player, int b,
+                                        int slot, int kind, int code, int axis_dir) {
+    if (!m || slot<0 || slot>1) return;
     if (is_gba_profile(m)) {
-        if(player!=1 || b<0 || b>=10 || !m->s.player_gamepad_guid[0][0])return;
+        if(player!=1 || b<0 || b>=RUI_GBA_PAD_ACTIONS || !m->s.player_gamepad_guid[0][0])return;
         const char* path=gba_input_ini_path();
-        rui_pad_binds_set(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],b,kind,code,axis_dir);
+        rui_pad_binds_set(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],b+slot*RUI_GBA_PAD_ACTIONS,kind,code,axis_dir);
         rui_pad_binds_remember(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],m->player_pad_name[0],-1);
         launcher_binds_refresh(m);return;
+    }
+    if (slot==0) launcher_binds_set_pad_button(m,player,b,kind,code,axis_dir);
+}
+
+void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
+                                   int kind, int code, int axis_dir) {
+    if (!m) return;
+    if (is_gba_profile(m)) {
+        launcher_binds_set_pad_button_slot(m,player,b,0,kind,code,axis_dir);return;
     }
     if (player < 1 || player > LNG_MAX_PLAYERS) return;
     if (is_psx_profile(m)) {
