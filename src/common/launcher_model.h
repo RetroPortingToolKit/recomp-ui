@@ -413,6 +413,8 @@ typedef struct {
     int assist_binding_count;
     int assist_direct_pad_bind_action;
     const char* credits_text;
+    bool steam_shortcut_enabled;
+    bool steam_shortcut_open;
     int assist_fast_forward_min;
     int assist_fast_forward_max;
     int assist_fast_forward_divisor;

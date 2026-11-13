@@ -566,6 +566,7 @@ void launcher_model_init(LauncherModel* m,
             game->assist_direct_pad_bind_action <= m->assist_binding_count
                 ? game->assist_direct_pad_bind_action - 1 : -1;
         m->credits_text         = game->credits_text;
+        m->steam_shortcut_enabled = game->steam_shortcut_enabled != 0;
         m->assist_fast_forward_min = game->assist_fast_forward_min > 0
             ? game->assist_fast_forward_min : 2;
         m->assist_fast_forward_max = game->assist_fast_forward_max >=

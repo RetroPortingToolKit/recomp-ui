@@ -2486,7 +2486,13 @@ typedef struct RecompLauncherCGameInfo {
      * (callers that predate the field) keeps the profile's count. Appended for
      * ABI stability. */
     int                memcard_slots;
+
+    /* Optional dashboard More actions > Add to Steam. Windows/Linux only;
+     * zero-initialized hosts show no extra control. Uses name and the current
+     * executable (APPIMAGE on Linux), never a ROM path or temporary mount. */
+    int                steam_shortcut_enabled;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_STEAM_SHORTCUT 1
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1

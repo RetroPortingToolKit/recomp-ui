@@ -70,6 +70,12 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(recomp-ui-steam-test tests/launcher_steam_test.cpp src/common/launcher_steam.cpp)
+    target_include_directories(recomp-ui-steam-test PRIVATE src/common)
+    if(WIN32)
+        target_link_libraries(recomp-ui-steam-test PRIVATE advapi32)
+    endif()
+    add_test(NAME recomp-ui-steam COMMAND recomp-ui-steam-test "${CMAKE_CURRENT_BINARY_DIR}/steam-fixture")
     # Assertion-based checks must execute in Release builds too.
     if(MSVC)
         add_compile_options(/UNDEBUG)

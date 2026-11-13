@@ -221,6 +221,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_launch_options.c
         ${RUI_SRC}/common/launcher_mod_text_path.c
         ${RUI_SRC}/common/launcher_i18n.cpp
+        ${RUI_SRC}/common/launcher_steam.cpp
         ${RUI_SRC}/common/launcher_mod_visibility.c # which mod features/packages the player sees
         # color emoji for chat: scanner + per-platform rasterizers (each
         # provider compiles to nothing where its platform/deps are absent)
@@ -313,7 +314,7 @@ function(recomp_target_launcher_ui TGT)
             ${RUI_GLES2_LIBRARY} ${RUI_EGL_LIBRARY} ${RUI_LOG_LIBRARY})
     elseif(WIN32)
         # ws2_32: launcher_udp_port.c exclusive UDP bind probes for host lobby.
-        target_link_libraries(${TGT} PRIVATE opengl32 ws2_32)
+        target_link_libraries(${TGT} PRIVATE opengl32 ws2_32 advapi32)
     else()
         # OpenGL::GL is absent on GLVND hosts without legacy libGL/glx.h
         # (Steam Deck) even though the package is found — see cmake/recomp_gl.cmake.

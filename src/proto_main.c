@@ -610,6 +610,8 @@ int main(int argc, char** argv) {
     // Flip these to preview the 2-player + SRAM module set (what a save-game
     // capable, 2-player host contributes), e.g. LNG_DEMO_FULL=1.
     const char* demo = SDL_getenv("LNG_DEMO_FULL");
+    /* Explicit harness preview; production hosts opt in through GameInfo. */
+    gi.steam_shortcut_enabled = SDL_getenv("LNG_DEMO_STEAM") != NULL;
     if (!variant_owns_demo && demo && demo[0] == '1') {
         gi.num_players = 1;
         gi.sram_path   = "saves/save.srm";
