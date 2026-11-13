@@ -12871,6 +12871,8 @@ static void refresh_steam() {
         if (s_steam_accounts.size() == 1) s_steam_account = 0;
         if (s_steam_accounts.empty())
             s_steam_message = ui_text("No named Steam profile found. Sign in to Steam once, then refresh.");
+        else if (launcher_steam::running())
+            s_steam_message = ui_text("In Steam, choose Steam > Exit. Then click Add to Steam below.");
     } catch (const std::exception& e) { s_steam_message = e.what(); }
 }
 
@@ -12879,8 +12881,8 @@ static void add_steam_shortcut(LauncherModel* m) {
         const bool added = launcher_steam::add(s_steam_accounts[s_steam_account],
             m->game_name ? m->game_name : "Game", s_steam_target);
         s_steam_done = s_steam_hidden = true;
-        s_steam_message = added ? ui_text("Added. Open Steam to play from your library.")
-                               : ui_text("This game is already in your Steam library.");
+        s_steam_message = added ? ui_text("Added. You can reopen Steam now.")
+                               : ui_text("Already added to Steam. You can reopen Steam now.");
         (void)launcher_steam::remember_added(s_steam_target, g_launcher_config_path);
     } catch (const std::exception& e) { s_steam_message = e.what(); }
 }
@@ -12892,9 +12894,8 @@ static void draw_steam_dialog(LauncherModel* m) {
     bool open = true;
     if (ImGui::BeginPopupModal(ui_text("Add to Steam"), &open, ImGuiWindowFlags_AlwaysAutoResize)) {
         if (!s_steam_done) {
-            ImGui::TextWrapped("%s", ui_text("Add this game to your Steam library as a non-Steam game."));
-            ImGui::Spacing();
-            ImGui::TextWrapped("%s", ui_text("Keep the game in this folder. Exit Steam completely before adding it, then reopen Steam to see it in your library."));
+            ImGui::TextWrapped(ui_text("Add %s to your Steam library."),
+                               m->game_name ? m->game_name : ui_text("this game"));
         }
         if (!s_steam_accounts.empty() && !s_steam_done) {
             ImGui::Spacing();
@@ -12922,8 +12923,10 @@ static void draw_steam_dialog(LauncherModel* m) {
                 add_steam_shortcut(m);
             }
             ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::Button(ui_text("Refresh"))) refresh_steam();
+            if (s_steam_accounts.empty()) {
+                ImGui::SameLine();
+                if (ImGui::Button(ui_text("Refresh"))) refresh_steam();
+            }
             ImGui::SameLine();
         }
         if (ImGui::Button(ui_text(s_steam_done ? "Done" : "Cancel"))) open = false;
