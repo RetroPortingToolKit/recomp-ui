@@ -16,6 +16,7 @@
 #include "launcher_input.h"
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
+#include "launcher_steam.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
 #include "launcher_udp_port.h"
@@ -12830,11 +12831,83 @@ const LauncherPanel kPanelRegistry[] = {
     { nullptr,              LNG_VIEW_DASHBOARD,  0,             nullptr,      nullptr },   // sentinel
 };
 
-// Footer: a fixed-height band with the neon divider pinned to its TOP and the
-// CTA vertically centred inside it. Laid out from an explicit origin (not the
-// running cursor) so it is pixel-identical on every view and the CTA's glow
-// always has clearance below the divider — Settings has less body content, and
-// a cursor-relative footer let the glow ride up into the rule.
+// Optional Steam action state, refreshed only when requested by the player.
+static std::vector<launcher_steam::Account> s_steam_accounts;
+static std::filesystem::path s_steam_target;
+static std::string s_steam_message;
+static int s_steam_account = -1;
+static bool s_steam_done = false;
+
+static void refresh_steam() {
+    s_steam_accounts.clear();
+    s_steam_target.clear();
+    s_steam_message.clear();
+    s_steam_account = -1;
+    s_steam_done = false;
+    try {
+        s_steam_target = launcher_steam::executable();
+        s_steam_accounts = launcher_steam::accounts();
+        if (s_steam_accounts.size() == 1) s_steam_account = 0;
+        if (s_steam_accounts.empty())
+            s_steam_message = ui_text("No Steam account found. Install Steam and sign in once, then try again.");
+    } catch (const std::exception& e) { s_steam_message = e.what(); }
+}
+
+static void draw_steam_dialog(LauncherModel* m) {
+    if (!m->steam_shortcut_open) return;
+    ImGui::OpenPopup(ui_text("Add to Steam"));
+    ImGui::SetNextWindowSize(ImVec2(px(460), 0), ImGuiCond_Always);
+    bool open = true;
+    if (ImGui::BeginPopupModal(ui_text("Add to Steam"), &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (!s_steam_done) {
+            ImGui::TextWrapped("%s", ui_text("Add this game to your Steam library as a non-Steam game."));
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", ui_text("Keep the game in this folder. Exit Steam completely before adding it, then reopen Steam to see it in your library."));
+        }
+        if (!s_steam_accounts.empty() && !s_steam_done) {
+            ImGui::Spacing();
+            const char* label = s_steam_account >= 0
+                ? s_steam_accounts[s_steam_account].label.c_str() : ui_text("Choose a Steam account");
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##steam_account", label)) {
+                for (size_t i = 0; i < s_steam_accounts.size(); ++i) {
+                    ImGui::PushID(static_cast<int>(i));
+                    if (ImGui::Selectable(s_steam_accounts[i].label.c_str(), s_steam_account == static_cast<int>(i)))
+                        s_steam_account = static_cast<int>(i);
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+        }
+        if (!s_steam_message.empty()) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", s_steam_message.c_str());
+        }
+        ImGui::Spacing();
+        if (!s_steam_done) {
+            ImGui::BeginDisabled(s_steam_account < 0 || s_steam_target.empty());
+            if (ImGui::Button(ui_text("Add to Steam"))) {
+                try {
+                    const bool added = launcher_steam::add(s_steam_accounts[s_steam_account],
+                        m->game_name ? m->game_name : "Game", s_steam_target);
+                    s_steam_message = added ? ui_text("Added. Open Steam to play from your library.")
+                                            : ui_text("This game is already in your Steam library.");
+                    s_steam_done = true;
+                } catch (const std::exception& e) { s_steam_message = e.what(); }
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button(ui_text("Refresh"))) refresh_steam();
+            ImGui::SameLine();
+        }
+        if (ImGui::Button(ui_text(s_steam_done ? "Done" : "Cancel"))) open = false;
+        if (!open) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    if (!open) m->steam_shortcut_open = false;
+}
+
+// Footer: fixed-height band, with the CTA centred below the neon divider.
 void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float  fullw  = ImGui::GetContentRegionAvail().x;
@@ -13089,8 +13162,6 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     // submitted item — PLAY's button.
     // Not while the player is typing, and not over an open modal --
     // rui_nav_rehome_to_play() carries the why.
-    if (rui_nav_rehome_to_play())
-        ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
     if (m->in_session) {
         /* Opened from a running game: closing the window resumes it, so
@@ -13118,6 +13189,29 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
      * and the most prominent thing on the page. Every other view keeps it. */
     if (m->view == LNG_VIEW_NETPLAY_MODE) return;
 
+#if defined(_WIN32) || defined(__linux__)
+    if (m->view == LNG_VIEW_DASHBOARD && !m->in_session && m->steam_shortcut_enabled) {
+        ImGui::SetCursorScreenPos(ImVec2(play_x - px(44), cta_y + (play_h - px(32)) * 0.5f));
+        if (ImGui::Button("##launcher_more", ImVec2(px(32), px(32))))
+            ImGui::OpenPopup("##launcher_more_menu");
+        const ImVec2 dot_origin = ImGui::GetItemRectMin();
+        for (int i = -1; i <= 1; ++i)
+            ImGui::GetWindowDrawList()->AddCircleFilled(
+                ImVec2(dot_origin.x + px(16 + 6 * i), dot_origin.y + px(16)),
+                px(1.5f), imcol(th.text_muted));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ui_text("More actions"));
+        if (ImGui::BeginPopup("##launcher_more_menu")) {
+            if (ImGui::MenuItem(ui_text("Add to Steam..."))) {
+                refresh_steam();
+                m->steam_shortcut_open = true;
+            }
+            ImGui::EndPopup();
+        }
+    }
+#endif
+
+    if (rui_nav_rehome_to_play())
+        ImGui::SetKeyboardFocusHere();
     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
@@ -14544,6 +14638,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
     end_container();
 
     draw_footer(m, th, footer_h);
+    draw_steam_dialog(m);
     if (launch_commit_pending()) {
         /* PLAY queued a job in the footer. Finish this drawing stack without
          * any later modal/provider/model callbacks; start only after return. */

@@ -52,6 +52,28 @@ No picker or default presets appear in games that omit them. Bundled MSU
 source choices are a separate optional capability; existing hosts retain the
 custom-folder UI. See [the API guide](docs/OPTIONAL_PRESETS.md).
 
+## Optional Add to Steam
+
+Set `GameInfo.steam_shortcut_enabled = 1` to expose a small **...** button
+beside Play on the dashboard. Its **Add to Steam...** action adds the game as
+a non-Steam shortcut on Windows and Linux. Other hosts show no extra control.
+The player chooses an account if several have used Steam on this machine,
+exits Steam completely, adds the shortcut, then reopens Steam. The launcher
+never closes or restarts Steam automatically.
+
+The shortcut uses `GameInfo.name`, the installed executable (the outer
+`APPIMAGE` path on Linux), and its containing folder. It includes no ROM path
+or launch arguments. Extract/move the game to its permanent folder first;
+moving it afterward requires removing the old Steam entry and adding it again.
+Native and Flatpak Steam data locations are recognized. Sandboxed Steam must
+also have access to the game's folder.
+
+Existing shortcuts are retained byte for byte, repeat additions of the same
+executable are ignored, and the first existing library is backed up beside
+`shortcuts.vdf` as `shortcuts.vdf.recomp-ui.bak`. Invalid or unsupported files
+are left unchanged. Writes use a flushed temporary file and atomic replacement.
+For a harness preview, set `LNG_DEMO_STEAM=1`.
+
 ## Consuming it
 
 ### 1. Vendor the repo (git submodule)

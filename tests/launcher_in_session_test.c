@@ -30,13 +30,18 @@ int main(void) {
     game.name = "In-session test";
     launcher_model_init(&model, &settings, &game, NULL);
     check(!model.in_session, "a zeroed GameInfo is not in session");
+    check(!model.steam_shortcut_enabled && !model.steam_shortcut_open,
+          "a zeroed GameInfo offers no Steam action or dialog");
     check(!model.has_open_launcher_hotkey,
           "a zeroed GameInfo does not offer the OpenLauncher hotkey");
 
     game.in_session = 1;
+    game.steam_shortcut_enabled = 1;
     game.has_open_launcher_hotkey = 1;
     launcher_model_init(&model, &settings, &game, NULL);
     check(model.in_session, "in_session carries into the model");
+    check(model.steam_shortcut_enabled && !model.steam_shortcut_open,
+          "Steam opt-in carries into the model without opening a dialog");
     check(model.has_open_launcher_hotkey,
           "has_open_launcher_hotkey carries into the model");
 

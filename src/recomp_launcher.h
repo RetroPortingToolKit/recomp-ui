@@ -2534,7 +2534,12 @@ typedef struct RecompLauncherCGameInfo {
     /* NULL hides Custom Content. Opt-in is per game, independent of Mods;
      * all provider strings and ctx must outlive the launcher call. */
     const RecompLauncherCCustomContentProvider* custom_content;
+    /* Optional dashboard More actions > Add to Steam. Windows/Linux only;
+     * zero-initialized hosts show no extra control. Uses name and the current
+     * executable (APPIMAGE on Linux), never a ROM path or temporary mount. */
+    int                steam_shortcut_enabled;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_STEAM_SHORTCUT 1
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
