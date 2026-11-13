@@ -113,6 +113,15 @@ int main(void) {
     expect(launcher_mod_listed_feature_count(&legacy) == 0,
            "legacy provider has no listed features");
 
+    RecompLauncherCModFeature settings;
+    memset(&settings, 0, sizeof(settings));
+    strcpy(settings.package_id, "psx.runtime.settings");
+    settings.enabled = 1;
+    expect(!launcher_mod_feature_listed(&mods, &settings),
+           "built-in settings are not installed mods");
+    expect(!launcher_mod_feature_listed(&legacy, &settings),
+           "built-in settings stay out of legacy mod lists");
+
     if (failures) return 1;
     printf("launcher_mod_visibility_test: ok\n");
     return 0;

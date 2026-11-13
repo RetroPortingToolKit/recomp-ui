@@ -70,6 +70,23 @@ recomp_target_launcher_ui(recomp-ui-launcher CONSOLE all)
 
 include(CTest)
 if(BUILD_TESTING)
+    if(EXISTS "${RECOMP_UI_PSXRECOMP_ROOT}/recompiler/src/player_settings.h")
+        add_executable(recomp-ui-psx-settings-draw tests/psx_settings_draw_test.cpp)
+        target_link_libraries(recomp-ui-psx-settings-draw PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
+        recomp_target_launcher_ui(recomp-ui-psx-settings-draw CONSOLE psx)
+        get_target_property(_settings_sources recomp-ui-psx-settings-draw SOURCES)
+        list(FILTER _settings_sources EXCLUDE REGEX "common/backends/imgui/launcher_imgui.cpp$")
+        set_property(TARGET recomp-ui-psx-settings-draw PROPERTY SOURCES "${_settings_sources}")
+        if(WIN32 AND RUI_SDL_RUNTIME_TARGET)
+            add_custom_command(TARGET recomp-ui-psx-settings-draw POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:${RUI_SDL_RUNTIME_TARGET}>
+                    $<TARGET_FILE_DIR:recomp-ui-psx-settings-draw>)
+        endif()
+        target_include_directories(recomp-ui-psx-settings-draw PRIVATE "${RECOMP_UI_PSXRECOMP_ROOT}/recompiler/src")
+        target_compile_options(recomp-ui-psx-settings-draw PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG>)
+        add_test(NAME recomp-ui-psx-settings-draw COMMAND recomp-ui-psx-settings-draw)
+    endif()
     # Assertion-based checks must execute in Release builds too.
     if(MSVC)
         add_compile_options(/UNDEBUG)
@@ -562,6 +579,22 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
+
+    add_executable(recomp-ui-launcher-mouse-source-test
+        tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-mouse-source-test PRIVATE src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-mouse-source-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-mouse-source-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(NAME recomp-ui-launcher-mouse-source COMMAND recomp-ui-launcher-mouse-source-test)
+
+    add_executable(recomp-ui-launcher-negcon-mode-test
+        tests/launcher_negcon_mode_test.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-negcon-mode-test PRIVATE src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-negcon-mode-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-negcon-mode-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(NAME recomp-ui-launcher-negcon-mode COMMAND recomp-ui-launcher-negcon-mode-test)
 
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up

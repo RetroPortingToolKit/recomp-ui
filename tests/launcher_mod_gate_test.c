@@ -64,6 +64,13 @@ int main(void) {
     feature.quick=1;feature.hidden=1;provider.hide_hidden_features=1;
     assert(!launcher_quick_listed(&provider,&feature));
     assert(!launcher_quick_listed(NULL,&feature) && !launcher_quick_listed(&provider,NULL));
+    feature.hidden=0;provider.hide_hidden_features=0;
+    strcpy(feature.package_id,"psx.enhancement.internal-resolution");
+    assert(!strcmp(launcher_settings_group(feature.package_id),"Display"));
+    assert(!launcher_quick_listed(&provider,&feature));
+    strcpy(feature.package_id,"third.party.preference");
+    assert(!launcher_settings_group(feature.package_id));
+    assert(launcher_quick_listed(&provider,&feature));
     puts("PASS Quick controls: one provider/state, rejected/hidden/invalid-disc changes blocked, existing setting vocabularies and model values shared");
     puts("PASS locked disc rejects foreign paths/removal without verification or handoff");
     puts("PASS Mods button policy: empty/bad/warn/handoff/preparing locked; verified enabled; non-disc unchanged");

@@ -1467,6 +1467,7 @@ static void merge_font_if_present(const char* path, float size, float density,
 }
 
 // ---- DPI: rebuild fonts + re-derive style from an unscaled baseline ----------
+static void apply_theme_style(const LauncherTheme& th);
 void apply_scale(const LauncherTheme& th, float scale, const char* font_path,
                  const char* jp_font_path, const char* symbols_font_path,
                  const char* emoji_font_path) {
@@ -1556,6 +1557,9 @@ void apply_scale(const LauncherTheme& th, float scale, const char* font_path,
     ImGui_ImplOpenGL3_DestroyFontsTexture();
     ImGui_ImplOpenGL3_CreateFontsTexture();
 
+    apply_theme_style(th);
+}
+static void apply_theme_style(const LauncherTheme& th) {
     ImGuiStyle style; ImGui::StyleColorsDark(&style);
     style.WindowRounding = th.radius_lg; style.ChildRounding = th.radius_lg;
     style.FrameRounding  = th.radius_sm; style.GrabRounding  = th.radius_sm;
@@ -1902,7 +1906,24 @@ void row_label(const char* text, const LauncherTheme& th, float col_w = 0.0f) {
  * long to leave room keeps a minimum gap and lets its control run wide rather
  * than colliding with the text.
  */
+static bool g_psx_compact_settings=false;
+static void draw_psx_picture_controls(LauncherModel* m);
+static float settings_label_width() {
+    return std::min(px(190), ImGui::GetContentRegionAvail().x * 0.48f);
+}
 void row_label_right(const char* text, const LauncherTheme& th, float ctrl_w) {
+    if (g_psx_compact_settings) {
+        const float x = ImGui::GetCursorPosX(), y = ImGui::GetCursorPosY();
+        const float label_w = settings_label_width();
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushTextWrapPos(x + label_w - px(th.spacing_sm));
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text(text));
+        ImGui::PopTextWrapPos();
+        // A wrapped label reserves its full height before the next row.
+        ImGui::SameLine();
+        ImGui::SetCursorPos(ImVec2(x + label_w, y));
+        return;
+    }
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(col(th.text_muted), "%s", ui_text(text));
     // Label help also covers compound widgets (steppers and device pickers).
@@ -1948,6 +1969,8 @@ void row_label_right(const char* text, const LauncherTheme& th, float ctrl_w) {
  */
 float settings_fit_w(const char* row_label, const LauncherTheme& th,
                      float widest_text, bool combo) {
+    if (g_psx_compact_settings)
+        return std::min(px(230), ImGui::GetContentRegionAvail().x - settings_label_width());
     const ImGuiStyle& st = ImGui::GetStyle();
     float w = widest_text + st.FramePadding.x * 2.0f +
               (combo ? ImGui::GetFrameHeight() : 0.0f);
@@ -3335,9 +3358,14 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
         if (mc > (int)(sizeof(segs) / sizeof(segs[0]))) mc = (int)(sizeof(segs) / sizeof(segs[0]));
         for (int i = 0; i < mc; ++i)
             segs[n++] = { prof->controller.modes[i].mode, prof->controller.modes[i].label };
+        if (launcher_model_negcon_mode_available(m) && n < 8)
+            segs[n++] = { RECOMP_LAUNCHER_PAD_MODE_NEGCON, "NeGcon" };
     } else {
         segs[n++] = { 1, "Analog" };
         segs[n++] = { 2, "D-Pad" };
+        // PSX: the port can present a Namco neGcon instead of a pad (PS1B-304).
+        if (launcher_model_negcon_mode_available(m))
+            segs[n++] = { RECOMP_LAUNCHER_PAD_MODE_NEGCON, "NeGcon" };
     }
 
     // Keyboard has no analog sticks — Analog is unavailable (PSX modes).
@@ -3370,6 +3398,12 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
             ImGui::PushStyleColor(ImGuiCol_Text, sel ? col(th.accent_text) : col(th.text));
             if (ImGui::Button(segs[i].label, ImVec2(seg_w, px(28))))
                 launcher_model_set_pad_mode(m, p, segs[i].mode);
+            if (segs[i].mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", ui_text(
+                    "Namco neGcon for racing games. Twist: left stick. "
+                    "I / II: right / left trigger (or Cross / Square). "
+                    "A: Circle. B: Triangle. R: R1. L: L1."));
             ImGui::PopStyleColor(4);
         }
         ImGui::PopID();
@@ -3386,6 +3420,11 @@ void pad_mode_selector(LauncherModel* m, const LauncherTheme& th, int p, float w
 // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
 // identical to before for every non-mouse game.
 void draw_source_selectables(LauncherModel* m, int p) {
+    auto choose=[&](int kind,uint32_t id,const char* name,const char* guid) {
+        if(p==0 && launcher_model_mouse_pair_available(m))
+            launcher_model_set_primary_source(m,kind,id,name,guid);
+        else launcher_model_set_source(m,p,kind,id,name,guid);
+    };
     const SystemProfile* src_prof = (const SystemProfile*)m->profile;
     const bool psx = src_prof && src_prof->id && !strcmp(src_prof->id, "psx");
     const bool snes_prof = src_prof && src_prof->id &&
@@ -3393,7 +3432,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
     const bool n64_prof = src_prof && src_prof->id &&
                           !strcmp(src_prof->id, "n64");
     if (ImGui::Selectable(ui_text("None"), m->s.player_src[p] == 0)) {
-        launcher_model_set_source(m, p, 0, 0, nullptr, nullptr);
+        choose(0, 0, nullptr, nullptr);
         if (psx) launcher_binds_refresh(m);
     }
     if (m->has_mouse_controls && p == 0) {
@@ -3405,7 +3444,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
             launcher_model_set_mouse_source(m, 0);
     } else {
         if (ImGui::Selectable(ui_text("Keyboard"), m->s.player_src[p] == 1)) {
-            launcher_model_set_source(m, p, 1, 0, nullptr, nullptr);
+            choose(1, 0, nullptr, nullptr);
             if (psx) launcher_binds_refresh(m);
         }
     }
@@ -3421,7 +3460,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
                  m->s.player_gamepad_instance[p] == g_pads[i].id + 1 : guid_match);
             ImGui::PushID(i);
             if (ImGui::Selectable(g_pads[i].name, sel))
-                launcher_model_set_source(m, p, 2, g_pads[i].id, g_pads[i].name,
+                choose(2, g_pads[i].id, g_pads[i].name,
                                           g_pads[i].guid);
             ImGui::PopID();
         }
@@ -3432,6 +3471,25 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
         return;
     }
+
+    bool pointer_taken=false;
+    for(int o=0;o<launcher_model_visible_player_count(m);++o)
+        if(o!=p && launcher_model_source_is_pointer(m->s.player_src[o])) pointer_taken=true;
+    {
+        ImGui::BeginDisabled(pointer_taken);
+        if(launcher_model_mouse_source_available(m) &&
+           ImGui::Selectable(ui_text("PS1 Mouse"),m->s.player_src[p]==RECOMP_LAUNCHER_SRC_MOUSE) && !pointer_taken) {
+            choose(RECOMP_LAUNCHER_SRC_MOUSE,0,nullptr,nullptr); launcher_binds_refresh(m);
+        }
+        if(launcher_model_guncon_source_available(m) &&
+           ImGui::Selectable(ui_text("GunCon"),m->s.player_src[p]==RECOMP_LAUNCHER_SRC_GUNCON) && !pointer_taken) {
+            choose(RECOMP_LAUNCHER_SRC_GUNCON,0,nullptr,nullptr); launcher_binds_refresh(m);
+        }
+        if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Native pointer device. GunCon buttons use keybinds.ini [guncon]; W defaults to an off-screen shot.");
+        ImGui::EndDisabled();
+    }
+
     // Unified pad list (no duplicates): saved mappings + live devices.
     // Pads already selected on another player are disabled (keyboard is not).
     struct PadOpt {
@@ -3553,7 +3611,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
         const bool sel = seat_has(p, opts[i]);
         if (claimed) ImGui::BeginDisabled();
         if (ImGui::Selectable(label, sel) && !claimed) {
-            launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
+            choose(2, opts[i].id, opts[i].name,
                                      opts[i].guid);
             if (psx) {
                 launcher_binds_apply_psx_pad_profile(m, p);
@@ -3672,7 +3730,9 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
 
     // Pad-mode selector: only when the game supports pad modes AND the mode
     // is user-selectable (not locked to a single mode).
-    if (m->pad_mode_supported && m->pad_mode_selectable) {
+    // A mouse seat has no pad type to choose.
+    if (m->pad_mode_supported && m->pad_mode_selectable &&
+        !launcher_model_source_is_pointer(m->s.player_src[p])) {
         pad_mode_selector(m, th, p, cw);
         ImGui::Dummy(ImVec2(0, px(6)));
     }
@@ -3681,6 +3741,16 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
         draw_source_selectables(m, p);
         ImGui::EndCombo();
+    }
+    if(p==0 && launcher_model_mouse_pair_port(m)) {
+        int port=launcher_model_mouse_pair_port(m);
+        ImGui::SetNextItemWidth(cw);
+        if(ImGui::BeginCombo("##mouse_port",port==1?"Mouse in port 1":"Mouse in port 2")) {
+            for(int i=1;i<=2;++i)
+                if(ImGui::Selectable(i==1?"Mouse in port 1":"Mouse in port 2",port==i))
+                    launcher_model_set_mouse_pair_port(m,i);
+            ImGui::EndCombo();
+        }
     }
     ImGui::Dummy(ImVec2(0, px(4)));
     // Configure + connection status share ONE half/half row (Configure left,
@@ -4167,6 +4237,7 @@ void draw_render_pipeline_controls(LauncherModel* m, const LauncherTheme& th) {
 
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
+    if (g_psx_compact_settings) draw_psx_picture_controls(m);
 
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
@@ -4947,6 +5018,7 @@ void draw_system_controls(LauncherModel* m, const LauncherTheme& th) {
     char elided[192]; elide_left(bp, avail, elided, sizeof(elided));
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(col(has_pick ? th.text : th.text_muted), "%s", elided);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s",bp);
     ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
                     browse_w);
     if (ImGui::Button(ui_text("Browse"), ImVec2(browse_w, btn_h))) {
@@ -5245,7 +5317,25 @@ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
 // AUDIO in the same right column in composition order; WIDE panels (HOTKEYS)
 // still stack full-width below that — driven by the composition array + the
 // registry's available() gate.
+static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, bool display);
 void draw_settings(LauncherModel* m, const LauncherTheme& th) {
+    const auto* settings_profile = (const SystemProfile*)m->profile;
+    if (settings_profile && settings_profile->id && !std::strcmp(settings_profile->id, "psx")) {
+        static int last_settings_frame=-2;
+        const int frame=ImGui::GetFrameCount();
+        const bool first=frame!=last_settings_frame+1;
+        last_settings_frame=frame;
+        if (ImGui::BeginTabBar("Settings tabs")) {
+            if (ImGui::BeginTabItem(ui_text("General"),nullptr,first?ImGuiTabItemFlags_SetSelected:0)) {
+                draw_psx_settings_page(m,th,false);ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(ui_text("Display"))) {
+                draw_psx_settings_page(m,th,true);ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        return;
+    }
     if (m->settings_saved_on_exit) {
         ImGui::TextDisabled("Changes are saved when you press Play or close the launcher.");
         ImGui::Spacing();
@@ -11740,6 +11830,12 @@ static void draw_linkified_mod_author(
  * an edit; the caller pushes the committed text through set_option, whose
  * rejection reverts the row to the model value on the next frame. */
 static void mod_option_control(const char* label) {
+    if (g_psx_compact_settings) {
+        const float width=settings_fit_w(label,*g_th,0,false);
+        row_label_right(label,*g_th,width);
+        ImGui::SetNextItemWidth(width);
+        return;
+    }
     const float start = ImGui::GetCursorPosX();
     const float available = ImGui::GetContentRegionAvail().x;
     const bool inline_control = available >= px(490) &&
@@ -12001,7 +12097,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
         for (int i = 0; i < count; ++i) {
             RecompLauncherCModPackage package{};
             if (!mods->package_get(mods->ctx, i, &package) ||
-                !launcher_mod_package_listed(mods, package.id)) continue;
+                !launcher_mod_package_listed(mods, package.id) || launcher_settings_group(package.id)) continue;
             if (first_listed < 0) first_listed = i;
             if (i == m->mod_package_selected) selected_listed = true;
             if (!mod_text_matches(m->mod_search, package)) continue;
@@ -12035,7 +12131,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::BeginChild("##mod_detail", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
         RecompLauncherCModPackage package{};
         if (mods->package_get(mods->ctx, m->mod_package_selected, &package) &&
-            launcher_mod_package_listed(mods, package.id)) {
+            launcher_mod_package_listed(mods, package.id) && !launcher_settings_group(package.id)) {
             ImGui::TextColored(col(th.accent2), "%s", package.name);
             ImGui::SameLine();
             ImGui::TextColored(col(th.text_muted), "%s", package.version);
@@ -12243,7 +12339,8 @@ static void draw_mod_feature_option(LauncherModel* m,
 
     if (option.type == RECOMP_MOD_OPTION_BOOLEAN) {
         bool value = std::strcmp(option.value, "true") == 0;
-        if (ImGui::Checkbox(option.label, &value)) {
+        if (g_psx_compact_settings) row_label_right(option.label,*g_th,ImGui::GetFrameHeight());
+        if (ImGui::Checkbox(g_psx_compact_settings ? "##boolean" : option.label, &value)) {
             std::snprintf(next, sizeof(next), "%s", value ? "true" : "false");
             changed = true;
         }
@@ -12309,6 +12406,9 @@ static void draw_mod_feature_option(LauncherModel* m,
         launcher_model_refresh_bios_status(m);
     ImGui::PopID();
 }
+
+#include "launcher_psx_settings.inc"
+
 
 static void draw_audio_buffer_setting(LauncherModel* m, const LauncherTheme& th) {
     const auto *mods = m->mods;
@@ -12413,7 +12513,7 @@ static bool disable_all_mod_features(LauncherModel* m) {
         const RecompLauncherCModFeature& feature = features[index];
         /* A concealed feature keeps whatever its package and saved state
          * say; the player cannot see it, so a bulk action must not flip it. */
-        if (launcher_mod_feature_concealed(mods, &feature) ||
+        if (launcher_settings_group(feature.package_id) || launcher_mod_feature_concealed(mods, &feature) ||
             !feature.enabled)
             continue;
         if (!mods->feature_enable(mods->ctx, feature.package_id, feature.id,
@@ -12561,7 +12661,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
         ModFeatureListItem item{};
         item.index = index;
         if (!mods->feature_get(mods->ctx, index, &item.feature) ||
-            !launcher_mod_feature_listed(mods, &item.feature)) {
+            !launcher_mod_feature_listed(mods, &item.feature) || launcher_settings_group(item.feature.package_id)) {
             continue;
         }
         ++listed_count;

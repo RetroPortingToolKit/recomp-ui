@@ -1,6 +1,7 @@
 # recomp-ui
 
 PSX controller startup uses [automatic controller mode](docs/PSX_CONTROLLER_MODE.md).
+Hosts can also expose [native PSX peripheral choices](docs/PSX_NATIVE_PERIPHERALS.md).
 
 > ℹ️ **Note from mstan:** This repo and I are now part of [RetroPortingToolkit](https://retroportingtoolkit.com/). I remain a primary maintainer of recomp-ui alongside the team. [More info](https://1379.tech/forming-a-collective-retro-porting-toolkit/).
 
@@ -99,7 +100,7 @@ Adding a console is (ideally) **one `SystemProfile` row** in
 data passed through the C ABI — theme, platform label, box art, pad image,
 which panels — so there is no `../snes` / `../psx` source fork.
 
-The DRY heart is [`src/launcher_model.h`](src/launcher_model.h): all launcher
+The DRY heart is [`src/common/launcher_model.h`](src/common/launcher_model.h): all launcher
 STATE + BEHAVIOR, free of any UI toolkit, built purely from the C ABI structs —
 so behavior is identical across every game.
 
@@ -154,6 +155,16 @@ then exposes a dedicated Display → Screen layout cycle backed by
 features. The Nintendo DS profile uses it for stacked versus separate windows,
 keeps Player 1's ordinary buttons controller-configurable, and leaves the
 bottom-screen pointer/touch mapping to the host.
+
+The PSX Settings page uses compact General and Display groups: two columns by
+default, three where useful on wide windows, and one on narrow windows. Internal
+Resolution and PGXP controls sit in the first Display group. With a supporting
+host provider and built-in enhancement catalog, Faithful / Best presets write
+the actual preferences; subsequent edits show Custom. Both retain 4:3 and
+original motion. Best raises rendering quality and can increase GPU demand.
+Audio, bindings, cards and unrelated mod choices are retained. Unsupported
+providers do not expose a preset that cannot be applied. The exact visual map
+is in `src/common/backends/imgui/launcher_psx_settings.inc`.
 
 ### 3. Call it from your `main()`
 
@@ -722,7 +733,7 @@ LNG_VARIANT=genesis ./build/recomp-ui-launcher
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.
 `LNG_SCRIPT="wait:40;view:settings;shot:out.png;quit"` (see
-[`src/launcher_debug.h`](src/launcher_debug.h)).
+[`src/common/launcher_debug.h`](src/common/launcher_debug.h)).
 
 Requires SDL3 (`find_package(SDL3 CONFIG)`) by default, OpenGL, and a C++17
 compiler.
