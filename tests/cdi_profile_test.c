@@ -15,6 +15,8 @@ int main(void) {
     assert(profile->rom_filter.pattern_count==2);
     assert(!strcmp(profile->rom_filter.patterns[0],"*.cue"));
     assert(profile->hide_audio_freq && profile->save.kind==SAVE_NONE);
+    assert(profile->verify.image_hash_only);
+    assert(!launcher_system_by_id("psx")->verify.image_hash_only);
     LauncherTheme theme=launcher_theme_by_name("cdi");
     assert(!theme.scanlines && theme.accent.g>theme.accent.r && theme.accent2.r>theme.accent2.b);
     assert(launcher_system_by_id("psx")!=profile);

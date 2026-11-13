@@ -12,7 +12,7 @@ static const SystemProfile kSystemProfileCdi = {
     {kCdiPadButtons,6,"",NULL,NULL,1,0,1,NULL,0,1},
     {SAVE_NONE,0,NULL},
     {1,1,1,0, 0,0,0,0,1,0,0,0,0,0,1,0},
-    {1,NULL}, 0,
+    {1,NULL,1}, 0,
     kPanelsDashboardCommon,kCdiSettingsPanels,kPanelsControllerCommon,
     NULL,0,{kCdiRomPatterns,2,"CD-i disc (.cue .bin)"},NULL,1,""
 };

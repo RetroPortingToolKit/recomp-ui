@@ -2269,6 +2269,12 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
         ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("m", ImGuiTableColumnFlags_WidthFixed, px(28));
         const char* dash = "\xE2\x80\x94";
+        if (m->profile && m->profile->verify.image_hash_only) {
+            kv_row("Region", pending ? dash : (v.region[0] ? v.region : dash),
+                   th, !pending, v.region[0] != '\0');
+            kv_row("Disc image", pending ? dash : (v.iso_ok ? "Matches" : "Mismatch"),
+                   th, !pending, v.iso_ok);
+        } else {
         kv_row("Serial",     pending ? dash : (v.serial[0] ? v.serial : dash),
                th, !pending, v.serial[0] != '\0');
         kv_row("Region",     pending ? dash : (v.region[0] ? v.region : dash),
@@ -2280,6 +2286,7 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
         kv_row("SBI File", pending ? dash : sbi_text,
                th, !pending && v.sbi_status != RECOMP_SBI_NA,
                v.sbi_status == RECOMP_SBI_OK);
+        }
         // TOC fingerprinting is a netplay capability, not part of ordinary
         // offline disc identification. Never expose it for offline titles,
         // even if a host accidentally leaves stale netplay fields populated.
