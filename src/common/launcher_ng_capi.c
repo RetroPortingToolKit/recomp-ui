@@ -223,6 +223,13 @@ int recomp_launcher_run_window(const char* window_title,
 
     LngAction act = launcher_backend_run(&plat, &model, &theme);
 
+    /* A close/scripted quit may arrive during import. Keep the borrowed host
+     * callback/context and model alive until its atomic install finishes. */
+    while (model.dlc_importing) {
+        launcher_model_poll_prepare_disc(&model);
+        if (model.dlc_importing) SDL_Delay(10);
+    }
+
     launcher_window_size_save(window_size_path, plat.logical_w, plat.logical_h);
     launcher_platform_close(&plat);
     launcher_boot_timing_mark("rui:platform_closed");

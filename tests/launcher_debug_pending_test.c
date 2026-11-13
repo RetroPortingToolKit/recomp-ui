@@ -8,6 +8,9 @@ static int mutations, failures;
 void launcher_model_set_view(LauncherModel* m, LngView view) { ++mutations; m->view = view; }
 void launcher_model_begin_capture(LauncherModel* m, int button) { ++mutations; m->capture_btn = button; }
 void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey hotkey) { (void)m; (void)hotkey; ++mutations; }
+void launcher_model_import_dlc(LauncherModel* m, const char* path) {
+    ++mutations;snprintf(m->dlc_path,sizeof(m->dlc_path),"%s",path);
+}
 void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }
@@ -44,6 +47,17 @@ int main(int argc, char** argv) {
         model.action = LNG_ACTION_LAUNCH;
         launcher_debug_step(&platform, &model);
         check(model.action == LNG_ACTION_LAUNCH, "script cannot overwrite successful launch");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "dlc") == 0) {
+        script("dlc:pack with spaces.wad;quit");
+        check(!launcher_debug_step_pending(&platform), "DLC import deferred while provider is busy");
+        check(mutations == 0, "pending path cannot start an import");
+        launcher_debug_step(&platform, &model);
+        check(mutations == 1 && strcmp(model.dlc_path,"pack with spaces.wad") == 0,
+              "prefilled DLC path reaches model without a dialog");
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_QUIT, "script quit follows DLC request");
         return failures ? 1 : 0;
     }
     if (strcmp(argv[1], "model") != 0) return 2;

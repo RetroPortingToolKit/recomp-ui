@@ -443,6 +443,13 @@ void launcher_model_init(LauncherModel* m,
         m->num_languages        = game->num_languages;
         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
         m->import_sbi_cb        = game->import_sbi;
+        m->import_dlc_cb        = game->import_dlc;
+        m->dlc_ctx              = game->dlc_ctx;
+        m->dlc_patterns         = game->dlc_patterns;
+        m->num_dlc_patterns     = game->num_dlc_patterns;
+        m->dlc_filter_desc      = game->dlc_filter_desc;
+        safe_copy(m->dlc_path, sizeof(m->dlc_path), game->dlc_path);
+        safe_copy(m->dlc_status, sizeof(m->dlc_status), game->dlc_status);
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
         m->bios_verify_cb       = game->bios_verify;
         m->persist_setup_cb     = game->persist_setup;
@@ -3064,7 +3071,8 @@ enum {
     PREP_JOB_TOOLCHAIN = 2,
     PREP_JOB_PGO = 3,
     PREP_JOB_FMV_TIMING = 4,
-    PREP_JOB_BIOS = 5
+    PREP_JOB_BIOS = 5,
+    PREP_JOB_DLC = 6
 };
 
 typedef struct {
@@ -3189,6 +3197,15 @@ static void* prep_thread_main(void* arg) {
         } else {
             safe_copy(j->err, sizeof(j->err), "No BIOS prepare callback.");
         }
+    } else if (j->kind == PREP_JOB_DLC) {
+        if (j->m && j->m->import_dlc_cb) {
+            j->result = j->m->import_dlc_cb(j->m->dlc_ctx, j->source,
+                                           j->err, sizeof(j->err)) ? 1 : 0;
+            if (j->result)
+                safe_copy(j->out_path, sizeof(j->out_path), j->source);
+        } else {
+            safe_copy(j->err, sizeof(j->err), "No DLC import callback.");
+        }
     } else if (j->kind == PREP_JOB_FMV_TIMING) {
         if (j->m && j->m->fmv_timing_optimize_with_progress_cb) {
             j->result = j->m->fmv_timing_optimize_with_progress_cb(
@@ -3209,7 +3226,9 @@ static void* prep_thread_main(void* arg) {
     } else {
         safe_copy(j->err, sizeof(j->err), "No prepare callback.");
     }
+    prep_lock();
     j->done = 1;
+    prep_unlock();
 #if defined(_WIN32)
     return 0;
 #else
@@ -3452,6 +3471,33 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     prep_spawn_thread(m);
 }
 
+void launcher_model_import_dlc(LauncherModel* m, const char* path) {
+    if (!m || !m->import_dlc_cb || m->setup_preparing || !path || !path[0]) return;
+    if (strlen(path) >= sizeof(g_prep_job.source)) {
+        m->dlc_failed = true;
+        safe_copy(m->dlc_status, sizeof(m->dlc_status), "DLC path is too long.");
+        return;
+    }
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+    g_prep_job.m = m;
+    g_prep_job.kind = PREP_JOB_DLC;
+    g_prep_job.progress_pct = -1.0f;
+    safe_copy(g_prep_job.source, sizeof(g_prep_job.source), path);
+    m->dlc_importing = true;
+    m->dlc_failed = false;
+    m->setup_preparing = true;
+    m->setup_prepare_pulse = 0.0f;
+    m->setup_prepare_fraction = -1.0f;
+    m->setup_error[0] = '\0';
+    safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title), "Importing DLC");
+    safe_copy(m->setup_status, sizeof(m->setup_status), "Checking and installing the DLC pack...");
+    if (!prep_spawn_thread(m)) {
+        m->dlc_importing = false;
+        m->dlc_failed = true;
+        safe_copy(m->dlc_status, sizeof(m->dlc_status), m->setup_error);
+    }
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3481,6 +3527,24 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!done) return;
     m->setup_preparing = false;
     m->setup_prepare_fraction = -1.0f;
+
+    if (kind == PREP_JOB_DLC) {
+        m->dlc_importing = false;
+        m->dlc_failed = !result;
+        m->setup_progress_title[0] = '\0';
+        m->setup_error[0] = '\0';
+        m->setup_status[0] = '\0';
+        if (result) {
+            safe_copy(m->dlc_path, sizeof(m->dlc_path), out_path);
+            safe_copy(m->dlc_status, sizeof(m->dlc_status),
+                      m->in_session ? "DLC installed. Restart the game to use it."
+                                    : "DLC installed.");
+        } else {
+            safe_copy(m->dlc_status, sizeof(m->dlc_status),
+                      err[0] ? err : "DLC import failed.");
+        }
+        return;
+    }
 
     if (kind == PREP_JOB_TOOLCHAIN) {
         m->setup_progress_title[0] = '\0';

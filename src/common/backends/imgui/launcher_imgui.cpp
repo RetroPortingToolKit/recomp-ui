@@ -727,6 +727,20 @@ static void request_bios_picker(LauncherModel* m, const char* title,
     ui_pick(m, std::move(req));
 }
 
+static void request_dlc_picker(LauncherModel* m) {
+    if (!m || !m->import_dlc_cb || m->setup_preparing) return;
+    PickRequest req;
+    req.title = "Select DLC pack";
+    if (m->dlc_patterns && m->num_dlc_patterns > 0) {
+        for (int i = 0; i < m->num_dlc_patterns; ++i)
+            if (m->dlc_patterns[i]) req.patterns.push_back(m->dlc_patterns[i]);
+    }
+    req.description = m->dlc_filter_desc ? m->dlc_filter_desc : "DLC pack";
+    req.start_path = m->dlc_path;
+    req.on_pick = [m](const char* path) { launcher_model_import_dlc(m, path); };
+    ui_pick(m, std::move(req));
+}
+
 // The picker title for a named required system file ("Select FDS BIOS
 // (disksys.rom)"), else NULL.
 static const char* named_bios_picker_title(const LauncherModel* m) {
@@ -2205,6 +2219,12 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         if (disc_verdict) reserve += px(120.0f);          // taller: icon+headline + tracks row
         // Disc Selection label + combo + spacing, for a multi-image title.
         if (launcher_model_disc_count(m) > 1) reserve += px(62.0f);
+        if (m->import_dlc_cb) {
+            reserve += px(88.0f);
+            if (m->dlc_path[0]) reserve += ImGui::GetTextLineHeightWithSpacing();
+            if (m->dlc_status[0])
+                reserve += ImGui::CalcTextSize(m->dlc_status, nullptr, false, availw).y;
+        }
         if (m->saves_supported) reserve += px(96.0f);    // compact SAVES row below Change ROM
         if (m->password_save_path || m->password_sram_path)
             reserve += px(96.0f);                      // password-save row (same footprint)
@@ -2327,6 +2347,32 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
                 if (path) launcher_model_set_rom(m, path);
             };
             open_builtin_picker(m, std::move(req));
+        }
+    }
+
+    // Additional content is optional and distinct from the image PLAY boots.
+    // Keep its smaller control on the same card, directly below game browsing.
+    if (m->import_dlc_cb) {
+        ImGui::Dummy(ImVec2(0, px(8)));
+        ImGui::Separator();
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text("DLC (optional)"));
+        ImGui::BeginDisabled(m->setup_preparing);
+        if (ImGui::Button(ui_text("Add DLC pack..."), ImVec2(availw, px(28))))
+            request_dlc_picker(m);
+        ImGui::EndDisabled();
+        if (m->dlc_path[0]) {
+            const char* filename = m->dlc_path;
+            for (const char* p = filename; *p; ++p)
+                if (*p == '/' || *p == '\\') filename = p + 1;
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
+            ImGui::TextColored(col(th.text_muted), "%s", filename);
+            ImGui::PopTextWrapPos();
+        }
+        if (m->dlc_status[0]) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
+            ImGui::TextColored(col(m->dlc_failed ? th.warn : th.text_muted),
+                               "%s", m->dlc_status);
+            ImGui::PopTextWrapPos();
         }
     }
 

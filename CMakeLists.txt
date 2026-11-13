@@ -89,7 +89,7 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
     target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
     target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
-    foreach(_rui_pending_case wait model launch)
+    foreach(_rui_pending_case wait model launch dlc)
         add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
     endforeach()
@@ -534,6 +534,17 @@ if(BUILD_TESTING)
         src/common/sha256.c
         src/common/ips_patch.c
         src/consoles/psx/memcard_format.c)
+    add_executable(recomp-ui-launcher-dlc-import-test
+        tests/launcher_dlc_import_test.cpp src/common/launcher_model.c
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c
+        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-dlc-import-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-dlc-import-test PRIVATE Threads::Threads)
+    add_test(NAME recomp-ui-launcher-dlc-import
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-dlc-import-test>
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/launcher_dlc_import_test.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/common/launcher_model.c")
     add_executable(recomp-ui-netplay-view-test
         tests/netplay_view_test.c src/common/launcher_model.c
         src/common/crc32.c src/common/sha1.c src/common/sha256.c

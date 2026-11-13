@@ -500,6 +500,18 @@ footer also exposes a confirmed **Restore Defaults** action. The snapshot is
 copied at launcher initialization; resetting never changes the separately
 owned ROM selection or deletes save files.
 
+Hosts can set `GameInfo.import_dlc` to add a compact optional DLC-pack picker
+under the main game browser. Supply `dlc_patterns`, `num_dlc_patterns` and
+`dlc_filter_desc` for the pack format, plus persisted `dlc_path`/`dlc_status`
+for the initial row. The worker calls `import_dlc(dlc_ctx, path, error, cap)`;
+return 1 after a validated installation and persistence, or 0 with an error.
+The host owns content identity, tickets/licenses, saves and path persistence.
+Successful imports update the DLC row without changing the selected ROM or
+disc; errors retain the last installed path. Leaving the callback NULL keeps
+existing launchers unchanged. `RECOMP_LAUNCHER_HAS_DLC_PICKER` identifies this
+capability. Hidden QA can use `LNG_SCRIPT="dlc:/path/to/pack;wait:120;quit"`
+to exercise the same import route without opening a native file dialog.
+
 `RecompLauncherCGameInfo.has_assist_tools` adds an Assist Tools page and
 persists its checkbox through `RecompLauncherCSettings.assist_tools`.
 An opt-in `settings_bindings` host can keep keyboard and standard-controller

@@ -222,6 +222,15 @@ typedef struct {
     // (re-run on every disc/card change) instead of the placeholder synthesis.
     int (*disc_verify_cb)(const char* disc_path, RecompLauncherCDiscVerify* out);
     int (*import_sbi_cb)(const char*, const char*, char*, size_t, char*, size_t);
+    int (*import_dlc_cb)(void* ctx, const char* path, char* error, size_t error_cap);
+    void* dlc_ctx;
+    const char* const* dlc_patterns;
+    int num_dlc_patterns;
+    const char* dlc_filter_desc;
+    char dlc_path[512];
+    char dlc_status[256];
+    bool dlc_importing;
+    bool dlc_failed;
     int (*memcard_inspect_cb)(const char* card_path, RecompLauncherCMemcard* out);
     int (*bios_verify_cb)(const char* bios_path, RecompLauncherCBiosVerify* out);
     /* GameInfo.bios_verify_for_rom: preferred over bios_verify_cb, and also
@@ -727,6 +736,9 @@ void launcher_model_commit(const LauncherModel* m, RecompLauncherCSettings* io);
 // Adopt a newly-picked ROM path (from the native file dialog): updates the
 // displayed file name / verification state.
 void launcher_model_set_rom(LauncherModel* m, const char* path);
+// Optional pack import. Uses the host callback; never changes ROM/disc state.
+// Cancellation (NULL/empty path) is inert; a failed import keeps the last pack.
+void launcher_model_import_dlc(LauncherModel* m, const char* path);
 
 // ---- multi-image disc roster (GameInfo.discs) ----------------------------
 // Number of discs this build was made from. 0 or 1 => single-image title:

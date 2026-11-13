@@ -2362,6 +2362,23 @@ typedef struct RecompLauncherCGameInfo {
     const char*        quality_reason;
     void (*quality_apply)(int preset, RecompLauncherCSettings* s);
     int  (*quality_redetect)(void);
+
+    /* Optional additional-content pack beside the main game picker. A NULL
+     * callback hides the entire row, including for legacy/multi-disc hosts.
+     * import_dlc runs on the existing prepare worker: return 1 only after
+     * validation/install/persistence succeeds, or 0 and an error message.
+     * The host owns pack identity, native saves, licenses and path persistence;
+     * the launcher never substitutes the DLC path for the boot image. The
+     * callback/context and borrowed filter strings must outlive run_window.
+     * dlc_path/status seed the row from the host's persisted installed state.
+     * NULL patterns use an all-files filter. Zero-init keeps old behavior. */
+    int (*import_dlc)(void* ctx, const char* path, char* error, size_t error_cap);
+    void* dlc_ctx;
+    const char* dlc_path;
+    const char* dlc_status;
+    const char* const* dlc_patterns;
+    int num_dlc_patterns;
+    const char* dlc_filter_desc;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
@@ -2371,6 +2388,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_DYNAMIC_RESOLUTION 1
 #define RECOMP_LAUNCHER_HAS_RENDER_PIPELINE 1
 #define RECOMP_LAUNCHER_HAS_QUALITY_PRESETS 1
+#define RECOMP_LAUNCHER_HAS_DLC_PICKER 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_MODE_POLICY 1
 #define RECOMP_LAUNCHER_HAS_SNES_DISPLAY_ASPECT 1
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1

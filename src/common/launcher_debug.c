@@ -183,7 +183,9 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         return false;
     g_cmd_index++;
 
-    if (strncmp(c, "view:", 5) == 0) {
+    if (strncmp(c, "dlc:", 4) == 0) {
+        launcher_model_import_dlc(m, c + 4);
+    } else if (strncmp(c, "view:", 5) == 0) {
         const char* v = c + 5;
         if      (strcmp(v, "dashboard")  == 0) launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
         else if (strcmp(v, "settings")   == 0) launcher_model_set_view(m, LNG_VIEW_SETTINGS);

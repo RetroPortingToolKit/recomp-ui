@@ -10,6 +10,7 @@
 //   view:dashboard|settings|controller|assist_tools|credits
 //                                          switch view (no clicking required)
 //   player:0|1                           which player the controller view edits
+//   dlc:PATH                             import a prefilled optional DLC pack
 //   size:WxH                             resize the window (tests live reflow)
 //   click:X,Y                            synthetic click at logical coords
 //   key:escape                           synthetic key press
