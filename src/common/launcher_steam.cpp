@@ -423,7 +423,7 @@ bool running() {
 
 bool add(const Account& account, const std::string& name, const fs::path& target,
          bool (*client_running)()) {
-    if (client_running()) fail("Exit Steam completely, then click Add to Steam again. Closing its window may leave it running in the tray.");
+    if (client_running()) fail("In Steam, choose Steam > Exit. Then click Add to Steam below.");
     (void)launch_target(target, nullptr);
     const auto& path = account.shortcuts;
     fs::create_directories(path.parent_path());
