@@ -83,6 +83,8 @@ extern "C" {
  * so a full room can still be watched. */
 #define RECOMP_LAUNCHER_NETPLAY_MAX_SPECTATORS 4
 
+#define RECOMP_LAUNCHER_HAS_AUTOMATIC_QUALITY 1
+
 typedef struct RecompLauncherCSettings RecompLauncherCSettings;
 
 typedef struct RecompLauncherCNetplayLobby {
@@ -1624,6 +1626,8 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+    /* Host-owned policy: resolution/SSAA may be reduced to keep up. */
+    int  automatic_quality;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -2486,6 +2490,8 @@ typedef struct RecompLauncherCGameInfo {
      * (callers that predate the field) keeps the profile's count. Appended for
      * ABI stability. */
     int                memcard_slots;
+    /* Opt-in Graphics control; hosts own persistence and live quality. */
+    int                has_automatic_quality;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
