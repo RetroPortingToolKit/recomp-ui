@@ -14,12 +14,16 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <errno.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
 #if defined(_WIN32)
 #  include <windows.h>
+#  include <io.h>
+#  include <fcntl.h>
+#  include <sys/stat.h>
 #else
 #  include <pthread.h>
 #  include <unistd.h>
@@ -380,8 +384,10 @@ void launcher_model_init(LauncherModel* m,
         m->msu1_supported       = game->msu1_supported != 0;
         m->msu1_note            = game->msu1_note;
         m->msu1_patch_path      = game->msu1_patch_path;
-        m->saves_supported      = game->sram_path != NULL;
+        m->saves_supported      = game->sram_path != NULL || game->native_save_path != NULL;
         m->sram_path            = game->sram_path;
+        m->native_save_path_cb  = game->native_save_path;
+        m->native_save_path_ctx = game->native_save_path_ctx;
         m->has_solar_sensor     = game->has_solar_sensor != 0;
     m->in_session           = game->in_session != 0;
     m->has_open_launcher_hotkey = game->has_open_launcher_hotkey != 0;
@@ -4163,31 +4169,148 @@ const char* launcher_model_audio_device_label(const LauncherModel* m) {
 // ---- SRAM save management (mirrors the legacy launcher's Import/Clear) --------
 // Both back up any existing save to "<sram>.bak" first (never a destructive op
 // without a recoverable copy), matching the old launcher's behavior.
-static bool lm_copy_file(const char* src, const char* dst) {
-    FILE* in = fopen(src, "rb");
-    if (!in) return false;
-    FILE* out = fopen(dst, "wb");
-    if (!out) { fclose(in); return false; }
+#if defined(_WIN32)
+static wchar_t* lm_native_save_path_wide(const char* path) {
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
+    if (!count) { errno = EINVAL; return NULL; }
+    wchar_t* wide = (wchar_t*)malloc((size_t)count * sizeof(wchar_t));
+    if (!wide) { errno = ENOMEM; return NULL; }
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, count)) {
+        free(wide); errno = EINVAL; return NULL;
+    }
+    return wide;
+}
+#endif
+static FILE* lm_fopen_utf8(const char* path, const char* mode) {
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(path);
+    if (!wide) return NULL;
+    wchar_t wide_mode[4] = {0};
+    size_t count = strlen(mode);
+    if (count >= 4) { free(wide); errno = EINVAL; return NULL; }
+    for (size_t i = 0; i < count; ++i) wide_mode[i] = (wchar_t)mode[i];
+    FILE* file = _wfopen(wide, wide_mode);
+    free(wide);
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+static int lm_remove_utf8(const char* path) {
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(path);
+    if (!wide) return -1;
+    int result = _wremove(wide);
+    free(wide);
+    return result;
+#else
+    return remove(path);
+#endif
+}
+long launcher_native_save_size(const char* path) {
+    if (!path || !*path) return -1;
+    FILE* file = lm_fopen_utf8(path, "rb");
+    if (!file) return -1;
+    long size = fseek(file, 0, SEEK_END) ? -1 : ftell(file);
+    fclose(file);
+    return size;
+}
+static bool lm_copy_open_files(FILE* in, FILE* out) {
     char buf[8192]; size_t n; bool ok = true;
     while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
         if (fwrite(buf, 1, n, out) != n) { ok = false; break; }
-    fclose(in); fclose(out);
+    if (ferror(in)) ok = false;
+    if (fclose(in)) ok = false;
+    if (fclose(out)) ok = false;
     return ok;
+}
+static bool lm_copy_file(const char* src, const char* dst) {
+    FILE* in = lm_fopen_utf8(src, "rb");
+    if (!in) return false;
+    FILE* out = lm_fopen_utf8(dst, "wb");
+    if (!out) { fclose(in); return false; }
+    return lm_copy_open_files(in, out);
+}
+
+// A sibling staging file is exclusively created. The current save is never
+// opened for writing, and only a completely read/flushed/closed copy commits.
+static bool lm_import_file_atomic(const char* src, const char* dst) {
+    char temp[600];
+    int length = snprintf(temp, sizeof(temp), "%s.import.tmp", dst);
+    if (length < 0 || (size_t)length >= sizeof(temp)) return false;
+    FILE* in = lm_fopen_utf8(src, "rb");
+    if (!in) return false;
+    FILE* out = NULL;
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(temp);
+    if (wide) {
+        int fd = _wopen(wide, _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY,
+                        _S_IREAD | _S_IWRITE);
+        if (fd >= 0) {
+            out = _fdopen(fd, "wb");
+            if (!out) { _close(fd); _wremove(wide); }
+        }
+        free(wide);
+    }
+#else
+    out = fopen(temp, "wbx");
+#endif
+    if (!out) { fclose(in); return false; }
+    if (!lm_copy_open_files(in, out)) { lm_remove_utf8(temp); return false; }
+    // Stage first: src may itself be the current save's backup (or an alias).
+    // Backing up before this point would destroy the requested input.
+    char bak[600];
+    length = snprintf(bak, sizeof(bak), "%s.bak", dst);
+    if (length < 0 || (size_t)length >= sizeof(bak)) {
+        lm_remove_utf8(temp); return false;
+    }
+    errno = 0;
+    FILE* existing = lm_fopen_utf8(dst, "rb");
+    if (existing) {
+        if (fclose(existing) || !lm_copy_file(dst, bak)) {
+            lm_remove_utf8(temp); return false;
+        }
+    } else if (errno != ENOENT) {
+        lm_remove_utf8(temp); return false;
+    }
+    bool committed = false;
+#if defined(_WIN32)
+    wchar_t* from = lm_native_save_path_wide(temp);
+    wchar_t* to = lm_native_save_path_wide(dst);
+    if (from && to)
+        committed = MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    free(from); free(to);
+#else
+    committed = rename(temp, dst) == 0;
+#endif
+    if (!committed) lm_remove_utf8(temp);
+    return committed;
+}
+
+const char* launcher_model_native_save_path(const LauncherModel* m) {
+    if (!m) return NULL;
+    return m->native_save_path_cb
+        ? m->native_save_path_cb(m->native_save_path_ctx, launcher_model_rom_path(m))
+        : m->sram_path;
 }
 
 void launcher_model_import_sram(LauncherModel* m, const char* src) {
-    if (!m->sram_path || !m->sram_path[0] || !src || !src[0]) return;
-    char bak[600]; snprintf(bak, sizeof(bak), "%s.bak", m->sram_path);
-    FILE* existing = fopen(m->sram_path, "rb");
-    if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); }  // back up first
-    lm_copy_file(src, m->sram_path);
+    const char* path = launcher_model_native_save_path(m);
+    if (!path || !path[0] || !src || !src[0]) return;
+    if (!strcmp(src, path)) return;
+    if (!lm_import_file_atomic(src, path)) return;
 }
 
 void launcher_model_clear_sram(LauncherModel* m) {
-    if (!m->sram_path || !m->sram_path[0]) return;
-    char bak[600]; snprintf(bak, sizeof(bak), "%s.bak", m->sram_path);
-    FILE* existing = fopen(m->sram_path, "rb");
-    if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); remove(m->sram_path); }
+    const char* path = launcher_model_native_save_path(m);
+    if (!path || !path[0]) return;
+    char bak[600]; int length = snprintf(bak, sizeof(bak), "%s.bak", path);
+    if (length < 0 || (size_t)length >= sizeof(bak)) return;
+    FILE* existing = lm_fopen_utf8(path, "rb");
+    if (existing) {
+        if (fclose(existing) || !lm_copy_file(path, bak)) return;
+        lm_remove_utf8(path);
+    }
 }
 
 void launcher_model_toggle_msu1(LauncherModel* m) {

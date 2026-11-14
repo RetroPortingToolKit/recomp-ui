@@ -2492,7 +2492,15 @@ typedef struct RecompLauncherCGameInfo {
     int                memcard_slots;
     /* Opt-in Graphics control; hosts own persistence and live quality. */
     int                has_automatic_quality;
+
+    /* Optional current native-save target, queried for the selected ROM and
+     * staged mod choices before display/import/clear. Borrowed UTF-8 result
+     * valid until the next query; null disables save operations. Never opens
+     * dialogs or commits mods. Null callback retains sram_path unchanged. */
+    const char* (*native_save_path)(void* ctx, const char* rom_path);
+    void* native_save_path_ctx;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1
