@@ -632,6 +632,18 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-gb-profile-test PRIVATE src src/common)
     add_test(NAME recomp-ui-gb-profile COMMAND $<TARGET_FILE:recomp-ui-gb-profile-test>)
 
+    add_executable(recomp-ui-selected-pad-test
+        tests/launcher_selected_pad_test.c src/common/launcher_input.c
+        src/common/pad_binds.c)
+    target_include_directories(recomp-ui-selected-pad-test PRIVATE src src/common)
+    target_compile_definitions(recomp-ui-selected-pad-test PRIVATE ${RUI_SDL_DEFS})
+    target_link_libraries(recomp-ui-selected-pad-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(NAME recomp-ui-selected-pad
+             COMMAND $<TARGET_FILE:recomp-ui-selected-pad-test>
+                     "${CMAKE_CURRENT_BINARY_DIR}/selected-pad-input.ini")
+    set_tests_properties(recomp-ui-selected-pad PROPERTIES ENVIRONMENT
+        "SDL_JOYSTICK_HIDAPI=0;SDL_JOYSTICK_RAWINPUT=0;SDL_JOYSTICK_WGI=0;SDL_XINPUT_ENABLED=0;SDL_DIRECTINPUT_ENABLED=0")
+
     add_executable(recomp-ui-assist-pad-capture-test
         tests/launcher_assist_pad_capture_test.c
         src/common/launcher_model.c

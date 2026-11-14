@@ -239,7 +239,11 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
     } else if (strncmp(c, "capbtn:", 7) == 0) {
         launcher_model_begin_capture(m, atoi(c + 7));   // rebind a player button (generic spec index)
     } else if (strncmp(c, "cappad:", 7) == 0) {
-        launcher_model_begin_pad_capture(m, atoi(c + 7));
+        int button = 0, slot = 0;
+        if (sscanf(c + 7, "%d,%d", &button, &slot) >= 1) {
+            launcher_model_begin_pad_capture(m, button);
+            m->capture_slot = slot == 1 ? 1 : 0;
+        }
     } else if (strncmp(c, "padbutton:", 10) == 0) {
         synth_pad_button(atoi(c + 10));
     } else if (strncmp(c, "padaxis:", 8) == 0) {
