@@ -46,6 +46,19 @@ static void log_opened_pad(const LauncherPad* pad, const OpenPad* opened) {
     if (mapping) SDL_free(mapping);
 }
 
+int launcher_input_find_selected_pad(const LauncherPad* pads, int count,
+                                     uint32_t id, const char* guid) {
+    if (!pads || count <= 0) return -1;
+    const int has_guid = guid && guid[0];
+    for (int i = 0; i < count; ++i)
+        if (pads[i].id == id &&
+            (!has_guid || !strcmp(pads[i].guid, guid))) return i;
+    if (has_guid)
+        for (int i = 0; i < count; ++i)
+            if (!strcmp(pads[i].guid, guid)) return i;
+    return -1;
+}
+
 static int id_is_live(const LauncherPad* pads, int count, uint32_t id) {
     for (int i = 0; i < count; ++i)
         if (pads[i].id == id) return 1;
