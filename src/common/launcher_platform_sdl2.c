@@ -25,6 +25,7 @@
 #endif
 
 static bool s_quit_sdl = true;
+enum { LNG_MIN_LOGICAL_W = 820, LNG_MIN_LOGICAL_H = 600 };
 
 void launcher_platform_set_quit_sdl(bool quit_sdl) {
     s_quit_sdl = quit_sdl;
@@ -65,8 +66,8 @@ static void fit_initial_window_to_display(int* width, int* height) {
     float scale = scale_w < scale_h ? scale_w : scale_h;
     if (scale <= 0.0f || scale >= 1.0f) return;
 
-    const int min_w = 820;
-    const int min_h = 600;
+    const int min_w = LNG_MIN_LOGICAL_W;
+    const int min_h = LNG_MIN_LOGICAL_H;
     int fitted_w = (int)((float)*width * scale);
     int fitted_h = (int)((float)*height * scale);
     if (fitted_w < min_w && max_w >= min_w) fitted_w = min_w;
@@ -420,6 +421,20 @@ void launcher_platform_refresh_metrics(LauncherPlatform* p) {
 #endif
     }
     if (s <= 0.0f) s = 1.0f;
+#if defined(__ANDROID__)
+    /* Android's fullscreen surface cannot grow to fit a desktop-sized UI.
+     * Physical panel DPI can otherwise leave only ~250 logical rows on a
+     * landscape phone. Keep the existing minimum launcher layout reachable;
+     * don't shrink text below 1x on displays smaller than that layout. */
+    if (p->pixel_w > 0 && p->pixel_h > 0 &&
+        p->pixel_w == win_w && p->pixel_h == win_h) {
+        float fit_w = (float)p->pixel_w / LNG_MIN_LOGICAL_W;
+        float fit_h = (float)p->pixel_h / LNG_MIN_LOGICAL_H;
+        float fit = fit_w < fit_h ? fit_w : fit_h;
+        if (fit < 1.0f) fit = 1.0f;
+        if (s > fit) s = fit;
+    }
+#endif
     forced = forced_display_scale();
     if (forced > 0.0f) s = forced;
 
