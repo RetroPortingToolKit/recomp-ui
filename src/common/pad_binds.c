@@ -101,10 +101,10 @@ static PadGuidMap* alloc_map(PadStore* st, const char* guid) {
         st->maps[i].used = 1;
         st->maps[i].deadzone_pct = st->spec->default_deadzone_pct;
         copy_str(st->maps[i].guid, sizeof(st->maps[i].guid), guid);
-        seed_defaults_into(st->spec, st->maps[i].src);
+        /* Global sources were seeded at load time. Empty entries are
+         * explicit clears, so inherit them just like a nonempty mapping. */
         for (int b = 0; b < spec_count(st->spec); ++b)
-            if (st->global[b][0])
-                copy_str(st->maps[i].src[b], RUI_PAD_SRC_CAP, st->global[b]);
+            copy_str(st->maps[i].src[b], RUI_PAD_SRC_CAP, st->global[b]);
         return &st->maps[i];
     }
     return NULL;
@@ -479,13 +479,13 @@ void rui_pad_binds_label(const RuiPadSpec* spec, const char* path,
         copy_str(out, (size_t)cap, "(unbound)");
         return;
     }
-    const char* src = NULL;
+    /* Missing keys already inherit defaults while loading/allocating.
+     * A present empty value must remain unbound, not restore a default. */
+    const char* src = st->global[b];
     if (guid && guid[0]) {
         PadGuidMap* m = find_map(st, guid);
         if (m) src = m->src[b];
     }
-    if (!src || !src[0]) src = st->global[b];
-    if (!src || !src[0]) src = spec->defaults[b];
     if (!src || !src[0]) copy_str(out, (size_t)cap, "(unbound)");
     else copy_str(out, (size_t)cap, src);
 }

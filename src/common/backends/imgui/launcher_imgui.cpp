@@ -14913,34 +14913,22 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * against the live device list here so the rule holds from a restored
          * selection too. */
         uint32_t want_id = m->player_pad_id[m->cfg_player];
-        if (!want_id && m->s.player_src[m->cfg_player] == 2) {
+        bool have_want_id = want_id != 0;
+        if (m->s.player_src[m->cfg_player] == 2 &&
+            (guid_store || !have_want_id)) {
             const char* want_guid = m->s.player_gamepad_guid[m->cfg_player];
-            if (want_guid[0]) {
-                for (int i = 0; i < g_pad_count; ++i) {
-                    if (g_pads[i].guid[0] &&
-                        std::strcmp(g_pads[i].guid, want_guid) == 0) {
-                        want_id = g_pads[i].id;
-                        break;
-                    }
-                }
+            if (want_guid[0] || have_want_id) {
+                const int selected = launcher_input_find_selected_pad(
+                    g_pads, g_pad_count, want_id, want_guid);
+                have_want_id = selected >= 0;
+                if (have_want_id) want_id = g_pads[selected].id;
             }
         }
         auto from_selected = [&](uint32_t which) -> bool {
-            /* A binding belongs to the device the player SELECTED.
-             *
-             * This used to require psx_cap, so every other console bound
-             * whatever pad spoke first: with two controllers attached, the one
-             * that was not chosen could capture the mapping, and the player had
-             * no way to tell which had won. If a device is selected, only that
-             * device may bind.
-             *
-             * want_id == 0 means no specific device is chosen (the console
-             * offers a generic "Gamepad" source), and any pad is accepted --
-             * which is the behaviour Genesis had and keeps. A per-GUID store
-             * additionally refuses when its selection has not resolved to a
-             * live device, because the binding would otherwise be written
-             * against the wrong profile. */
-            if (!want_id) return !guid_store;
+            // Presence is separate from the numeric id: SDL2's first live
+            // controller has instance zero. A per-GUID store still refuses
+            // disconnected selections; a generic source accepts any pad.
+            if (!have_want_id) return !guid_store;
             return which == want_id;
         };
         auto try_clear_release_wait = [&](uint32_t which) {
