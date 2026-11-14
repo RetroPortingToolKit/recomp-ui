@@ -38,6 +38,12 @@ int launcher_input_gamepad_at_rest(uint32_t id);
 // Bit N corresponds to SDL button N. Unknown/missing id returns 0.
 uint32_t launcher_input_gamepad_button_mask(uint32_t id);
 
+// Return the live selected pad index, or -1 if unavailable. SDL2 instance
+// zero is valid. Prefer a matching live instance, then restore by GUID after
+// reconnect/restart; never resolve a different GUID from a stale instance.
+int launcher_input_find_selected_pad(const LauncherPad* pads, int count,
+                                     uint32_t id, const char* guid);
+
 // Close controller handles retained for live input/sensor polling. Call before
 // the launcher tears down SDL.
 void launcher_input_shutdown(void);
