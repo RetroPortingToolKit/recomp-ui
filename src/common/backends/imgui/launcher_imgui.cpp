@@ -12981,7 +12981,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
     const bool play_enabled = can_play || bios_block;
-    if (neon_cta("##play", ui_text(m->in_session ? "RESUME" : "PLAY"),
+    if (neon_cta("##play", ui_text(m->in_session ? "RESUME" :
+                                   m->system_media_title ? "LAUNCH" : "PLAY"),
                  ImVec2(play_w, play_h), play_enabled)) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
