@@ -2199,10 +2199,119 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
     }
 }
 
+/* Original vector artwork for a system launcher. It scales with the card and
+ * does not require a game image or a copyrighted system screenshot. */
+static void channel_grid_art(float width, float height) {
+    const float w = std::min(width, height * 1.6f), h = w / 1.6f;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (width - w) * .5f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 white = IM_COL32(239, 246, 249, 255);
+    const ImU32 blue = IM_COL32(54, 183, 221, 255);
+    dl->AddRectFilled(p, ImVec2(p.x+w,p.y+h), IM_COL32(207,221,228,255), w*.045f);
+    const float gap=w*.025f, cw=(w-gap*5)/4, ch=h*.22f;
+    for(int row=0;row<3;++row) for(int c=0;c<4;++c) {
+        const ImVec2 a(p.x+gap+(cw+gap)*c,p.y+gap+(ch+gap)*row);
+        const ImVec2 b(a.x+cw,a.y+ch);
+        dl->AddRectFilled(a,b,white,w*.018f);
+        dl->AddRect(a,b,blue,w*.018f,0,std::max(1.0f,w*.003f));
+        if(row==0 && c==0) {
+            const ImVec2 center((a.x+b.x)*.5f,(a.y+b.y)*.5f);
+            dl->AddCircle(center,ch*.31f,blue,24,std::max(1.0f,w*.005f));
+            dl->AddCircleFilled(center,ch*.08f,blue,16);
+        } else {
+            const ImU32 shade=IM_COL32(126+c*20,180+row*15,208+c*8,255);
+            dl->AddRectFilled(ImVec2(a.x+cw*.2f,a.y+ch*.28f),
+                              ImVec2(b.x-cw*.2f,b.y-ch*.28f),shade,w*.015f);
+        }
+    }
+    dl->AddCircleFilled(ImVec2(p.x+w*.08f,p.y+h*.9f),h*.045f,white,24);
+    dl->AddCircle(ImVec2(p.x+w*.08f,p.y+h*.9f),h*.045f,blue,24,w*.003f);
+    dl->AddRectFilled(ImVec2(p.x+w*.76f,p.y+h*.87f),
+                      ImVec2(p.x+w*.94f,p.y+h*.93f),white,w*.015f);
+    ImGui::Dummy(ImVec2(w,h));
+}
+
+static void request_system_media(LauncherModel* m, bool folder) {
+    PickRequest req;
+    req.mode = folder ? PickMode::Folder : PickMode::OpenFile;
+    req.title = folder ? "Select extracted system folder" : "Select system NAND backup";
+    if (!folder) {
+        for (int i=0;m->rom_patterns && i<m->num_rom_patterns;++i)
+            if(m->rom_patterns[i]) req.patterns.emplace_back(m->rom_patterns[i]);
+        req.description=m->rom_filter_desc ? m->rom_filter_desc : "System backup";
+    }
+    req.on_pick=[m](const char* path) {
+        if(path) launcher_model_start_prepare_disc(m,path);
+    };
+    ui_pick(m,std::move(req));
+}
+
+static void draw_system_media(LauncherModel* m, const LauncherTheme& th, float width) {
+    if(m->channel_grid_art) {
+        channel_grid_art(width,px(230));
+        ImGui::Dummy(ImVec2(0,px(16)));
+    }
+    ImGui::TextColored(col(th.accent),"%s",m->system_media_title);
+    ImGui::PushTextWrapPos();
+    ImGui::TextColored(col(launcher_model_rom_verified(m) ? th.good : th.text_muted),
+        "%s",m->system_media_status && m->system_media_status[0]
+            ? m->system_media_status : "System files have not been imported.");
+    if(m->system_media_note) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s",m->system_media_note);
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(0,px(12)));
+    ImGui::BeginDisabled(m->setup_preparing || m->in_session || !m->prepare_disc_cb);
+    if(ImGui::Button("Import NAND backup...",ImVec2(width,px(34))))
+        request_system_media(m,false);
+    if(m->system_media_folders && ImGui::Button("Import extracted folder...",ImVec2(width,px(34))))
+        request_system_media(m,true);
+    if(m->system_media_keys_path && m->system_media_keys_capacity>0 &&
+       ImGui::TreeNode("Console keys (optional)")) {
+        ImGui::TextWrapped("For an encrypted NAND backup without embedded keys, select its matching keys.bin. Extracted folders do not need this.");
+        ImGui::TextWrapped("%s",m->system_media_keys_path[0]?m->system_media_keys_path:"No separate key backup selected.");
+        if(ImGui::Button("Select keys backup...")) {
+            PickRequest req;req.title="Select console keys backup";
+            req.patterns={"*.bin"};req.description="Console keys backup (keys.bin)";
+            req.on_pick=[m](const char* path) {
+                if(path && std::strlen(path)<m->system_media_keys_capacity)
+                    std::snprintf(m->system_media_keys_path,m->system_media_keys_capacity,"%s",path);
+            };
+            ui_pick(m,std::move(req));
+        }
+        if(m->system_media_keys_path[0]) {
+            ImGui::SameLine();
+            if(ImGui::Button("Clear"))m->system_media_keys_path[0]=0;
+        }
+        ImGui::TreePop();
+    }
+    ImGui::EndDisabled();
+    if(m->in_session) ImGui::TextWrapped("System files can be changed from the startup launcher.");
+    if(m->setup_status[0]) ImGui::TextWrapped("%s",m->setup_status);
+    if(m->setup_error[0]) {
+        ImGui::PushTextWrapPos();
+        ImGui::TextColored(col(th.warn),"%s",m->setup_error);
+        ImGui::PopTextWrapPos();
+    }
+    if(m->rom_present && ImGui::TreeNode("System file details")) {
+        ImGui::PushTextWrapPos();
+        ImGui::TextUnformatted(m->rom_full);
+        ImGui::PopTextWrapPos();
+        ImGui::TreePop();
+    }
+}
+
 void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = false) {
     if (!begin_panel("game", 0, fill_h)) { end_panel(); return; }
     // No "GAME" eyebrow: the box art itself tells the user this is the game.
     const float availw = ImGui::GetContentRegionAvail().x;
+    if(m->system_media_title) {
+        draw_system_media(m,th,availw);
+        end_panel();
+        return;
+    }
 
     // Verify module: verify.mode==1 systems (PSX) render a disc-verdict block
     // (icon + Serial/Region/ISO checklist) here instead of the CRC/SHA line;
@@ -3586,8 +3695,80 @@ void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     }
 }
 
+static void request_peripheral_image(LauncherModel* m,int slot,
+                                     RecompLauncherCPeripheralConfig config) {
+    PickRequest req;
+    req.title="Mount storage image";
+    req.patterns={"*.img","*.raw","*.bin","*.sd"};
+    req.description="Raw storage image (.img, .raw, .bin, .sd)";
+    req.start_path=config.image_path;
+    req.on_pick=[m,slot,config](const char* path) mutable {
+        if(!path) return;
+        if(std::strlen(path)>=sizeof(config.image_path)) {
+            std::snprintf(m->peripherals[slot].error,sizeof(m->peripherals[slot].error),
+                          "The image path is too long.");
+            return;
+        }
+        std::snprintf(config.image_path,sizeof(config.image_path),"%s",path);
+        launcher_model_set_peripheral(m,slot,&config);
+    };
+    ui_pick(m,std::move(req));
+}
+
+static void draw_peripherals(LauncherModel* m,const LauncherTheme& th) {
+    if(!m->peripherals || !m->peripheral_apply_cb || m->num_peripherals<=0) return;
+    ImGui::Dummy(ImVec2(0,px(th.spacing_md)));
+    if(!begin_panel("peripherals",0,false)) { end_panel();return; }
+    ImGui::TextColored(col(th.accent),"%s",
+        m->peripherals_title ? m->peripherals_title : "Peripherals");
+    for(int i=0;i<m->num_peripherals;++i) {
+        auto& p=m->peripherals[i];
+        if(!p.kinds || p.num_kinds<=0) continue;
+        ImGui::PushID(i);
+        ImGui::Separator();
+        ImGui::TextUnformatted(p.label ? p.label : "Device");
+        const int kind=p.config.kind>=0 && p.config.kind<p.num_kinds ? p.config.kind : 0;
+        ImGui::SetNextItemWidth(-1);
+        if(ImGui::BeginCombo("##kind",p.kinds[kind].label)) {
+            for(int k=0;k<p.num_kinds;++k) if(ImGui::Selectable(p.kinds[k].label,k==kind)) {
+                auto config=p.config;config.kind=k;
+                if(p.kinds[k].needs_image && !config.image_path[0]) {
+                    config.read_only=1;
+                    request_peripheral_image(m,i,config);
+                } else {
+                    if(!p.kinds[k].needs_image) config.image_path[0]=0;
+                    launcher_model_set_peripheral(m,i,&config);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if(p.kinds[kind].needs_image) {
+            const auto path=std::filesystem::u8path(p.config.image_path).filename().u8string();
+            ImGui::TextWrapped("%s",path.c_str());
+            bool ro=p.config.read_only!=0;
+            if(ImGui::Checkbox("Read only",&ro)) {
+                auto config=p.config;config.read_only=ro;
+                launcher_model_set_peripheral(m,i,&config);
+            }
+            if(ImGui::Button("Change image...")) request_peripheral_image(m,i,p.config);
+            ImGui::SameLine();
+            if(ImGui::Button("Eject")) {
+                auto config=p.config;config.kind=0;config.image_path[0]=0;
+                launcher_model_set_peripheral(m,i,&config);
+            }
+        }
+        ImGui::PushTextWrapPos();
+        if(p.status[0]) ImGui::TextColored(col(th.text_muted),"%s",p.status);
+        if(p.error[0]) ImGui::TextColored(col(th.warn),"%s",p.error);
+        ImGui::PopTextWrapPos();
+        ImGui::PopID();
+    }
+    end_panel();
+}
+
 void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
     draw_controllers_row(m, *th);
+    draw_peripherals(m,*th);
 }
 
 // The dashboard COMPOSES whichever panels this game's SystemProfile lists in

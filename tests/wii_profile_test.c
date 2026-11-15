@@ -17,13 +17,14 @@ int main(void) {
         const SystemProfile* profile = launcher_system_infer(&game);
         assert(profile == launcher_system_by_id(aliases[i]));
         assert(strcmp(profile->id, "wii") == 0);
-        assert(profile->controller.button_count == 11);
+        assert(profile->controller.button_count == 15);
         assert(profile->controller.has_pad_mode == 0);
         for (int button = 0; button < profile->controller.button_count; ++button)
             assert(profile->controller.buttons[button].code == button);
         assert(strcmp(profile->controller.buttons[4].label, "1") == 0);
         assert(strcmp(profile->controller.buttons[5].label, "2") == 0);
         assert(strcmp(profile->controller.buttons[10].label, "HOME") == 0);
+        assert(strcmp(profile->controller.buttons[11].label, "Pointer up") == 0);
         assert(game.settings_bindings);
         assert(profile->save.kind == SAVE_NONE);
         assert(!has_panel(profile->panels_settings, "system"));

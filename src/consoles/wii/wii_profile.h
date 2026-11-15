@@ -15,6 +15,8 @@ static const ButtonDef kWiiPadButtons[] = {
     { "Up", 0 }, { "Down", 1 }, { "Left", 2 }, { "Right", 3 },
     { "1", 4 }, { "2", 5 }, { "+", 6 }, { "-", 7 },
     { "A", 8 }, { "B", 9 }, { "HOME", 10 },
+    { "Pointer up", 11 }, { "Pointer down", 12 },
+    { "Pointer left", 13 }, { "Pointer right", 14 },
 };
 #define LNG_WII_PAD_BUTTON_COUNT ((int)(sizeof(kWiiPadButtons) / sizeof(kWiiPadButtons[0])))
 

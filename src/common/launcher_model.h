@@ -229,6 +229,20 @@ typedef struct {
     const char* dlc_filter_desc;
     char dlc_path[512];
     char dlc_status[256];
+    const char* system_media_title;
+    const char* system_media_status;
+    const char* system_media_note;
+    void (*system_media_imported)(const char* boot_path);
+    bool system_media_folders;
+    char* system_media_keys_path;
+    size_t system_media_keys_capacity;
+    bool channel_grid_art;
+    const char* peripherals_title;
+    RecompLauncherCPeripheral* peripherals;
+    int num_peripherals;
+    int (*peripheral_apply_cb)(void*, int,
+                              const RecompLauncherCPeripheralConfig*, char*, size_t);
+    void* peripheral_ctx;
     bool dlc_importing;
     bool dlc_failed;
     int (*memcard_inspect_cb)(const char* card_path, RecompLauncherCMemcard* out);
@@ -1202,6 +1216,10 @@ bool launcher_model_bios_missing(const LauncherModel* m);
 // or a job is already running. On success adopts the resulting disc path.
 // When rebuild_after_prepare is set, automatically chains into rebuild.
 void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path);
+/* Validate/apply before changing a host-backed slot. Failure leaves its
+ * previous configuration intact and stores the host's actionable error. */
+bool launcher_model_set_peripheral(LauncherModel* m, int slot,
+                                  const RecompLauncherCPeripheralConfig* config);
 /* Run the host's bios_prepare_with_progress for the staged BIOS (progress
  * modal only; wizard resumes after). No-op without the callback. */
 void launcher_model_begin_bios_prepare(LauncherModel* m);

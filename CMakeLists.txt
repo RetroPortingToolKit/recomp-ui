@@ -89,7 +89,7 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
     target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
     target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
-    foreach(_rui_pending_case wait model launch dlc)
+    foreach(_rui_pending_case wait model launch dlc media peripheral)
         add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
     endforeach()
@@ -341,6 +341,16 @@ if(BUILD_TESTING)
         NAME recomp-ui-launcher-setup-bios
         COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-bios-test>
                 "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # First-run wizard: Confirm disc / Continue records the pick immediately
+    add_executable(recomp-ui-launcher-peripherals-test
+        tests/launcher_peripherals_test.c src/common/crc32.c src/common/sha1.c
+        src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-peripherals-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-peripherals-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(NAME recomp-ui-launcher-peripherals
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-peripherals-test>)
 
     # First-run wizard: Confirm disc / Continue records the pick immediately
     # (sidecars + host persist_setup), so the next start does not ask again.

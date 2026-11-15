@@ -183,7 +183,22 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         return false;
     g_cmd_index++;
 
-    if (strncmp(c, "dlc:", 4) == 0) {
+    if (strncmp(c, "media:", 6) == 0) {
+        /* Script an owned import without opening a desktop file picker. */
+        if(m->system_media_title)launcher_model_start_prepare_disc(m,c+6);
+    } else if (strncmp(c, "peripheral:", 11) == 0) {
+        int slot=-1,kind=-1,ro=-1,offset=0;
+        if(sscanf(c+11,"%d,%d,%d,%n",&slot,&kind,&ro,&offset)==3 && offset>0 &&
+           slot>=0 && slot<m->num_peripherals && m->peripherals) {
+            RecompLauncherCPeripheralConfig config={0};
+            const char* path=c+11+offset;
+            if(strlen(path)<sizeof config.image_path && (ro==0 || ro==1)) {
+                config.kind=kind;config.read_only=ro;strcpy(config.image_path,path);
+                if(!launcher_model_set_peripheral(m,slot,&config))
+                    fprintf(stderr,"[dbg] peripheral: %s\n",m->peripherals[slot].error);
+            }
+        }
+    } else if (strncmp(c, "dlc:", 4) == 0) {
         launcher_model_import_dlc(m, c + 4);
     } else if (strncmp(c, "view:", 5) == 0) {
         const char* v = c + 5;

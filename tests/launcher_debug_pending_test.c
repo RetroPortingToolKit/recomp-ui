@@ -11,6 +11,12 @@ void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey hotkey) { (void
 void launcher_model_import_dlc(LauncherModel* m, const char* path) {
     ++mutations;snprintf(m->dlc_path,sizeof(m->dlc_path),"%s",path);
 }
+void launcher_model_start_prepare_disc(LauncherModel* m,const char* path) {
+    ++mutations;snprintf(m->rom_full,sizeof m->rom_full,"%s",path);
+}
+bool launcher_model_set_peripheral(LauncherModel* m,int slot,const RecompLauncherCPeripheralConfig* config) {
+    ++mutations;m->peripherals[slot].config=*config;return true;
+}
 void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }
@@ -59,6 +65,23 @@ int main(int argc, char** argv) {
         launcher_debug_step(&platform, &model);
         check(model.action == LNG_ACTION_QUIT, "script quit follows DLC request");
         return failures ? 1 : 0;
+    }
+    if(strcmp(argv[1],"media")==0) {
+        model.system_media_title="System files";
+        script("media:C:/owned folder/nand.bin;quit");
+        check(!launcher_debug_step_pending(&platform) && mutations==0,"system import waits for provider");
+        launcher_debug_step(&platform,&model);
+        check(mutations==1 && !strcmp(model.rom_full,"C:/owned folder/nand.bin"),"prefilled NAND source has no dialog");
+        return failures?1:0;
+    }
+    if(strcmp(argv[1],"peripheral")==0) {
+        RecompLauncherCPeripheral peripheral={0};model.peripherals=&peripheral;model.num_peripherals=1;
+        script("peripheral:0,2,1,C:/owned folder/storage.img;quit");
+        check(!launcher_debug_step_pending(&platform) && mutations==0,"mount waits for provider");
+        launcher_debug_step(&platform,&model);
+        check(mutations==1 && peripheral.config.kind==2 && peripheral.config.read_only &&
+              !strcmp(peripheral.config.image_path,"C:/owned folder/storage.img"),"prefilled mount reaches model");
+        return failures?1:0;
     }
     if (strcmp(argv[1], "model") != 0) return 2;
 

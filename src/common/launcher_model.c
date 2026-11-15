@@ -448,6 +448,19 @@ void launcher_model_init(LauncherModel* m,
         m->dlc_patterns         = game->dlc_patterns;
         m->num_dlc_patterns     = game->num_dlc_patterns;
         m->dlc_filter_desc      = game->dlc_filter_desc;
+        m->system_media_title = game->system_media_title;
+        m->system_media_status = game->system_media_status;
+        m->system_media_note = game->system_media_note;
+        m->system_media_imported = game->system_media_imported;
+        m->system_media_folders = game->system_media_folders != 0;
+        m->system_media_keys_path = game->system_media_keys_path;
+        m->system_media_keys_capacity = game->system_media_keys_capacity;
+        m->channel_grid_art = game->channel_grid_art != 0;
+        m->peripherals_title = game->peripherals_title;
+        m->peripherals = game->peripherals;
+        m->num_peripherals = game->num_peripherals;
+        m->peripheral_apply_cb = game->peripheral_apply;
+        m->peripheral_ctx = game->peripheral_ctx;
         safe_copy(m->dlc_path, sizeof(m->dlc_path), game->dlc_path);
         safe_copy(m->dlc_status, sizeof(m->dlc_status), game->dlc_status);
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
@@ -459,7 +472,7 @@ void launcher_model_init(LauncherModel* m,
          * ignore prepare/rebuild/toolchain even if a host filled them — keeps
          * unadvertised platforms from surfacing in-development UI. */
         m->setup_wizard_supported = game->setup_wizard_supported != 0;
-        if (m->setup_wizard_supported) {
+        if (m->setup_wizard_supported || m->system_media_title) {
             m->prepare_disc_cb      = game->prepare_disc;
             m->prepare_with_progress_cb = game->prepare_with_progress;
             m->bios_prepare_with_progress_cb = game->bios_prepare_with_progress;
@@ -3031,6 +3044,8 @@ bool launcher_model_can_launch(const LauncherModel* m) {
     }
     if (m->has_bios && !m->setup_bios_ok) return false;
     if (m->setup_preparing) return false;
+    for (int i=0;m->peripherals && i<m->num_peripherals;++i)
+        if (!m->peripherals[i].ready) return false;
     return true;
 }
 
@@ -3449,11 +3464,15 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     if (!m || m->setup_preparing) return;
     if (!m->prepare_with_progress_cb && !m->prepare_disc_cb) return;
     if (!source_path || !source_path[0]) return;
+    if(strlen(source_path)>=sizeof(g_prep_job.source)) {
+        safe_copy(m->setup_error,sizeof(m->setup_error),"The system source path is too long.");
+        return;
+    }
     /* Persist ROM/BIOS for codegen hosts (project root + exe dirs + cwd). */
-    if (source_path && source_path[0] &&
+    if (!m->system_media_title && source_path && source_path[0] &&
         (!m->rom_full[0] || strcmp(m->rom_full, source_path) != 0))
         launcher_model_set_rom(m, source_path);
-    lm_persist_setup_sidecars(m);
+    if (!m->system_media_title) lm_persist_setup_sidecars(m);
     memset(&g_prep_job, 0, sizeof(g_prep_job));
     g_prep_job.m = m;
     g_prep_job.kind = PREP_JOB_PREPARE;
@@ -3469,6 +3488,28 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
                   ? m->prepare_busy_status
                   : "Preparing disc image…");
     prep_spawn_thread(m);
+}
+
+bool launcher_model_set_peripheral(LauncherModel* m, int slot,
+                                  const RecompLauncherCPeripheralConfig* config) {
+    if (!m || !m->peripherals || !m->peripheral_apply_cb || !config ||
+        slot < 0 || slot >= m->num_peripherals) return false;
+    RecompLauncherCPeripheral* p = &m->peripherals[slot];
+    if (!p->kinds || config->kind < 0 || config->kind >= p->num_kinds ||
+        !memchr(config->image_path, 0, sizeof(config->image_path)) ||
+        (p->kinds[config->kind].needs_image && !config->image_path[0])) {
+        safe_copy(p->error, sizeof(p->error), "Select a valid device and image first.");
+        return false;
+    }
+    p->error[0] = 0;
+    if (!m->peripheral_apply_cb(m->peripheral_ctx, slot, config,
+                                p->error, sizeof(p->error))) {
+        if (!p->error[0]) safe_copy(p->error, sizeof(p->error), "The device could not be attached.");
+        return false;
+    }
+    p->config = *config;
+    p->ready = 1;
+    return true;
 }
 
 void launcher_model_import_dlc(LauncherModel* m, const char* path) {
@@ -3641,6 +3682,7 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     }
 
     if (result && out_path[0]) {
+        if(m->system_media_imported)m->system_media_imported(out_path);
         launcher_model_set_rom(m, out_path);
         m->setup_error[0] = '\0';
         if (m->rebuild_after_prepare && m->rebuild_with_progress_cb) {

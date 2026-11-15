@@ -1680,6 +1680,28 @@ typedef struct RecompLauncherCDisc {
     const char* path;
 } RecompLauncherCDisc;
 
+/* Optional host-backed peripherals. The host owns persistence and device I/O;
+ * the launcher commits a selection only after apply returns success. All
+ * borrowed storage must outlive run_window. A zero-initialized host has no UI. */
+typedef struct {
+    const char* label;
+    int needs_image;
+} RecompLauncherCPeripheralKind;
+typedef struct {
+    int kind;
+    int read_only;
+    char image_path[1024];
+} RecompLauncherCPeripheralConfig;
+typedef struct {
+    const char* label;
+    const RecompLauncherCPeripheralKind* kinds;
+    int num_kinds;
+    RecompLauncherCPeripheralConfig config;
+    int ready; /* host validated; unavailable saved images block Launch */
+    char status[160];
+    char error[256];
+} RecompLauncherCPeripheral;
+
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
     const char*    region;
@@ -2379,6 +2401,31 @@ typedef struct RecompLauncherCGameInfo {
     const char* const* dlc_patterns;
     int num_dlc_patterns;
     const char* dlc_filter_desc;
+    /* System-media dashboard: friendly installed identity replaces the raw
+     * boot filename. Browse/import uses the existing prepare worker, without
+     * replacing a working boot path until import succeeds. Folder sources are
+     * optional. This capability does not enable code generation or a wizard. */
+    const char* system_media_title;
+    const char* system_media_status;
+    const char* system_media_note;
+    /* Called on the UI owner, after the prepare worker joins and before the
+     * returned boot image is verified. Safe place to refresh host identity. */
+    void (*system_media_imported)(const char* boot_path);
+    int system_media_folders;
+    /* Optional user-supplied console-key backup path for encrypted NAND
+     * sources without embedded keys. The host owns this mutable buffer. */
+    char* system_media_keys_path;
+    size_t system_media_keys_capacity;
+    /* Code-native channel-grid artwork, for a system launcher rather than a
+     * boxed game. Zero retains the existing per-game boxart behavior. */
+    int channel_grid_art;
+    const char* peripherals_title;
+    RecompLauncherCPeripheral* peripherals;
+    int num_peripherals;
+    int (*peripheral_apply)(void* ctx, int slot,
+                           const RecompLauncherCPeripheralConfig* config,
+                           char* error, size_t error_cap);
+    void* peripheral_ctx;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
