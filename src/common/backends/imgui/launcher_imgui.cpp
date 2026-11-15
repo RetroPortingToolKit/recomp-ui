@@ -2249,7 +2249,7 @@ static void request_system_media(LauncherModel* m, bool folder) {
 
 static void draw_system_media(LauncherModel* m, const LauncherTheme& th, float width) {
     if(m->channel_grid_art) {
-        channel_grid_art(width,px(230));
+        channel_grid_art(width,px(120));
         ImGui::Dummy(ImVec2(0,px(16)));
     }
     ImGui::TextColored(col(th.accent),"%s",m->system_media_title);
@@ -3739,7 +3739,11 @@ static void draw_peripherals(LauncherModel* m,const LauncherTheme& th) {
         if(!p.kinds || p.num_kinds<=0) continue;
         ImGui::PushID(i);
         ImGui::Separator();
+        const bool compact=m->system_media_title!=nullptr;
+        const float label_x=ImGui::GetCursorPosX();
+        if(compact)ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(p.label ? p.label : "Device");
+        if(compact)ImGui::SameLine(label_x+px(64));
         const int kind=p.config.kind>=0 && p.config.kind<p.num_kinds ? p.config.kind : 0;
         ImGui::SetNextItemWidth(-1);
         if(ImGui::BeginCombo("##kind",p.kinds[kind].label)) {
@@ -3771,7 +3775,8 @@ static void draw_peripherals(LauncherModel* m,const LauncherTheme& th) {
             }
         }
         ImGui::PushTextWrapPos();
-        if(p.status[0]) ImGui::TextColored(col(th.text_muted),"%s",p.status);
+        if(p.status[0] && (!compact || (kind!=0 && !std::strstr(p.status,"connects at launch"))))
+            ImGui::TextColored(col(th.text_muted),"%s",p.status);
         if(p.error[0]) ImGui::TextColored(col(th.warn),"%s",p.error);
         ImGui::PopTextWrapPos();
         ImGui::PopID();
