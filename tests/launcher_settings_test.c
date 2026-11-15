@@ -6,6 +6,7 @@
 #include "launcher_profile.h"
 #include "launcher_settings.h"
 #include "launcher_ini.h"
+#include "launcher_input.h"
 #include "../src/common/launcher_ini.inc"
 
 #include <stdio.h>
@@ -330,6 +331,33 @@ int main(int argc, char** argv) {
     require(!s.assist_key_bind[0] && !s.assist_pad_bind[1], "host shortcut explicit unbind survives restart");
     read_text(wii.config_path, result, sizeof result);
     require(strstr(result, "Keep=yes") != NULL, "host shortcut edits preserve unrelated settings");
+
+    /* Physical controller assignments survive restart without persisting SDL IDs. */
+    static LauncherModel devices;devices.player_count=4;devices.s=defaults();
+    LauncherPad pads[4]={0};
+    for(int n=0;n<4;++n) {
+        pads[n].id=100+n;snprintf(pads[n].guid,sizeof pads[n].guid,"same-model");
+        snprintf(pads[n].name,sizeof pads[n].name,"Identical Controller");
+        snprintf(pads[n].identity,sizeof pads[n].identity,"%064d",n+1);
+        launcher_model_set_physical_source(&devices,n,&pads[n]);devices.s.deadzone[n]=21+n;
+    }
+    launcher_model_sync_physical_sources(&devices,pads,4);
+    require(!strcmp(devices.player_pad_name[2],"Identical Controller (3)"),"identical models remain friendly distinct choices");
+    before=defaults();s=devices.s;launcher_settings_save(&s,&before,&wii);
+    s=defaults();launcher_settings_load(&s,&wii);
+    for(int n=0;n<4;++n) require(s.player_src[n]==2 && s.deadzone[n]==21+n &&
+        !strcmp(s.player_gamepad_guid[n],"same-model") && !strcmp(s.player_gamepad_identity[n],pads[n].identity) &&
+        !strcmp(s.player_gamepad_name[n],"Identical Controller") && !s.player_gamepad_instance[n],"four source/identity/name/deadzone round trips; live ID does not");
+    read_text(wii.config_path,result,sizeof result);require(!strstr(result,"Instance"),"ephemeral SDL IDs never serialized");
+    devices.s=s;for(int n=0;n<4;++n)pads[n].id=200+n;
+    launcher_model_sync_physical_sources(&devices,pads,4);
+    for(int n=0;n<4;++n)require(devices.player_pad_id[n]==200u+n,"restart resolves stable identity instead of old instance");
+    launcher_model_sync_physical_sources(&devices,pads,2);
+    require(!devices.player_pad_id[2] && !devices.player_pad_id[3] && devices.player_pad_id[0]==200,"offline assignments do not steal another identical device");
+    pads[0].identity[0]=0;launcher_model_set_physical_source(&devices,0,&pads[0]);
+    require(!strcmp(devices.s.player_gamepad_identity[0],"manual"),"missing OS identity records manual choice, never a live ID");
+    devices.s.player_gamepad_instance[0]=0;launcher_model_sync_physical_sources(&devices,pads,1);
+    require(!devices.player_pad_id[0],"ambiguous restart requires explicit choice even when another same-model pad remains");
 
     /* Fresh install, default path, and no-op open/close. */
     require(remove("config.ini") == 0, "remove default-path sentinel");

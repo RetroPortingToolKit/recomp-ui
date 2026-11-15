@@ -1158,6 +1158,9 @@ void launcher_model_set_deadzone(LauncherModel* m, int player, int pct);
 void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid);
+struct LauncherPad;
+void launcher_model_set_physical_source(LauncherModel*,int,const struct LauncherPad*);
+void launcher_model_sync_physical_sources(LauncherModel*,const struct LauncherPad*,int);
 
 // ---- mouse controls (has_mouse_controls games only; no-op otherwise) --------
 // Select the player-0 keyboard source with mouse-aim on (enabled != 0) or off

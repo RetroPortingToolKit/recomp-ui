@@ -5,6 +5,7 @@
 
 #include "launcher_model.h"
 #include "launcher_system.h"
+#include "launcher_input.h"
 
 #include "crc32.h"
 #include "consoles/psx/memcard_format.h"   // PSX-specific; used only under SAVE_MEMCARD
@@ -4455,6 +4456,9 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                const char* pad_guid) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     m->s.player_src[player] = clampi(kind, 0, 2);
+    m->s.player_gamepad_identity[player][0]=0;
+    safe_copy(m->s.player_gamepad_name[player],sizeof m->s.player_gamepad_name[player],
+              kind==2 && pad_name?pad_name:"");
     if (kind == 2) {
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
@@ -4470,6 +4474,35 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
         m->s.player_gamepad_guid[player][0] = '\0';
     }
     apply_default_pad_mode_for_source(m, player);
+}
+
+void launcher_model_set_physical_source(LauncherModel* m,int player,const LauncherPad* pad) {
+    if(!m || !pad || player<0 || player>=LNG_MAX_PLAYERS)return;
+    launcher_model_set_source(m,player,2,pad->id,pad->name,pad->guid);
+    safe_copy(m->s.player_gamepad_identity[player],sizeof m->s.player_gamepad_identity[player],
+              pad->identity[0]?pad->identity:"manual");
+}
+void launcher_model_sync_physical_sources(LauncherModel* m,const LauncherPad* pads,int count) {
+    if(!m || !pads || count<0 || count>LNG_MAX_PADS)return;
+    int players=launcher_model_visible_player_count(m);
+    if(players>LNG_MAX_PLAYERS)players=LNG_MAX_PLAYERS;
+    for(int p=0;p<players;++p) {
+        m->player_pad_id[p]=0;
+        if(m->s.player_src[p]!=2)continue;
+        const char* guid=m->s.player_gamepad_guid[p];
+        const char* identity=m->s.player_gamepad_identity[p];
+        int index=launcher_input_resolve(pads,count,guid,identity,m->s.player_gamepad_instance[p]);
+        if(!*identity && !m->s.player_gamepad_instance[p])
+            for(int q=0;q<players;++q)if(q!=p && m->s.player_src[q]==2 && !strcmp(guid,m->s.player_gamepad_guid[q]))index=-1;
+        for(int q=0;index>=0 && q<p;++q)if(m->s.player_src[q]==2 && m->player_pad_id[q]==pads[index].id)index=-1;
+        if(index>=0) {
+            m->player_pad_id[p]=pads[index].id;m->s.player_gamepad_instance[p]=pads[index].id+1;
+            if(!*identity)safe_copy(m->s.player_gamepad_identity[p],sizeof m->s.player_gamepad_identity[p],pads[index].identity[0]?pads[index].identity:"manual");
+            safe_copy(m->s.player_gamepad_name[p],sizeof m->s.player_gamepad_name[p],pads[index].name);
+            launcher_input_pad_label(pads,count,index,m->player_pad_name[p],sizeof m->player_pad_name[p]);
+        } else safe_copy(m->player_pad_name[p],sizeof m->player_pad_name[p],
+                         m->s.player_gamepad_name[p][0]?m->s.player_gamepad_name[p]:"Gamepad (choose device)");
+    }
 }
 
 // ---- mouse controls --------------------------------------------------------
@@ -4703,6 +4736,9 @@ const char* launcher_model_player_src_label(const LauncherModel* m, int player) 
         if (m->player_pad_name[player][0] &&
             strcmp(m->player_pad_name[player], "Gamepad") != 0)
             return m->player_pad_name[player];
+        const SystemProfile* profile=(const SystemProfile*)m->profile;
+        if(profile && profile->id && !strcmp(profile->id,"wii"))
+            return m->s.player_gamepad_name[player][0]?m->s.player_gamepad_name[player]:"Gamepad (choose device)";
         if (m->s.player_gamepad_guid[player][0])
             return m->s.player_gamepad_guid[player];
     }

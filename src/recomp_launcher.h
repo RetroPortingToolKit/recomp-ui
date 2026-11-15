@@ -1570,7 +1570,15 @@ struct RecompLauncherCSettings {
      * additively; a zero-initialized host reads as unset. */
     int  quality_preset;
     int  quality_base;
+    /* Stable OS device identity (SHA-256 of model + path/serial), never an
+     * SDL instance number. "manual" requires a fresh explicit selection when
+     * no stable physical identity is available. Empty keeps legacy GUID lookup.
+     * Friendly names remain useful while a saved device is disconnected.
+     * Tail-only extension: existing settings offsets remain unchanged. */
+    char player_gamepad_identity[RECOMP_LAUNCHER_MAX_PLAYERS][65];
+    char player_gamepad_name[RECOMP_LAUNCHER_MAX_PLAYERS][64];
 };
+#define RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_IDENTITY 1
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
 /* Largest run-ahead depth the launcher will offer for

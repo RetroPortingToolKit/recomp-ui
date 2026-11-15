@@ -42,6 +42,13 @@ typedef struct {
     BIND(p,6), BIND(p,7), BIND(p,8), BIND(p,9), BIND(p,10), BIND(p,11), \
     BIND(p,12), BIND(p,13), BIND(p,14), BIND(p,15), BIND(p,16), BIND(p,17), \
     BIND(p,18), BIND(p,19), BIND(p,20), BIND(p,21), BIND(p,22), BIND(p,23)
+#define PHYSICAL(p) \
+    FIELD("Controller", "IdentityP" #p, player_gamepad_identity[p-1], TEXT, 0, 0, ALWAYS), \
+    FIELD("Controller", "NameP" #p, player_gamepad_name[p-1], TEXT, 0, 0, ALWAYS)
+#define PLAYER(p) \
+    INT("Controller", "SourceP" #p, player_src[p-1], 0, 2), \
+    INT("GamepadMap", "DeadzoneP" #p, deadzone[p-1], 0, 100), \
+    FIELD("Controller", "GuidP" #p, player_gamepad_guid[p-1], TEXT, 0, 0, ALWAYS)
 
 static const Setting kSettings[] = {
     /* Host-owned arrays only. Zero is a persisted unbind, not a default. */
@@ -82,11 +89,16 @@ static const Setting kSettings[] = {
     INT("GamepadMap", "DeadzoneP2", deadzone[1], 0, 100),
     FIELD("Controller", "GuidP1", player_gamepad_guid[0], TEXT, 0, 0, ALWAYS),
     FIELD("Controller", "GuidP2", player_gamepad_guid[1], TEXT, 0, 0, ALWAYS),
+    PLAYER(3), PLAYER(4), PLAYER(5), PLAYER(6), PLAYER(7), PLAYER(8),
+    PHYSICAL(1), PHYSICAL(2), PHYSICAL(3), PHYSICAL(4),
+    PHYSICAL(5), PHYSICAL(6), PHYSICAL(7), PHYSICAL(8),
 };
 
 #undef OPTIONAL
 #undef BINDS
 #undef BIND
+#undef PHYSICAL
+#undef PLAYER
 #undef BOOL
 #undef INT
 #undef FIELD

@@ -2,9 +2,29 @@
 
 #include "launcher_input.h"
 #include "launcher_platform.h"   // pulls the right SDL header for this build
+#include "sha256.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+void launcher_input_identity(char out[65],const char* guid,const char* path,const char* serial) {
+    out[0]=0;
+    /* SDL can expose a transient slot (e.g. XInput#0 or event13) as a path.
+     * Persist only a physical OS path, otherwise require a device serial. */
+    const int physical=path && (!strncmp(path,"\\\\?\\",4) ||
+        !strncmp(path,"\\\\.\\",4) || !strncmp(path,"/dev/input/by-id/",17) ||
+        !strncmp(path,"/sys/devices/",13));
+    const char* value=physical?path:serial;
+    if(!value || !*value || !guid)return;
+    const size_t g=strlen(guid),n=strlen(value);
+    if(g>40 || n>32768)return;
+    unsigned char* text=malloc(g+n+2);if(!text)return;
+    memcpy(text,guid,g);text[g]=0;text[g+1]=physical?'p':'s';memcpy(text+g+2,value,n);
+    unsigned char hash[32];recompui_sha256_compute(text,g+n+2,hash);free(text);
+    static const char hex[]="0123456789abcdef";
+    for(int i=0;i<32;++i){out[2*i]=hex[hash[i]>>4];out[2*i+1]=hex[hash[i]&15];}out[64]=0;
+}
 
 typedef struct {
     uint32_t id;
@@ -14,6 +34,7 @@ typedef struct {
     SDL_GameController* handle;
 #endif
     int has_gyro;
+    char identity[65];
 } OpenPad;
 
 static OpenPad s_open[LNG_MAX_PADS];
@@ -148,6 +169,8 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
                 if (opened) {
                     opened->handle = SDL_OpenGamepad(ids[i]);
                     opened->id = out[n].id;
+                    if(opened->handle)launcher_input_identity(opened->identity,out[n].guid,
+                        SDL_GetGamepadPath(opened->handle),SDL_GetGamepadSerial(opened->handle));
                     log_opened_pad(&out[n], opened);
                     if (enable_gyro && opened->handle &&
                         SDL_GamepadHasSensor(opened->handle, SDL_SENSOR_GYRO) &&
@@ -177,6 +200,7 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
                     out[n].gyro_z = rate[2];
                 }
             }
+            if(opened)snprintf(out[n].identity,sizeof out[n].identity,"%s",opened->identity);
             ++n;
         }
         SDL_free(ids);
@@ -207,6 +231,16 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
             if (opened) {
                 opened->handle = SDL_GameControllerOpen(i);
                 opened->id = out[n].id;
+                if(opened->handle) {
+                    const char* path=NULL;const char* serial=NULL;
+#if SDL_VERSION_ATLEAST(2,24,0)
+                    path=SDL_GameControllerPath(opened->handle);
+#endif
+#if SDL_VERSION_ATLEAST(2,0,14)
+                    serial=SDL_GameControllerGetSerial(opened->handle);
+#endif
+                    launcher_input_identity(opened->identity,out[n].guid,path,serial);
+                }
                 log_opened_pad(&out[n], opened);
 #if SDL_VERSION_ATLEAST(2, 0, 14)
                 if (enable_gyro && opened->handle &&
@@ -241,6 +275,7 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
             }
         }
 #endif
+        if(opened)snprintf(out[n].identity,sizeof out[n].identity,"%s",opened->identity);
         ++n;
     }
 #endif

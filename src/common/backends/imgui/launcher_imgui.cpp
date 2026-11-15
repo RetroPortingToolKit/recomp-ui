@@ -3337,19 +3337,28 @@ void draw_source_selectables(LauncherModel* m, int p) {
         }
     }
 
-    // NES co-op seats select physical instances: identical pads share a GUID.
-    if (src_prof && src_prof->id && !strcmp(src_prof->id, "nes")) {
+    // Physical seats distinguish identical models; only one seat owns a device.
+    const bool wii = src_prof && src_prof->id && !strcmp(src_prof->id, "wii");
+    if (wii || (src_prof && src_prof->id && !strcmp(src_prof->id, "nes"))) {
         for (int i = 0; i < g_pad_count; ++i) {
             const bool guid_match = m->s.player_gamepad_guid[p][0] &&
                 g_pads[i].guid[0] &&
                 std::strcmp(m->s.player_gamepad_guid[p], g_pads[i].guid) == 0;
             const bool sel = m->s.player_src[p] == 2 &&
-                (m->s.player_gamepad_instance[p] ?
+                (wii ? m->player_pad_id[p] == g_pads[i].id : m->s.player_gamepad_instance[p] ?
                  m->s.player_gamepad_instance[p] == g_pads[i].id + 1 : guid_match);
             ImGui::PushID(i);
-            if (ImGui::Selectable(g_pads[i].name, sel))
-                launcher_model_set_source(m, p, 2, g_pads[i].id, g_pads[i].name,
-                                          g_pads[i].guid);
+            bool taken=false;
+            if(wii)for(int other=0;other<launcher_model_visible_player_count(m);++other)
+                if(other!=p && m->s.player_src[other]==2 &&
+                   m->s.player_gamepad_instance[other]==g_pads[i].id+1) taken=true;
+            char label[96];launcher_input_pad_label(g_pads,g_pad_count,i,label,sizeof label);
+            if(taken)ImGui::BeginDisabled();
+            if (ImGui::Selectable(wii?label:g_pads[i].name, sel)) {
+                if(wii)launcher_model_set_physical_source(m,p,&g_pads[i]);
+                else launcher_model_set_source(m, p, 2, g_pads[i].id, g_pads[i].name,g_pads[i].guid);
+            }
+            if(taken)ImGui::EndDisabled();
             ImGui::PopID();
         }
         if (g_pad_count == 0) {
@@ -3536,6 +3545,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     // with the mode; consoles without a mode-swap art PAIR (SNES, and Genesis —
     // which has pad modes but a SINGLE pad image) always show the generic
     // g_pad. The swap only happens when the profile actually ships the pair.
+    bool show_pad_art=true;
     {
         const SystemProfile* aprof = (const SystemProfile*)m->profile;
         const bool has_swap_art = aprof && aprof->controller.image_analog != nullptr;
@@ -3569,9 +3579,10 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         // Center on the FITTED width so a near-square pad (N64) or a portrait
         // handheld (GB/GBC) sits centered, not left-shifted by the landscape
         // box's spare width.
-        image_fit_centered(art, 120, 78, inner);
+        show_pad_art=!(m->system_media_title && !art.id);
+        if(show_pad_art)image_fit_centered(art, 120, 78, inner);
     }
-    ImGui::Dummy(ImVec2(0, px(6)));
+    if(show_pad_art)ImGui::Dummy(ImVec2(0, px(6)));
 
     // Pad-mode selector: only when the game supports pad modes AND the mode
     // is user-selectable (not locked to a single mode).
@@ -3596,8 +3607,10 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         const float btnh = px(32);
         if (ImGui::Button(ui_text("Configure"), ImVec2(half, btnh))) launcher_model_open_config(m, p);
         ImGui::SameLine(0, gap);
-        const bool on = m->s.player_src[p] != 0;
-        const char* st = ui_text(on ? "connected" : "not assigned");
+        const SystemProfile* prof=(const SystemProfile*)m->profile;
+        const bool wii=prof && prof->id && !strcmp(prof->id,"wii");
+        const bool on = wii?(m->s.player_src[p]==1 || (m->s.player_src[p]==2 && m->player_pad_id[p])):m->s.player_src[p] != 0;
+        const char* st = ui_text(on ? "connected" : wii && m->s.player_src[p]==2?"not connected":"not assigned");
         const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
         // center the dot+label within the right half, vertically on the button
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (half - sw) * 0.5f);
@@ -14541,10 +14554,11 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         }
         const SystemProfile* cap_prof = (const SystemProfile*)m->profile;
         const bool psx_cap = cap_prof && cap_prof->id && !strcmp(cap_prof->id, "psx");
+        const bool physical_cap = cap_prof && cap_prof->id && !strcmp(cap_prof->id,"wii");
         /* Consoles whose gamepad binds are stored per GUID. They must refuse a
          * bind whose selected device has not resolved to a live pad, or the
          * mapping lands in some other controller's profile. */
-        const bool guid_store = psx_cap ||
+        const bool guid_store = physical_cap || psx_cap ||
             (cap_prof && cap_prof->id && !strcmp(cap_prof->id, "n64"));
         /* Which SDL device may bind.
          *
@@ -14556,7 +14570,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * against the live device list here so the rule holds from a restored
          * selection too. */
         uint32_t want_id = m->player_pad_id[m->cfg_player];
-        if (!want_id && m->s.player_src[m->cfg_player] == 2) {
+        if (!want_id && !physical_cap && m->s.player_src[m->cfg_player] == 2) {
             const char* want_guid = m->s.player_gamepad_guid[m->cfg_player];
             if (want_guid[0]) {
                 for (int i = 0; i < g_pad_count; ++i) {
@@ -15052,6 +15066,9 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (!launch_commit.job.pending()) {
             g_pad_count = launcher_input_poll(
                 g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
+            const SystemProfile* physical_profile=(const SystemProfile*)m->profile;
+            if(physical_profile && physical_profile->id && !strcmp(physical_profile->id,"wii"))
+                launcher_model_sync_physical_sources(m,g_pads,g_pad_count);
 
             // PSX: keep Input source labels on concrete pad names (live SDL name
             // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
