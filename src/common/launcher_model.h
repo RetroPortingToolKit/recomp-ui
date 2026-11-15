@@ -191,6 +191,8 @@ typedef struct {
     bool        msu1_patch_skipped;  // session-only "Play Unpatched" dismissal
     bool        saves_supported;     // sram_path != NULL -> show the SAVES panel
     const char* sram_path;           // borrowed; NULL when the game has no SRAM
+    const char* (*native_save_path_cb)(void* ctx, const char* rom_path);
+    void* native_save_path_ctx;
 
     // ---- NES-style capabilities (borrowed from RecompLauncherCGameInfo) ----
     bool        has_solar_sensor;    // Solar sensor panel in Settings
@@ -1053,6 +1055,9 @@ const char* launcher_model_bios_prepare_note(const LauncherModel* m);
 const char* launcher_model_bios_prepare_button(const LauncherModel* m);
 
 // ---- SRAM save management (Import/Clear; both back up to "<sram>.bak" first) ----
+const char* launcher_model_native_save_path(const LauncherModel* m);
+// Inspect an already resolved UTF-8 path without querying/invalidation again.
+long launcher_native_save_size(const char* path);
 void launcher_model_import_sram(LauncherModel* m, const char* src);
 void launcher_model_clear_sram(LauncherModel* m);
 

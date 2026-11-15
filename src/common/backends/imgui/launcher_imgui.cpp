@@ -2668,7 +2668,8 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
         if (!m->saves_supported) return;   // password-only game: no SRAM row below
         ImGui::Dummy(ImVec2(0, px(4)));
     }
-    const char* sp = m->sram_path ? m->sram_path : "";
+    const char* selected_save = launcher_model_native_save_path(m);
+    const char* sp = selected_save ? selected_save : "";
     const char* base = sp;
     for (const char* q = sp; *q; ++q) if (*q == '/' || *q == '\\') base = q + 1;
 
@@ -2678,8 +2679,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
     // delete) read as "broken". Stat the file each frame: show its size when it
     // exists, "no save yet" when it doesn't, and disable Clear when empty so the
     // button's effect is always visible.
-    long sz = -1;
-    if (sp[0]) { FILE* f = fopen(sp, "rb"); if (f) { fseek(f, 0, SEEK_END); sz = ftell(f); fclose(f); } }
+    long sz = launcher_native_save_size(sp);
     const bool has_save = sz >= 0;
 
     const float bw = px(84);
@@ -2712,6 +2712,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
     }
     ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw*2 - px(th.spacing_sm));
     static const char* kSramPatterns[] = { "*.srm", "*.sav" };
+    ImGui::BeginDisabled(!sp[0]);
     if (ImGui::Button("Import", ImVec2(bw, px(30)))) {
         ui_pick_file(m, "Import SRAM save", {"*.srm", "*.sav"},
                      "Battery save (.srm .sav)", [m](const char* path) {
@@ -2723,6 +2724,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
     ImGui::BeginDisabled(!has_save);              // nothing to clear when no save exists
     if (ImGui::Button(ui_text("Clear"), ImVec2(bw, px(30))))
         launcher_model_clear_sram(m);             // backs up to .bak, then deletes
+    ImGui::EndDisabled();
     ImGui::EndDisabled();
 }
 
