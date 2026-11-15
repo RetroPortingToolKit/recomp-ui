@@ -13333,7 +13333,12 @@ static void draw_setup_disc_frame(LauncherModel* m, const LauncherTheme& th,
 }
 
 void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
-    if (!m->setup_wizard_supported) return;
+    if (!m->setup_wizard_supported) {
+        /* System media imports use the same worker without the setup wizard.
+         * Join and publish their completion on the normal UI thread too. */
+        if (m->system_media_title) launcher_model_poll_prepare_disc(m);
+        return;
+    }
     if (!m->setup_wizard_open && !m->setup_preparing) return;
     launcher_model_poll_prepare_disc(m);
 
