@@ -32,7 +32,7 @@ static const char* const kPanelsDashboardDreamcast[] = {
 };
 
 static const SystemProfile kSystemProfileDreamcast = {
-    "dreamcast", "SEGA DREAMCAST", NULL, "Disc",
+    "dreamcast", "SEGA DREAMCAST", "dreamcast", "Disc",
     { kDreamcastPadButtons, LNG_DREAMCAST_PAD_BUTTON_COUNT,
       NULL, NULL, NULL, 4, 0 },
     /* VMU ownership and inspection belong to the host. The PSX memory-card
@@ -47,12 +47,32 @@ static const SystemProfile kSystemProfileDreamcast = {
     NULL, 1, "", NULL,
 };
 
+static const char* const kDreamcastBiosPatterns[] = { "*.bin" };
+static const char* const kPanelsSettingsDreamcastBios[] = {
+    "video", "audio", "input", NULL
+};
+/* Firmware is the selected input, not an optical disc. Its actual SHA-256
+ * uses the shared ROM verifier; never show ISO/SBI or a second BIOS picker. */
+static const SystemProfile kSystemProfileDreamcastBios = {
+    "dreamcast-bios", "DREAMCAST BIOS", "dreamcast", "BIOS",
+    { kDreamcastPadButtons, LNG_DREAMCAST_PAD_BUTTON_COUNT,
+      NULL, NULL, NULL, 4, 0 },
+    { SAVE_MEMCARD, 1, NULL },
+    { 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+    { 0, NULL },
+    0,
+    kPanelsDashboardDreamcast, kPanelsSettingsDreamcastBios, kPanelsControllerCommon,
+    NULL, 0,
+    { kDreamcastBiosPatterns, 1, "Dreamcast BIOS (.bin)" },
+    NULL, 1, "", NULL,
+};
+
 static inline int launcher_console_is_dreamcast(const char* name) {
     return lps_streq_ci(name, "dreamcast") || lps_streq_ci(name, "dc");
 }
 
 static inline void launcher_profile_apply_dreamcast(RecompLauncherCGameInfo* gi) {
-    gi->theme = NULL;
+    gi->theme = "dreamcast";
     gi->platform = "SEGA DREAMCAST";
     gi->rom_noun = "Disc";
     gi->num_players = 4;

@@ -9,6 +9,8 @@
 #ifndef LAUNCHER_NG_THEME_H
 #define LAUNCHER_NG_THEME_H
 
+#include <string.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,6 +46,7 @@ typedef struct {
     float font_body, font_title, font_small;
     float focus_ring_width;
     int   scanlines;      // 1 = draw the CRT scanline overlay, 0 = flat (e.g. PSX)
+    int   ambient_spiral; // Dreamcast's quiet animated spiral behind the cards
 } LauncherTheme;
 
 static inline LngColor lng_rgba(float r, float g, float b, float a) {
@@ -82,6 +85,7 @@ static inline LauncherTheme launcher_theme_default(void) {
     t.font_body  = 18.0f; t.font_title = 34.0f; t.font_small = 13.0f;
     t.focus_ring_width = 2.5f;
     t.scanlines  = 1;                          // CRT look: scanlines ON
+    t.ambient_spiral = 0;
     return t;
 }
 
@@ -283,7 +287,34 @@ static inline LauncherTheme launcher_theme_gbc(void) {
 // 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis;
 // anything else -> default CRT). Note the "gb*" order: match "gba" and "gbc"
 // (3rd char) BEFORE the bare "gb" fallback.
+// Dreamcast: smoked silver, warm orange and translucent cards. Keep readable
+// text and semantic status colors while the background carries the identity.
+static inline LauncherTheme launcher_theme_dreamcast(void) {
+    LauncherTheme t = launcher_theme_default();
+    t.background      = lng_rgba(.055f, .064f, .080f, 1);
+    t.background2     = lng_rgba(.145f, .155f, .180f, 1);
+    t.panel           = lng_rgba(.115f, .130f, .155f, .91f);
+    t.panel_hovered   = lng_rgba(.190f, .210f, .245f, .96f);
+    t.control         = lng_rgba(.195f, .215f, .250f, .95f);
+    t.control_hovered = lng_rgba(.265f, .285f, .325f, 1);
+    t.border          = lng_rgba(.520f, .555f, .610f, .43f);
+    t.accent          = lng_rgba(1.0f, .365f, .145f, 1);
+    t.accent_dim      = lng_rgba(.900f, .290f, .080f, 1);
+    t.accent_text     = lng_rgba(.075f, .025f, .015f, 1);
+    t.accent2         = lng_rgba(1.0f, .690f, .480f, 1);
+    t.text            = lng_rgba(.960f, .965f, .980f, 1);
+    t.text_muted      = lng_rgba(.680f, .720f, .785f, 1);
+    t.focus_ring      = lng_rgba(.500f, .800f, 1.0f, 1);
+    t.scanlines = 0;
+    t.ambient_spiral = 1;
+    t.radius_lg = 16;
+    return t;
+}
+
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if (name && (!strcmp(name, "dreamcast") || !strcmp(name, "DREAMCAST") ||
+                 !strcmp(name, "dc")))
+        return launcher_theme_dreamcast();
     if (name && (name[0] == 'p' || name[0] == 'P') &&
         (name[1] == 's' || name[1] == 'S'))
         return launcher_theme_psx();

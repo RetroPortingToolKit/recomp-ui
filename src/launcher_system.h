@@ -67,6 +67,7 @@ LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
 // launcher_profile_apply() accepts. Returns NULL if unknown.
 static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (!name || !name[0]) return NULL;
+    if (lps_streq_ci(name, "dreamcast-bios")) return &kSystemProfileDreamcastBios;
     if (launcher_console_is_psx(name))  return &kSystemProfilePsx;
     if (launcher_console_is_snes(name)) return &kSystemProfileSnes;
     if (launcher_console_is_gba(name))  return &kSystemProfileGba;
@@ -92,6 +93,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
 // or the legacy/SNES-shaped minimal surface).
 static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGameInfo* gi) {
     if (gi && gi->platform && gi->platform[0]) {
+        if (lps_streq_ci(gi->platform, "DREAMCAST BIOS")) return &kSystemProfileDreamcastBios;
         if (lps_streq_ci(gi->platform, "PLAYSTATION"))       return &kSystemProfilePsx;
         if (lps_streq_ci(gi->platform, "SUPER NINTENDO"))    return &kSystemProfileSnes;
         if (lps_streq_ci(gi->platform, "NINTENDO 64"))       return &kSystemProfileN64;

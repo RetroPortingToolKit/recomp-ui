@@ -277,6 +277,13 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             SDL_SetWindowSize(p->window, w, h);
             launcher_platform_refresh_metrics(p);
         }
+    } else if (strncmp(c, "position:", 9) == 0) {
+        int x = 0, y = 0;
+        if (sscanf(c + 9, "%d,%d", &x, &y) == 2)
+            SDL_SetWindowPosition(p->window, x, y);
+    } else if (strcmp(c, "interactive") == 0) {
+        /* End scripted setup while leaving the normal UI for human review. */
+        g_active = false;
     } else if (strncmp(c, "click:", 6) == 0) {
         float x = 0, y = 0;
         if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);

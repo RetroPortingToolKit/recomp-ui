@@ -1630,6 +1630,26 @@ void draw_crt_background(ImVec2 origin, ImVec2 size) {
     bg->AddRectFilledMultiColor(origin, ImVec2(origin.x + size.x, origin.y + px(90)),
                                 imcol(th.accent, 0.10f), imcol(th.accent, 0.10f),
                                 imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));
+    if (th.ambient_spiral) {
+        // Like the PSP's ambient waves, this is native vector presentation:
+        // resolution independent, behind the UI, and independent of gameplay.
+        const float phase = (float)ImGui::GetTime() * .035f;
+        const float radius = std::min(size.x, size.y) * .43f;
+        const ImVec2 center(origin.x + size.x * .81f, origin.y + size.y * .47f);
+        for (int band = 0; band < 3; ++band) {
+            ImVec2 last;
+            for (int i = 0; i <= 160; ++i) {
+                const float u = (float)i / 160.f;
+                const float a = u * 13.4f + phase + band * .12f;
+                const float r = radius * (.05f + .95f * u);
+                const ImVec2 next(center.x + std::cos(a) * r,
+                                  center.y + std::sin(a) * r);
+                if (i) bg->AddLine(last, next, imcol(th.accent, .045f - band * .011f),
+                                  px(10.f - band * 2.f));
+                last = next;
+            }
+        }
+    }
     // scanlines over everything, very subtle — only for CRT-style themes (the PSX
     // theme sets scanlines = 0 for a flat, disc-era look).
     if (th.scanlines) {
