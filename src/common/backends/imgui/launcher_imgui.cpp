@@ -5326,7 +5326,8 @@ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
 // AUDIO in the same right column in composition order; WIDE panels (HOTKEYS)
 // still stack full-width below that — driven by the composition array + the
 // registry's available() gate.
-static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, bool display);
+static void draw_psx_settings_page(LauncherModel* m, const LauncherTheme& th, int page);
+static bool psx_has_pgxp_page(LauncherModel* m);
 void draw_settings(LauncherModel* m, const LauncherTheme& th) {
     const auto* settings_profile = (const SystemProfile*)m->profile;
     if (settings_profile && settings_profile->id && !std::strcmp(settings_profile->id, "psx")) {
@@ -5336,10 +5337,17 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
         last_settings_frame=frame;
         if (ImGui::BeginTabBar("Settings tabs")) {
             if (ImGui::BeginTabItem(ui_text("General"),nullptr,first?ImGuiTabItemFlags_SetSelected:0)) {
-                draw_psx_settings_page(m,th,false);ImGui::EndTabItem();
+                draw_psx_settings_page(m,th,0);ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem(ui_text("Display"))) {
-                draw_psx_settings_page(m,th,true);ImGui::EndTabItem();
+                draw_psx_settings_page(m,th,1);ImGui::EndTabItem();
+            }
+            // The host's PGXP page, when it has one.
+            if (psx_has_pgxp_page(m) && ImGui::BeginTabItem(ui_text("PGXP"))) {
+                draw_psx_settings_page(m,th,2);ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem(ui_text("Hotkeys"))) {
+                panel_hotkeys_draw(m,&th);ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
         }

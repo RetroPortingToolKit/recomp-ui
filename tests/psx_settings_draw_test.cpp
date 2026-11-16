@@ -15,24 +15,30 @@ static void probe_fail(const char* condition,int line) {
 #undef assert
 #define assert(value) ((value)?(void)0:probe_fail(#value,__LINE__))
 
-static std::set<std::string> visited_general,visited_display,visited_packages;
+static std::set<std::string> visited_general,visited_display,visited_pgxp,visited_packages;
+// The provider pages of psx.runtime.settings, as the runtime lists them.
+static const char* const page_ids[]={"general","display","pgxp"};
+static const char* const page_names[]={"General","Display","PGXP"};
+static int page_index(const char* id){for(int i=0;i<3;++i)if(!strcmp(id,page_ids[i]))return i;return -1;}
+// The fixture adds 6 General rows and 1 Display row of its own (see option()).
+static const int page_own[]={6,1,0};
 static const char* packages[]={"psx.enhancement.crt-filter","psx.enhancement.image-filtering",
  "psx.enhancement.internal-resolution","psx.enhancement.pgxp","psx.enhancement.enhanced-audio","psx.feature.rewind"};
-static int features(void*) { return 8; }
+static int features(void*) { return 9; }
 static int feature(void*,int index,RecompLauncherCModFeature* out) {
-    if(index<0 || index>=8)return 0;
+    if(index<0 || index>=9)return 0;
     *out={};out->enabled=1;
-    if(index<2) {
+    if(index<3) {
         std::snprintf(out->package_id,sizeof out->package_id,"psx.runtime.settings");
-        std::snprintf(out->id,sizeof out->id,"%s",index?"display":"general");
-        std::snprintf(out->group,sizeof out->group,"%s",index?"Display":"General");
-        std::snprintf(out->name,sizeof out->name,"%s",index?"Advanced graphics":"Startup and input preferences");
+        std::snprintf(out->id,sizeof out->id,"%s",page_ids[index]);
+        std::snprintf(out->group,sizeof out->group,"%s",page_names[index]);
+        std::snprintf(out->name,sizeof out->name,"%s preferences",page_names[index]);
         for(const auto& spec:PSXRecompV4::kExtraPlayerSettings)out->option_count+=!strcmp(spec.page,out->group);
-        out->option_count+=index?1:6;
+        out->option_count+=page_own[index];
     } else {
-        std::snprintf(out->package_id,sizeof out->package_id,"%s",packages[index-2]);
+        std::snprintf(out->package_id,sizeof out->package_id,"%s",packages[index-3]);
         std::snprintf(out->id,sizeof out->id,"feature");
-        std::snprintf(out->name,sizeof out->name,"%s",packages[index-2]);out->option_count=1;
+        std::snprintf(out->name,sizeof out->name,"%s",packages[index-3]);out->option_count=1;
     }
     return 1;
 }
@@ -45,21 +51,28 @@ static int option(void*,const char* package,const char* group,int index,RecompLa
         std::snprintf(out->label,sizeof out->label,"Preserved graphics/audio preference");
         std::snprintf(out->value,sizeof out->value,"saved-value");return 1;
     }
-    const char* page=!strcmp(group,"general")?"General":"Display";
+    const int page_at=page_index(group);
+    if(page_at<0)return 0;
+    const char* page=page_names[page_at];
     const PSXRecompV4::PlayerSettingSpec* found=nullptr;
     for(const auto& spec:PSXRecompV4::kExtraPlayerSettings)if(!strcmp(spec.page,page) && index--==0)found=&spec;
     std::string id;
-    if(found){id=PSXRecompV4::player_setting_id(*found);std::snprintf(out->label,sizeof out->label,"%s",found->label);}
+    if(found){
+        id=PSXRecompV4::player_setting_id(*found);std::snprintf(out->label,sizeof out->label,"%s",found->label);
+        // The runtime reports a spec's heading (or its page) as the option's group.
+        std::snprintf(out->group,sizeof out->group,"%s",PSXRecompV4::player_setting_heading(*found));
+    }
     else {
         static const char* general[]={"video.fast_boot","video.bios_hle","video.low_latency_input","memcard.dir","controller.mouse_sensitivity","controller.mouse_capture"};
         // The loop decremented once for every matching spec.
         if(!strcmp(page,"General")) {const int extra=index;if(extra<0 || extra>=6)return 0;id=general[extra];}
-        else {if(index!=0)return 0;id="video.fov_scale";}
+        else if(!strcmp(page,"Display")) {if(index!=0)return 0;id="video.fov_scale";}
+        else return 0;
         std::snprintf(out->label,sizeof out->label,"%s",id.c_str());
     }
     std::snprintf(out->id,sizeof out->id,"%s",id.c_str());
     std::snprintf(out->value,sizeof out->value,"saved-value");
-    (!strcmp(page,"General")?visited_general:visited_display).insert(id);
+    (page_at==0?visited_general:page_at==1?visited_display:visited_pgxp).insert(id);
     return 1;
 }
 static int enable(void*,const char*,const char*,int){return 1;}
@@ -123,13 +136,13 @@ static void geometry(std::ofstream& out,const char* page,int width,float dpi) {
         if (name.find("Audio_")!=std::string::npos || name.find("/Audio")!=std::string::npos)
             assert(w->Size.y<=w->ContentSize.y+2*w->WindowPadding.y+3);
     }
-    assert(cards==3); // A wrong window-name filter must not silently test zero cards.
+    assert(cards>=3); // A wrong window-name filter must not silently test zero cards.
 }
 static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const char* folder) {
     std::filesystem::create_directories(folder);
     std::ofstream out(std::filesystem::path(folder)/"geometry.csv");
     out<<"page,width,dpi,window,x,y,w,h,content_w,content_h\n";
-    std::snprintf(model.s.bios_path,sizeof(model.s.bios_path),"I:/fixtures/portable-games/a-very-long-game-name/windows-x64/inputs/a-very-long-bios-folder/another-long-folder/one-more-long-folder/console-bios.bin");
+    std::snprintf(model.s.bios_path,sizeof(model.s.bios_path),"D:/Games/PlayStation/a-title-with-a-long-name/windows-x64/inputs/a-very-long-bios-folder/another-long-folder/one-more-long-folder/console-bios.bin");
     for (int width:{640,960,1280,1920}) for (float dpi:{1.f,1.5f,2.f}) {
         probe_width=(float)width;probe_height=800;
         auto& io=ImGui::GetIO();io.DisplaySize=ImVec2(probe_width,probe_height);io.DisplayFramebufferScale=ImVec2(dpi,dpi);
@@ -158,6 +171,30 @@ static void render_matrix(LauncherModel& model,const LauncherTheme& theme,const 
         }
     }
 }
+// Every page's rows: one per runtime player setting on it, plus the fixture's own.
+static size_t provider_controls() {
+    size_t n=0;
+    for(int i=0;i<3;++i) {
+        n+=page_own[i];
+        for(const auto& spec:PSXRecompV4::kExtraPlayerSettings)n+=!strcmp(spec.page,page_names[i]);
+    }
+    return n;
+}
+static bool window_named(const char* part) {
+    for(auto* w:ImGui::GetCurrentContext()->Windows)
+        if(w->Active && std::string(w->Name).find(part)!=std::string::npos) return true;
+    return false;
+}
+static void click_tab(LauncherModel& model,const LauncherTheme& theme,ImGuiTabBar* bar,int tab) {
+    auto& io=ImGui::GetIO();
+    const auto& item=bar->Tabs[tab];
+    const ImGuiID id=item.ID;
+    const ImVec2 click(bar->BarRect.Min.x+item.Offset+item.Width/2,bar->BarRect.Min.y+bar->BarRect.GetHeight()/2);
+    io.AddMousePosEvent(click.x,click.y);frame(model,theme);
+    io.AddMouseButtonEvent(0,true);frame(model,theme);
+    io.AddMouseButtonEvent(0,false);frame(model,theme);frame(model,theme);
+    assert(bar->SelectedTabId==id);
+}
 int main() {
     RecompLauncherCModProvider provider{};
     provider.feature_count=features;provider.feature_get=feature;provider.feature_option_get=option;
@@ -180,20 +217,25 @@ int main() {
     frame(model,theme);frame(model,theme);
     assert(!visited_general.empty() && visited_display.empty());
     auto* window=ImGui::FindWindowByName("settings-probe");assert(window);
-    ImGuiTabBar* bar=ImGui::GetCurrentContext()->TabBars.GetByKey(window->GetID("Settings tabs"));assert(bar && bar->Tabs.Size==2);
-    const auto& display=bar->Tabs[1];const ImVec2 click(bar->BarRect.Min.x+display.Offset+display.Width/2,bar->BarRect.Min.y+bar->BarRect.GetHeight()/2);
-    io.AddMousePosEvent(click.x,click.y);frame(model,theme);
-    std::fprintf(stderr,"hover=%08x target=%08x window=%s mouse=%.1f,%.1f\n",
-        ImGui::GetCurrentContext()->HoveredId,display.ID,
-        ImGui::GetCurrentContext()->HoveredWindow?ImGui::GetCurrentContext()->HoveredWindow->Name:"none",io.MousePos.x,io.MousePos.y);
-    io.AddMouseButtonEvent(0,true);frame(model,theme);
-    io.AddMouseButtonEvent(0,false);frame(model,theme);frame(model,theme);
-    std::fprintf(stderr,"Settings drawer general=%zu display=%zu selected=%08x target=%08x click=%.1f,%.1f scroll=%.1f\n",
-        visited_general.size(),visited_display.size(),bar->SelectedTabId,display.ID,click.x,click.y,window->Scroll.y);
-    assert(visited_general.size()+visited_display.size()==35);
+    ImGuiTabBar* bar=ImGui::GetCurrentContext()->TabBars.GetByKey(window->GetID("Settings tabs"));
+    // General, Display, the host's PGXP page and Hotkeys.
+    assert(bar && bar->Tabs.Size==4);
+    click_tab(model,theme,bar,1);
+    // Rows under a heading of their own get a card titled with it.
+    assert(window_named("Automatic resolution"));
+    click_tab(model,theme,bar,2);
+    std::fprintf(stderr,"Settings drawer general=%zu display=%zu pgxp=%zu\n",
+        visited_general.size(),visited_display.size(),visited_pgxp.size());
+    assert(visited_general.size()+visited_display.size()+visited_pgxp.size()==provider_controls());
     assert(visited_packages.size()==6);
     assert(visited_general.count("video.fast_boot") && visited_general.count("audio.buffer_ms"));
     assert(visited_display.count("video.pgxp_tolerance") && visited_display.count("video.fov_scale"));
+    assert(visited_display.count("video.dynamic_resolution") && visited_display.count("video.supersample_disable_at_lines"));
+    assert(visited_pgxp.count("video.geometry_correction") && visited_pgxp.count("video.perspective_texturing"));
+    // A preset finds a setting on whichever page the host lists it.
+    {RecompLauncherCModFeature f{};RecompLauncherCModOption o{};
+     assert(psx_find_option(&model,"psx.runtime.settings",nullptr,"video.geometry_correction",f,o) && !strcmp(f.id,"pgxp"));
+     assert(psx_preset_entry(&model,kPsxPreset[3],f,o));}
     // The real Display drawer also emits all six previously gated controls.
     ImGui::NewFrame();ImGui::Begin("display-rows");ImGui::LogToBuffer();draw_display_controls(&model,theme);
     const std::string log=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::End();ImGui::Render();
@@ -206,10 +248,29 @@ int main() {
     assert(!launcher_settings_group("third.party.game-plugin"));
     assert(!memcmp(&before,&model.s,sizeof before));
     frame(model,theme,false);frame(model,theme); // ImGui queues programmatic tab selection for the next frame.
-    visited_general.clear();visited_display.clear();frame(model,theme);
-    assert(!visited_general.empty() && visited_display.empty());
+    visited_general.clear();visited_display.clear();visited_pgxp.clear();frame(model,theme);
+    assert(!visited_general.empty() && visited_display.empty() && visited_pgxp.empty());
+    // A host that lists its own resolutions gets the native row, not the package.
+    {
+        static const char* labels[]={"Native","720p","1080p","Match display"};
+        static const int values[]={1,720,1080,-1};
+        const bool had_supersampling=model.has_supersampling;
+        model.internal_resolution_labels=labels;model.internal_resolution_values=values;
+        model.num_internal_resolutions=4;model.has_supersampling=true;
+        visited_packages.clear();
+        g_psx_compact_settings=true;
+        ImGui::NewFrame();ImGui::Begin("native-resolution");ImGui::LogToBuffer();draw_display_controls(&model,theme);
+        const std::string rows=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::End();ImGui::Render();
+        g_psx_compact_settings=false;
+        assert(rows.find("Internal resolution")!=std::string::npos);
+        assert(!visited_packages.count("psx.enhancement.internal-resolution"));
+        assert(psx_native_resolution_preset(&model));
+        assert(psx_native_resolution_index(&model,false)==0 && psx_native_resolution_index(&model,true)==2);
+        model.internal_resolution_labels=nullptr;model.internal_resolution_values=nullptr;
+        model.num_internal_resolutions=0;model.has_supersampling=had_supersampling;
+    }
     if (const char* folder=std::getenv("RUI_LAYOUT_CAPTURE_DIR")) render_matrix(model,theme,folder);
     ImGui::DestroyContext();
-    puts("PASS: production Settings drawer General default/reentry,Display selection,35 provider controls+6 real widgets,preserved values,built-in grouping,plugin boundary;CPU-only");
+    puts("PASS: production Settings drawer General default/reentry,Display selection,every provider control on three pages+6 real widgets,preserved values,built-in grouping,plugin boundary;CPU-only");
     return 0;
 }
