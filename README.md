@@ -661,6 +661,22 @@ The standalone harness provides `LNG_DEMO_CONTENT_REVIEW=1` to preview a scrolla
 review form and validation without writing files. Pair it with
 `LNG_SCRIPT="wait:10;view:custom_content;wait:5;shot:review.png;quit"`.
 
+Hosts with `msu1_managed` may set `GameInfo.managed_music` to a live music
+catalog. Choice callbacks copy friendly names and stable IDs; the host owns
+selection, persistence and formats. `import_type_id` and `folder_type_id`
+reference Custom Content types and add Audio-page import shortcuts. Those
+shortcuts open the host review directly, where the title can be edited.
+Keep catalog queries cheap while an import runs, and publish prepared changes
+on the launcher thread without rescanning files there. Omit this provider to
+retain the existing managed checkbox/note UI.
+
+An entry with `removable=1` offers a confirmation dialog when its provider
+implements `remove_entry`. The host must validate the entry's ownership and
+path, protect bundled content and preserve saves/settings. Queue deletion and
+report it through the same status API as imports. Tests can use
+`content-import:TYPE|PATH|TITLE`, `content-submit` and `content-cancel` in
+`LNG_SCRIPT` to exercise the real provider without opening native file pickers.
+
 ## Build & self-test
 
 recomp-ui builds a standalone harness that fabricates the same C ABI a real host

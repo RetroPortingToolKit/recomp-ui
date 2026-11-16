@@ -1264,6 +1264,7 @@ typedef struct RecompLauncherCCustomContentEntry {
     /* Optional informational notice; independent of a pack validation error. */
     char notice[128];
     char notice_tooltip[1024];
+    int removable;
 } RecompLauncherCCustomContentEntry;
 
 typedef enum RecompLauncherCCustomContentState {
@@ -1350,7 +1351,25 @@ typedef struct RecompLauncherCCustomContentProvider {
     /* Return 1 after cancelling review (publish IDLE before return), 0 with
      * last_error on failure. Closing the launcher still uses host lifecycle. */
     int (*review_cancel)(void* ctx);
+    /* Explicit user removal; host protects bundled content and validates paths. */
+    int (*remove_entry)(void* ctx, const char* entry_id);
 } RecompLauncherCCustomContentProvider;
+
+/* Copy live choices so import refreshes never invalidate UI-owned strings. */
+typedef struct RecompLauncherCMusicChoice {
+    char id[96];
+    char name[128];
+} RecompLauncherCMusicChoice;
+typedef struct RecompLauncherCMusicProvider {
+    void* ctx;
+    int (*choice_count)(void* ctx);
+    int (*choice_get)(void* ctx, int index, RecompLauncherCMusicChoice* out);
+    const char* (*selected)(void* ctx);
+    int (*select)(void* ctx, const char* id);
+    const char* description;
+    const char* import_type_id;
+    const char* folder_type_id;
+} RecompLauncherCMusicProvider;
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
@@ -2527,13 +2546,14 @@ typedef struct RecompLauncherCGameInfo {
      * appended by the UI and preserves Settings.msu1_dir when switching. */
     const RecompLauncherCMsuPack* msu1_packs;
     int num_msu1_packs;
-    /* Opt-in host-managed discovery: show only the enable checkbox and note.
-     * The host resolves installed music; no soundtrack or file picker is shown.
-     * Zero preserves the existing folder/custom soundtrack UI. */
+    /* Opt-in host-managed discovery. The host resolves installed music; an
+     * optional managed_music provider adds live choices and import shortcuts.
+     * Without it show only the checkbox/note. Zero keeps the legacy picker. */
     int msu1_managed;
     /* NULL hides Custom Content. Opt-in is per game, independent of Mods;
      * all provider strings and ctx must outlive the launcher call. */
     const RecompLauncherCCustomContentProvider* custom_content;
+    const RecompLauncherCMusicProvider* managed_music;
 } RecompLauncherCGameInfo;
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */

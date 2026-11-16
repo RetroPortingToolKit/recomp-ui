@@ -170,6 +170,7 @@ typedef struct {
     const RecompLauncherCMsuPack* msu1_packs;
     int num_msu1_packs;
     bool msu1_managed;              // host discovers music, no manual picker
+    const RecompLauncherCMusicProvider* managed_music;
     // ---- MSU-1 IPS auto-patching (dashboard "Patch ROM"/"Skip" flow) ----
     // Borrowed IPS file path; NULL => this game has no auto-patch (msu1_note-only
     // games still show the Settings->Audio MSU-1 toggle, just no dashboard prompt).
