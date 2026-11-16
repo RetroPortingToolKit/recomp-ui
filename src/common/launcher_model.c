@@ -415,6 +415,12 @@ void launcher_model_init(LauncherModel* m,
         m->rom_help             = game->rom_help;
         m->rom_describe         = game->rom_describe;
         m->rom_describe_ctx     = game->rom_describe_ctx;
+        /* A reader and its release function are one contract. */
+        if (game->rom_read && game->rom_read_free) {
+            m->rom_read = game->rom_read;
+            m->rom_read_free = game->rom_read_free;
+            m->rom_read_ctx = game->rom_read_ctx;
+        }
 
         m->pad_mode_supported   = game->pad_mode_supported != 0;
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
@@ -1623,7 +1629,20 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->rom_identified[0] = '\0';
     m->rom_detail[0] = '\0';
     const int disc_verify = m->profile && m->profile->verify.mode == 1;
-    if (m->rom_present) {
+    if (m->rom_present && !disc_verify && m->rom_read) {
+        uint8_t* bytes = NULL;
+        size_t len = 0;
+        char error[sizeof(m->rom_detail)] = {0};
+        int ok = m->rom_read(m->rom_read_ctx, m->rom_full, &bytes, &len,
+                             error, sizeof(error));
+        error[sizeof(error) - 1] = '\0';
+        if (ok && bytes && len) {
+            snprintf(m->rom_size, sizeof(m->rom_size), "%.2f MB (%zu Mbit)",
+                     (double)len / (1024.0 * 1024.0), (len / 131072));
+            lm_identify_rom(m, bytes, len);
+        } else lm_set_rom_unreadable(m, error[0] ? error : "This file could not be read.");
+        if (bytes) m->rom_read_free(m->rom_read_ctx, bytes);
+    } else if (m->rom_present) {
         FILE* f = fopen(m->rom_full, "rb");
         const bool opened = f != NULL;
         if (f) {
