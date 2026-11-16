@@ -2492,7 +2492,18 @@ typedef struct RecompLauncherCGameInfo {
      * dialogs or commits mods. Null callback retains sram_path unchanged. */
     const char* (*native_save_path)(void* ctx, const char* rom_path);
     void* native_save_path_ctx;
+    /* Optional cartridge byte reader. Decode without changing the selected
+     * path; the host must use identical decoding when launching that path.
+     * On success return 1 and a nonempty buffer. Release it with rom_read_free
+     * after identification (also on failure if non-null). Callbacks never open
+     * dialogs. Null keeps the existing raw-file path; disc hosts ignore this.
+     * Appended for source compatibility with older hosts. */
+    int (*rom_read)(void* ctx, const char* path, uint8_t** bytes, size_t* len,
+                    char* error, size_t error_size);
+    void (*rom_read_free)(void* ctx, uint8_t* bytes);
+    void* rom_read_ctx;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
 #define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1

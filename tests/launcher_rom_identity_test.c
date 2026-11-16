@@ -36,6 +36,27 @@ static void sha256_hex(const void* data, size_t n, char out[65]) {
 }
 
 static int describe_calls;
+static int read_calls, free_calls, reader_fails;
+static const uint8_t* reader_body;
+static size_t reader_size;
+static int read_rom(void* ctx, const char* path, uint8_t** bytes, size_t* size,
+                    char* error, size_t error_size) {
+    require(ctx == &read_calls && path && strstr(path, "rom.zip"), "reader gets original path and context");
+    ++read_calls;
+    *bytes = malloc(reader_size);
+    require(*bytes != NULL, "allocate decoded bytes");
+    memcpy(*bytes, reader_body, reader_size);
+    *size = reader_size;
+    if (reader_fails) {
+        snprintf(error, error_size, "No compatible game ROM was found in this archive.");
+        return 0;
+    }
+    return 1;
+}
+static void free_rom(void* ctx, uint8_t* bytes) {
+    require(ctx == &read_calls, "release receives same context");
+    ++free_calls; free(bytes);
+}
 static int describe(void* ctx, const uint8_t* image, size_t len,
                     char* out, size_t cap) {
     (void)ctx;
@@ -220,6 +241,32 @@ int main(int argc, char** argv) {
         require(launcher_model_can_launch(m), "unchecked ROM launches");
     }
 
+    /* A host may decode cartridge containers without changing the path.
+     * Real decoded bytes still pass the model's own fingerprint gate. */
+    {
+        RecompLauncherCGameInfo decoded = game;
+        decoded.rom_read = read_rom;
+        decoded.rom_read_free = free_rom;
+        decoded.rom_read_ctx = &read_calls;
+        reader_body = body_good; reader_size = sizeof(body_good);
+        launcher_model_init(m, &settings, &decoded, "");
+        launcher_model_set_rom(m, zip);
+        require(read_calls == 1 && free_calls == 1, "decoded buffer released exactly once");
+        require(m->rom_verdict == LNG_ROM_VERIFIED && launcher_model_can_launch(m), "decoded compatible image verifies");
+        require(strcmp(launcher_model_rom_path(m), zip) == 0, "original container path retained");
+        reader_body = body_unknown;
+        launcher_model_set_rom(m, zip);
+        require(m->rom_verdict == LNG_ROM_UNRECOGNIZED && !launcher_model_can_launch(m), "provider cannot bypass fingerprint gate");
+        reader_fails = 1;
+        launcher_model_set_rom(m, zip);
+        require(m->rom_verdict == LNG_ROM_UNREADABLE && !launcher_model_can_launch(m), "decoder error blocks launch");
+        require_has(m->rom_detail, "No compatible game ROM", "friendly decoder error retained");
+        require(read_calls == 3 && free_calls == 3, "failed provider buffer also released");
+        decoded.rom_read_free = NULL;
+        launcher_model_init(m, &settings, &decoded, "");
+        launcher_model_set_rom(m, zip);
+        require(read_calls == 3 && m->rom_verdict == LNG_ROM_ARCHIVE, "incomplete provider falls back to raw path");
+    }
     free(m);
     puts("launcher rom identity: ok");
     return 0;

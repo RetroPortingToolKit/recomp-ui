@@ -450,6 +450,10 @@ typedef struct {
     int (*rom_describe)(void* ctx, const uint8_t* image, size_t len,
                         char* out, size_t out_size);
     void*           rom_describe_ctx;
+    int (*rom_read)(void* ctx, const char* path, uint8_t** bytes, size_t* len,
+                    char* error, size_t error_size);
+    void (*rom_read_free)(void* ctx, uint8_t* bytes);
+    void* rom_read_ctx;
 
     // ---- controller pad-mode caps (PlayStation-style analog/digital) ----
     bool     pad_mode_supported;    // false => no selector/art swap; generic pad.tga
