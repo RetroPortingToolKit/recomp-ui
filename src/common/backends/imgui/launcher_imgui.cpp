@@ -4465,6 +4465,7 @@ void panel_video_draw(LauncherModel* m, const LauncherTheme* th) {
     }
 }
 
+static void content_pick(LauncherModel* m, const RecompLauncherCCustomContentType& type);
 void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("AUDIO");
     // Labels at the card's left edge, controls at its right (row_label_right),
@@ -4522,7 +4523,50 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
         bool on = m->s.msu1_enabled != 0;
         if (ImGui::Checkbox(ui_text("Enable MSU-1 music"), &on))
             launcher_model_toggle_msu1(m);
-        if (m->msu1_note && m->msu1_note[0]) {
+        const auto* music = m->managed_music;
+        if (music && music->choice_count && music->choice_get && music->selected && music->select) {
+            const char* selected_ptr = music->selected(music->ctx);
+            const std::string selected_value = selected_ptr ? selected_ptr : "";
+            const char* selected = selected_value.c_str();
+            char preview[128];
+            std::snprintf(preview, sizeof(preview), "%s", selected && *selected
+                ? "Previously selected soundtrack (not installed)" : "Installed pack music");
+            const int count = music->choice_count(music->ctx);
+            for (int i = 0; i < count; ++i) {
+                RecompLauncherCMusicChoice choice{};
+                if (music->choice_get(music->ctx, i, &choice) && selected && !std::strcmp(choice.id, selected))
+                    std::snprintf(preview, sizeof(preview), "%s", choice.name);
+            }
+            ImGui::TextUnformatted(ui_text("Soundtrack"));
+            ImGui::SetNextItemWidth(-1);
+            ImGui::BeginDisabled(launcher_model_custom_content_busy(m));
+            if (ImGui::BeginCombo("##managed_soundtrack", preview)) {
+                if (ImGui::Selectable(ui_text("Installed pack music"), !selected || !*selected))
+                    music->select(music->ctx, "");
+                for (int i = 0; i < count; ++i) {
+                    RecompLauncherCMusicChoice choice{};
+                    if (music->choice_get(music->ctx, i, &choice) &&
+                        ImGui::Selectable(choice.name, selected && !std::strcmp(choice.id, selected)))
+                        music->select(music->ctx, choice.id);
+                }
+                ImGui::EndCombo();
+            }
+            if (music->description) ImGui::TextWrapped("%s", music->description);
+            if (m->custom_content && m->custom_content->type_count && m->custom_content->type_get) {
+                for (int i = 0; i < m->custom_content->type_count(m->custom_content->ctx); ++i) {
+                    RecompLauncherCCustomContentType type{};
+                    if (!m->custom_content->type_get(m->custom_content->ctx, i, &type)) continue;
+                    const char* wanted = type.directory ? music->folder_type_id : music->import_type_id;
+                    if (!wanted || std::strcmp(type.id, wanted)) continue;
+                    ImGui::BeginDisabled(g_picker.active || m->content_import_open);
+                    if (ImGui::Button(type.directory ? "Import music folder..." : "Import music pack..."))
+                        content_pick(m, type);
+                    ImGui::EndDisabled();
+                }
+            }
+            ImGui::EndDisabled();
+        }
+        if (!music && m->msu1_note && m->msu1_note[0]) {
             ImGui::SameLine(0, px(6));
             ImGui::TextColored(col(th.accent), "(?)");
             if (ImGui::IsItemHovered()) {
@@ -4590,7 +4634,7 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
 // panel_video_draw, decided from the same "deep" predicate draw_settings used
 // to compute inline.
 void panel_audio_draw(LauncherModel* m, const LauncherTheme* th) {
-    const bool deep_audio = m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio = m->managed_music || m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
     if (deep_audio || !g_settings_two_col) {
         if (begin_panel("audio", 0, false)) draw_audio_controls(m, *th);
         end_panel();
@@ -5064,7 +5108,7 @@ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
     g_settings_two_col = two_col;   // read by panel_video_draw/panel_audio_draw
 
     const bool deep_display = video_card_grows(m);   // superset of any_deep_display: folds in NES + widescreen (N64 covered too)
-    const bool deep_audio   = m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
+    const bool deep_audio   = m->managed_music || m->num_msu1_packs > 0 || m->has_spu_hq || m->num_languages > 0 || m->num_audio_devices > 0;   /* deadzone moved to controller card */
 
     const LauncherPanel* video_p   = find_composed(prof->panels_settings, "video", m);
     const LauncherPanel* audio_p   = find_composed(prof->panels_settings, "audio", m);
@@ -12505,7 +12549,12 @@ static void content_pick(LauncherModel* m,
     }
     const std::string type_id = type.id;
     const bool directory = type.directory != 0;
-    request.on_pick = [m, type_id, directory](const char* source) {
+    const auto* music = m->managed_music;
+    const bool music_import = music &&
+        ((music->import_type_id && type_id == music->import_type_id) ||
+         (music->folder_type_id && type_id == music->folder_type_id));
+    if (music_import) request.title = directory ? "Import music folder" : "Import music pack";
+    request.on_pick = [m, type_id, directory, music_import](const char* source) {
         if (!source || !source[0]) return;
         if (std::strlen(source) >= sizeof(m->content_pending_source)) {
             std::snprintf(m->content_error, sizeof(m->content_error), "%s",
@@ -12523,6 +12572,11 @@ static void content_pick(LauncherModel* m,
         std::snprintf(m->content_pending_name, sizeof(m->content_pending_name),
                       "%s", name.c_str());
         m->content_error[0] = '\0';
+        if (music_import) {
+            m->view = LNG_VIEW_CUSTOM_CONTENT;
+            launcher_model_custom_content_import(m, type_id.c_str(), source, name.c_str());
+            return;
+        }
         m->content_import_open = true;
     };
     ui_pick(m, std::move(request));
@@ -12576,8 +12630,8 @@ static void draw_content_review(LauncherModel* m, const LauncherTheme& th) {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    ImGui::TextColored(col(th.accent2), "%s", ui_text("Review your courses"));
-    ImGui::TextWrapped("%s", ui_text("Check the details below, then import your courses."));
+    ImGui::TextColored(col(th.accent2), "%s", m->content_status.message[0] ? m->content_status.message : ui_text("Review your content"));
+    ImGui::TextWrapped("%s", m->content_status.detail[0] ? m->content_status.detail : ui_text("Check the details below, then choose Import."));
     ImGui::Spacing();
     const auto* content = m->custom_content;
     for (int i = 0; i < m->content_review_count; ++i) {
@@ -12649,7 +12703,7 @@ static void draw_content_review(LauncherModel* m, const LauncherTheme& th) {
         ImGui::PopStyleColor();
         ImGui::Spacing();
     }
-    if (neon_cta("##review_import", ui_text("Import courses"),
+    if (neon_cta("##review_import", ui_text("Import"),
                   ImVec2(px(180), px(36)), m->content_review_initialized))
         launcher_model_custom_content_review_submit(m);
     ImGui::SameLine();
@@ -12698,7 +12752,7 @@ void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
             launcher_model_custom_content_open_folder(m, "");
     }
     const auto& status = m->content_status;
-    if (status.state != RECOMP_CONTENT_IDLE) {
+    if (status.state != RECOMP_CONTENT_IDLE && status.state != RECOMP_CONTENT_NEEDS_INPUT) {
         ImGui::Spacing();
         const LngColor& tone = status.state == RECOMP_CONTENT_FAILED ? th.warn
                              : status.state == RECOMP_CONTENT_SUCCEEDED ? th.good
@@ -12771,6 +12825,25 @@ void draw_custom_content(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::TextUnformatted(entry.notice_tooltip);
                 ImGui::PopTextWrapPos();
                 ImGui::EndTooltip();
+            }
+        }
+        if (entry.removable && content->remove_entry) {
+            ImGui::BeginDisabled(busy);
+            if (ImGui::SmallButton(ui_text("Remove..."))) ImGui::OpenPopup("Remove content");
+            ImGui::EndDisabled();
+            if (ImGui::BeginPopupModal("Remove content", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::Text("Remove %s?", entry.name);
+                ImGui::TextUnformatted("The installed pack will be deleted. Your download, saves and records are kept.");
+                if (ImGui::Button("Remove")) {
+                    if (!content->remove_entry(content->ctx, entry.id)) {
+                        const char* error = content->last_error ? content->last_error(content->ctx) : nullptr;
+                        std::snprintf(m->content_error, sizeof(m->content_error), "%s", error ? error : "Could not remove this pack.");
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
             }
         }
         ImGui::Spacing();

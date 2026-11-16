@@ -267,6 +267,21 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         snprintf(e.text.text, sizeof(e.text.text), "%s", s_text);
 #endif
         SDL_PushEvent(&e);
+    } else if (strncmp(c, "content-import:", 15) == 0 && m) {
+        /* Host test interface: bypass native pickers during importer QA. */
+        char args[1400];
+        snprintf(args, sizeof(args), "%s", c + 15);
+        char* path = strchr(args, '|');
+        char* title = path ? strchr(path + 1, '|') : NULL;
+        if (path && title) {
+            *path++ = 0; *title++ = 0;
+            launcher_model_set_view(m, LNG_VIEW_CUSTOM_CONTENT);
+            launcher_model_custom_content_import(m, args, path, title);
+        }
+    } else if (strcmp(c, "content-submit") == 0 && m) {
+        launcher_model_custom_content_review_submit(m);
+    } else if (strcmp(c, "content-cancel") == 0 && m) {
+        launcher_model_custom_content_review_cancel(m);
     } else if (strncmp(c, "wait:", 5) == 0) {
         g_wait_frames = atoi(c + 5);
     } else if (strncmp(c, "shot:", 5) == 0) {

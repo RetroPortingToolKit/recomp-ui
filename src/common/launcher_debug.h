@@ -18,6 +18,8 @@
 //   padbutton:BUTTON                     synthetic gamepad button press
 //   padaxis:AXIS,VALUE                   synthetic gamepad axis event
 //   wait:N                               idle N frames (let layout settle)
+//   content-import:TYPE|PATH|TITLE        import through host API, no OS picker
+//   content-submit / content-cancel       confirm or cancel the review
 //   shot:PATH                            write a PNG of the current frame
 //   quit                                 exit the launcher
 //
