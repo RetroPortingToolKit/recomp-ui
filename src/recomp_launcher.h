@@ -40,6 +40,9 @@ extern "C" {
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ENABLED 1
 /* Host may #ifdef this when reading multitap_analog (DualShock-on-tap hack). */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ANALOG 1
+/* Host may #ifdef this when setting GameInfo.has_record_replay and reading
+ * Settings.record_replay (the "Record replay" checkbox). */
+#define RECOMP_LAUNCHER_HAS_RECORD_REPLAY 1
 /* Host may #ifdef this when reading Settings.rewind_depth. */
 #define RECOMP_LAUNCHER_HAS_REWIND_DEPTH 1
 /* Host may #ifdef this when reading Settings.rewind_interval. */
@@ -1624,6 +1627,14 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+
+    /* "Record replay" (GameInfo.has_record_replay consoles): 1 = the host
+     * records the next session as a replay from power-on, for automated
+     * testing. A per-launch choice, not a preference: hosts seed it from
+     * their own session state and should not persist it, so a tick is never
+     * left on by accident. 0 = off (the default, and what a zero-initialized
+     * host predating this field gets). Appended for ABI stability. */
+    int  record_replay;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -2502,6 +2513,10 @@ typedef struct RecompLauncherCGameInfo {
                     char* error, size_t error_size);
     void (*rom_read_free)(void* ctx, uint8_t* bytes);
     void* rom_read_ctx;
+    /* Dashboard footer checkbox for Settings.record_replay. 0 => no checkbox,
+     * so a console without a replay recorder keeps today's footer. Appended
+     * for ABI stability. */
+    int has_record_replay;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1

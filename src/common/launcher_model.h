@@ -374,6 +374,7 @@ typedef struct {
     bool has_affine_filter;
     bool has_frame_blend;
     bool has_run_ahead;
+    bool has_record_replay;   /* GameInfo.has_record_replay: footer checkbox */
     bool has_shader;
     bool netplay_supported;
     bool netplay_policy_active;
@@ -875,6 +876,10 @@ void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_bl
 // UI draws it as a dropdown, and the labels for each depth live with that
 // control alongside every other choice list.
 void launcher_model_set_run_ahead(LauncherModel* m, int frames);  // clamped, gated has_run_ahead
+// "Record replay" for the next session (Settings.record_replay). Gated on
+// has_record_replay; a host that does not offer it always gets 0 back, and
+// Restore Defaults leaves the tick alone because it is not a preference.
+void launcher_model_toggle_record_replay(LauncherModel* m);
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields

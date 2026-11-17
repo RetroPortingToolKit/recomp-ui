@@ -13056,6 +13056,29 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
         if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
+        if (m->has_record_replay) {
+            ImGui::SameLine(0, px(18.0f));
+            bool rec = m->s.record_replay != 0;
+            if (ImGui::Checkbox(ui_text("Record replay"), &rec))
+                launcher_model_toggle_record_replay(m);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip(
+                    "Record this session from power-on until you quit, or stop\n"
+                    "with the replay hotkey (F11 by default). Files go to\n"
+                    "saves/replays in the\n"
+                    "game folder. Only for this launch: it is not remembered.\n\n"
+                    "Recorded: Player 1's pad, the memory cards at boot and the\n"
+                    "settings that change game timing.\n"
+                    "Not recorded: Player 2 (port 2 gets no input while\n"
+                    "recording).\n"
+                    "Needs a pad or the keyboard in port 1: with a mouse, neGcon\n"
+                    "or GunCon in either port, nothing is recorded.\n\n"
+                    "The replay plays on this build for Windows, Linux and\n"
+                    "macOS, with the same disc file and BIOS. A later build may\n"
+                    "not stay in sync with it: record again on that build.\n\n"
+                    "While it records, save states and rewind are off, and\n"
+                    "overlays run interpreted, so some games run slower.");
+        }
     } else if (m->view == LNG_VIEW_SETTINGS &&
                launcher_model_can_restore_defaults(m)) {
         ImGui::SetCursorScreenPos(
