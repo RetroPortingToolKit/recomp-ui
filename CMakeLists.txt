@@ -203,6 +203,12 @@ if(BUILD_TESTING)
             "-DRECOMP_UI_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/asset_manifest_test.cmake)
 
+    add_test(
+        NAME recomp-ui-setup-toolchain-platform-copy
+        COMMAND ${CMAKE_COMMAND}
+            "-DRECOMP_UI_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/setup_toolchain_platform_copy_test.cmake)
+
     add_executable(recomp-ui-psx-asset-stage-probe
         tests/asset_stage_probe.c)
     set_target_properties(

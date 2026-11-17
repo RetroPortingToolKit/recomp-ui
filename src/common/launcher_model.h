@@ -304,7 +304,7 @@ typedef struct {
     bool        rebuild_after_prepare;
     bool        relaunch_after_rebuild;
     bool        prepare_required_before_continue;
-    bool        setup_needs_toolchain;   // wizard page 0: portable cmake/clang
+    bool        setup_needs_toolchain;   // wizard page 0: required build tools
     int (*toolchain_is_ready_cb)(void);
     int (*ensure_toolchain_with_progress_cb)(
         int download, const char* zip_path, char* err_msg, size_t err_cap,
@@ -583,7 +583,7 @@ typedef struct {
     bool      fmv_timing_confirm_open; // SYSTEM → VIDEO → Apply FMV Timing confirm
     bool      setup_wizard_open;     // first-run BIOS/ROM setup (blocking)
     int       setup_page;            // 0 = toolchain, 1 = BIOS/ROM/generate
-    bool      setup_tc_auto;         // download portable toolchain (default true)
+    bool      setup_tc_auto;         // Windows portable-tool download (default true)
     bool      setup_tc_ready;        // toolchain resolved / installed
     bool      setup_tc_update_available; // remote latest newer than local
     bool      setup_tc_update_skipped;   // user skipped update this session
@@ -1269,11 +1269,11 @@ void launcher_model_pgo_confirm_cancel(LauncherModel* m);
 void launcher_model_request_fmv_timing_optimize(LauncherModel* m);
 void launcher_model_fmv_timing_confirm_accept(LauncherModel* m);
 void launcher_model_fmv_timing_confirm_cancel(LauncherModel* m);
-// Kick ensure_toolchain_with_progress (download and/or offline zip). On success
-// advances setup_page to the BIOS/ROM/generate step.
+// Kick ensure_toolchain_with_progress. Windows can download/use an offline pack;
+// Linux and macOS verify native tools. Success advances to BIOS/ROM/generate.
 void launcher_model_start_ensure_toolchain(LauncherModel* m);
-// True when Next on the toolchain page can run (auto, zip path, already ready,
-// or an update is available with auto-download / zip selected).
+// True when the Windows toolchain page can run (auto download, offline zip, or
+// an installed pack). POSIX front ends can always ask the host to check tools.
 bool launcher_model_can_advance_toolchain(const LauncherModel* m);
 // Keep the current pack for this session and leave toolchain page 0.
 void launcher_model_skip_toolchain_update(LauncherModel* m);
