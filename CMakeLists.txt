@@ -321,6 +321,23 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_BINARY_DIR}/hotkey-store-test.ini")
     endif()
 
+    # Named keyboard profiles: save as, load, rename, delete, the list, and
+    # the built-in Default that none of them may change. Its folder is a
+    # scratch folder of the build tree, never the user's.
+    add_executable(recomp-ui-psx-kb-profiles-test
+        tests/psx_kb_profiles_test.c
+        src/consoles/psx/psx_kb_profiles.c
+        src/consoles/psx/psx_binds.c)
+    target_include_directories(recomp-ui-psx-kb-profiles-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-psx-kb-profiles-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-psx-kb-profiles-test PRIVATE ${RUI_SDL_DEFS})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/psx-kb-profiles-test")
+    add_test(
+        NAME recomp-ui-psx-kb-profiles
+        COMMAND $<TARGET_FILE:recomp-ui-psx-kb-profiles-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/psx-kb-profiles-test")
+
     # Multi-disc roster: sibling autofill + per-slot binding. Includes
     # launcher_model.c (not links it) to reach the static path rewriter, so the
     # model's own deps are compiled in alongside.
