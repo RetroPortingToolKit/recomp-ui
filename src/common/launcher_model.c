@@ -1597,6 +1597,11 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
      * (launcher_model_disc_note_reveal). */
     m->disc_note_revealed[0] = '\0';
     m->disc_note_reveal_frames = 0;
+    /* Setup's refusal belongs to one file. Selecting that same file again
+     * keeps it while the host still answers "bad" (decided after the check
+     * below); any other file ends it. */
+    const bool same_refused_file = m->disc_refused_by_setup && m->rom_present &&
+                                   path && strcmp(m->rom_full, path) == 0;
     m->rom_present = path && path[0] != '\0';
     safe_copy(m->rom_full, sizeof(m->rom_full), m->rom_present ? path : "");
     m->rom_sha1_hex[0] = '\0';
@@ -1658,6 +1663,7 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     lm_bind_disc_selection(m);
 
     run_verify(m);
+    m->disc_refused_by_setup = same_refused_file && m->verify.verdict == 3;
     update_msu1_patch_available(m);
     /* A host whose BIOS lookup sees the image answers again for this one. */
     if (m->has_bios && m->bios_verify_for_rom_cb) launcher_model_refresh_bios_status(m);
@@ -3840,6 +3846,25 @@ void launcher_model_start_pending_mod_import(LauncherModel* m) {
         safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
 }
 
+/* A prepare failed. The host may now judge the selected file differently: a
+ * setup host answers "bad" for a file its own disc check refused, and the
+ * panel must not say "Disc verified" above that refusal. So the disc check
+ * runs again. A failure that is not a refusal of the file (a build that
+ * failed, tools that are missing) leaves the host's answer as it was, and so
+ * the verdict.
+ *
+ * disc_refused_by_setup: the "bad" is setup's, not the game program's. It is
+ * so when this check turned a verdict that was not "bad" into "bad", and it
+ * stays so while a later failure leaves the verdict "bad". A file the game
+ * program itself calls bad (no header, another serial) never gets it. */
+static void lm_recheck_disc_after_failed_prepare(LauncherModel* m) {
+    const int  before = m->verify.verdict;
+    const bool was_refused = m->disc_refused_by_setup;
+    run_verify(m);
+    m->disc_refused_by_setup =
+        m->verify.verdict == 3 && (was_refused || before != 3);
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3998,7 +4023,12 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
         safe_copy(m->setup_error, sizeof(m->setup_error),
                   err[0] ? err : "Disc prepare failed.");
         lm_restore_setup_wizard_after_bios(m, 1);
+        lm_recheck_disc_after_failed_prepare(m);
     }
+}
+
+bool launcher_model_disc_refused_by_setup(const LauncherModel* m) {
+    return m && m->rom_present && m->disc_refused_by_setup && m->verify.verdict == 3;
 }
 
 // Re-inspect one memory-card slot via the host callback (if any), caching the
