@@ -3343,7 +3343,7 @@ typedef struct {
     LauncherModel* m;
     char source[512];
     char out_path[512];
-    char err[256];
+    char err[LNG_SETUP_ERROR_CAP];   /* as much as the wizard can show (setup_error) */
     char progress_msg[256];
     char zip_path[512];
     char mod_package[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -3393,6 +3393,13 @@ static void* prep_thread_main(void* arg);
 #endif
 
 static int prep_spawn_thread(LauncherModel* m) {
+    /* Every job starts here. Whatever error it ends with is a new one for the
+     * wizard, also when its words are the same as the last one's: while a job
+     * runs the wizard draws only the progress window, so it never sees the
+     * cleared text, and the same refusal twice in a row was scrolled into
+     * view the first time only (launcher_model_setup_error_reveal). */
+    m->setup_error_revealed[0] = '\0';
+    m->setup_error_reveal_frames = 0;
 #if defined(_WIN32)
     prep_lock_init(); /* initialize once on the UI thread before worker/poll race */
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
@@ -3782,6 +3789,24 @@ void launcher_model_start_pending_mod_import(LauncherModel* m) {
         safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
 }
 
+bool launcher_model_setup_error_reveal(LauncherModel* m) {
+    if (!m) return false;
+    if (!m->setup_error[0]) {
+        m->setup_error_revealed[0] = '\0';
+        m->setup_error_reveal_frames = 0;
+        return false;
+    }
+    if (strcmp(m->setup_error, m->setup_error_revealed) != 0) {
+        safe_copy(m->setup_error_revealed, sizeof(m->setup_error_revealed), m->setup_error);
+        m->setup_error_reveal_frames = LNG_SETUP_ERROR_REVEAL_FRAMES;
+    }
+    if (m->setup_error_reveal_frames > 0) {
+        m->setup_error_reveal_frames--;
+        return true;
+    }
+    return false;
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3798,7 +3823,7 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     const int done = g_prep_job.done && g_prep_job.m == m;
     const int kind = g_prep_job.kind;
     char out_path[512];
-    char err[256];
+    char err[LNG_SETUP_ERROR_CAP];   /* as much as the wizard can show (setup_error) */
     int result = 0;
     if (done) {
         result = g_prep_job.result;

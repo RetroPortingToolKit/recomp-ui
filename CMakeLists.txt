@@ -760,6 +760,23 @@ if(BUILD_TESTING)
     set_tests_properties(recomp-ui-launcher-in-session PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-in-session-test")
 
+    # The setup wizard's error text holds a host's whole sentence. Includes
+    # launcher_model.c (not links it) to run the prepare job's own code.
+    add_executable(recomp-ui-launcher-setup-error-room-test
+        tests/launcher_setup_error_room_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-error-room-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-error-room-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(NAME recomp-ui-launcher-setup-error-room
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-error-room-test>
+                     "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
+
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c

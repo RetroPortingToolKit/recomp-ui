@@ -14289,6 +14289,14 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::Button("Quit", ImVec2(px(100), px(34))))
         m->action = LNG_ACTION_QUIT;
 
+    // The error text sits under the last step, just above these buttons, and
+    // the wizard is taller than its window at the launcher's own size: a
+    // player saw step 1 and 2 and had to scroll to learn why Generate
+    // refused the disc. When a new error appears, bring the end of the
+    // wizard into view: the Generate button, the error and the buttons.
+    if (launcher_model_setup_error_reveal(m))
+        ImGui::SetScrollHereY(1.0f);
+
     if (m->setup_wizard_open && !ImGui::IsPopupOpen("First-run setup"))
         ImGui::OpenPopup("First-run setup");
     ImGui::EndPopup();
