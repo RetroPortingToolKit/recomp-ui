@@ -2254,8 +2254,8 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
 
     if (linked_ps2) {
         // Same left-hand GAME card as the other console profiles. The host
-        // supplies facts for this linked title; it does not offer a ROM picker
-        // or invent a PS1 disc-verification result for the guest program.
+        // supplies facts for this linked title, without inventing a PS1
+        // disc-verification result for the guest program.
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
         ImGui::TextUnformatted(m->game_name ? m->game_name : "");
         ImGui::PopTextWrapPos();
@@ -2268,6 +2268,14 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
             if (m->region && m->region[0]) kv_row("Region", m->region, th, false, false);
             if (m->rom_present) kv_row("Game ID", m->rom_file, th, false, false);
             ImGui::EndTable();
+        }
+        // Retail hosts opt into changing their game image by advertising its
+        // supported file types. Running games keep their cold-boot source.
+        if (!m->in_session && m->rom_patterns && m->num_rom_patterns > 0) {
+            ImGui::Dummy(ImVec2(0, px(12)));
+            if (ImGui::Button(ui_text("Change Game..."), ImVec2(availw, px(34))))
+                request_rom_picker(m, "Select game image", m->rom_patterns,
+                                   m->num_rom_patterns, m->rom_filter_desc, false);
         }
         end_panel();
         return;
