@@ -153,6 +153,9 @@ the system id selects design tokens only.
 - Prefer UTF-8-capable modern presentation; the compact fallback is ASCII-only.
 - A renderer/backend switch that cannot be applied live should remain in the
   pre-boot launcher until the host provides a safe restart workflow.
+- Window scale applies to windowed output only. Disable that control in
+  borderless and exclusive fullscreen, and reject resize callbacks in those
+  modes before changing the saved windowed size.
 
 ## psxrecomp in-game menu provider
 
