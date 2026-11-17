@@ -563,6 +563,35 @@ if(BUILD_TESTING)
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
 
+    # The cover button's model side: serial and address, the check of what
+    # came back, the replace rule and the worker job, with fake fetchers. No
+    # network.
+    add_executable(recomp-ui-launcher-cover-test
+        tests/launcher_cover_test.c
+        src/common/launcher_cover.c)
+    target_include_directories(recomp-ui-launcher-cover-test PRIVATE src src/common)
+    if(UNIX)
+        find_package(Threads REQUIRED)
+        target_link_libraries(recomp-ui-launcher-cover-test PRIVATE Threads::Threads)
+    endif()
+    add_test(
+        NAME recomp-ui-launcher-cover
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
+    # The desktop icon file: the square picture, the .ico and the .png as
+    # written, and the save icon read from a memory-card image the test
+    # builds itself.
+    add_executable(recomp-ui-launcher-icon-test
+        tests/launcher_icon_test.c
+        src/common/launcher_icon.c
+        src/common/crc32.c)
+    target_include_directories(recomp-ui-launcher-icon-test PRIVATE src src/common)
+    add_test(
+        NAME recomp-ui-launcher-icon
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-icon-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
     # pattern) and the tri-state enabled flag. Includes launcher_model.c like
