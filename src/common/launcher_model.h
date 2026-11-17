@@ -563,6 +563,10 @@ typedef struct {
     bool disc_selection_locked;
     const char* artwork_root;
     bool dashboard_quick_controls;
+    // The wrong-disc sentence the dashboard has already brought into view, and
+    // how many frames it still has to do so (launcher_model_disc_note_reveal).
+    char     disc_note_revealed[256];
+    int      disc_note_reveal_frames;
 
     // ---- editable settings (working copy of the C ABI struct) ----
     RecompLauncherCSettings s;
@@ -1236,6 +1240,11 @@ bool launcher_model_netplay_disc_ok(const LauncherModel* m);
 // does not say whether the serial is listed keeps the old rule (any serial
 // read is a tick).
 bool launcher_model_disc_serial_ok(const LauncherModel* m);
+// True when the disc is refused and its serial is the reason: the verdict is
+// "bad" and the host called the serial unlisted. The Serial row's cross is
+// then drawn in the headline's red; a cross on a row that is not the reason
+// (the online-play Tracks row, a file that did not open) keeps the amber.
+bool launcher_model_disc_serial_refused(const LauncherModel* m);
 // The line under the disc panel's checklist, or "" when there is nothing to
 // say. For a disc whose serial the build does not list it names the disc's
 // serial and what the build needs, and *wrong_disc is set: that is why the
@@ -1245,6 +1254,23 @@ bool launcher_model_disc_serial_ok(const LauncherModel* m);
 // `buf` holds the line; the return value points into it.
 const char* launcher_model_disc_note(const LauncherModel* m, char* buf, size_t cap,
                                      bool* wrong_disc);
+// The wrong-disc sentence is drawn under the disc card's checklist, and on a
+// small window the card ends below the window's edge. True for
+// LNG_DISC_NOTE_REVEAL_FRAMES calls after that sentence becomes a new one:
+// the dashboard, which calls this once per frame it draws the card, then
+// scrolls the sentence into view if it is not, and leaves the scroll to the
+// player afterwards. Choosing a disc makes the next sentence a new one, also
+// when its words are the same. False while there is no such sentence; the
+// online-play note alone is not brought into view.
+#define LNG_DISC_NOTE_REVEAL_FRAMES 2
+bool launcher_model_disc_note_reveal(LauncherModel* m);
+// How far a scrolling region has to move so that an item is in view with
+// `margin` around it: 0 when it is in view already, positive to scroll down
+// (the item is below the view), negative to scroll up. An item taller than
+// the view is moved only as far as keeps its top in view. All four edges are
+// in the same coordinates (the screen's).
+float launcher_model_scroll_into_view(float item_top, float item_bottom,
+                                      float view_top, float view_bottom, float margin);
 // Re-run bios_verify_cb against m->s.bios_path. Empty path means "bundled
 // BIOS" — OK unless the host verifier refuses "".
 void launcher_model_refresh_bios_status(LauncherModel* m);
