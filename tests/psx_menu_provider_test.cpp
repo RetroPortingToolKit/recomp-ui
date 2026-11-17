@@ -57,6 +57,7 @@ static void h_game_info(RecompLauncherCGameInfo *gi) {
 static int g_scale = 2, g_volume = 80, g_port = 0, g_reinserts = 0, g_fullscreen_host = 0, g_port_ok = 1;
 #if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
 static int g_look[32];
+static int g_restart_ok = 1;
 static int look_row(int s) { return s >= PSX_MENU_SESSION_RESTART_GAME && s <= PSX_MENU_SESSION_DITHERING; }
 static int look_at_restart(int s) {
     return s == PSX_MENU_SESSION_PGXP || s == PSX_MENU_SESSION_CRT_FILTER;
@@ -83,6 +84,7 @@ static int h_sess_get(int s, int *o) {
 static int h_sess_set(int s, int v) {
     if (!h_sess_enabled(s)) return 0;
 #if defined(PSX_MENU_HOST_HAS_LOOK_ROWS)
+    if (s == PSX_MENU_SESSION_RESTART_GAME && !g_restart_ok) return 0;
     if (look_row(s)) { g_look[s] = v; return look_at_restart(s) ? PSX_MENU_SESSION_AT_RESTART : 1; }
 #endif
     if (s == PSX_MENU_SESSION_WINDOW_SCALE) g_scale = v;
@@ -296,6 +298,13 @@ int main() {
     g_look[PSX_MENU_SESSION_RESTART_GAME] = 0;
     in(T);
     CHECK(go("System", "system.restart_game"));
+    // An enabled row can still be refused by the actual operation. Do not
+    // close/unpause or relaunch a still-live session on that refusal.
+    g_restart_ok = 0;
+    in(A); in(A);
+    CHECK(p->is_open(p->ctx) && g_paused && g_exit == -1 &&
+          g_look[PSX_MENU_SESSION_RESTART_GAME] == 0);
+    g_restart_ok = 1;
     in(A);
     CHECK(p->is_open(p->ctx) && g_exit == -1 && g_look[PSX_MENU_SESSION_RESTART_GAME] == 0);
     in(A);

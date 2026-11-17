@@ -239,10 +239,14 @@ int cb_action(void *, const RecompRuntimeUiItem *item) {
             return 0;
         }
         g_restart_armed = false;
+        // Refusal must keep this session and its menu: otherwise a relaunch
+        // could reload the original state/replay instead of performing a reset.
+        if (!g_host->session_set(PSX_MENU_SESSION_RESTART_GAME, 1)) {
+            status("Restart is unavailable in this game mode.");
+            return 0;
+        }
         g_restart = 0;
         close_menu();
-        // A cold boot: not the save state or replay the game was started from.
-        (void)g_host->session_set(PSX_MENU_SESSION_RESTART_GAME, 1);
         g_host->request_exit(PSX_MENU_EXIT_RELAUNCH);
         return 0;
     }
