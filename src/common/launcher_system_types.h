@@ -80,6 +80,17 @@ typedef struct {
     // this 0 (the zero-fill of every older positional initializer, so adding
     // this changed no existing console). See launcher_model_pak_ports().
     int  has_pak;
+    // ---- dashboard: tabbed layout -------------------------------------------
+    // Every console with two or more players shows one tab per player over
+    // one controller card (launcher_model_player_tabs). 1 here also gives the
+    // tabbed dashboard layout, for a console whose dashboard carries memory
+    // cards: the controller card is as wide as the memory-card block and
+    // carries its pad type and its device as two lists, and the memory cards
+    // are tabs too, one card shown. 0 (the zero-fill of every older
+    // positional initializer) keeps the card with its accessory beside it, so
+    // adding this changed no console until it opted in. See
+    // launcher_model_dashboard_tabbed().
+    int  player_tabs;
 } ControllerSpec;
 
 // ---- Save module --------------------------------------------------------------

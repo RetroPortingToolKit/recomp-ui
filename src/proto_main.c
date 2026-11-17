@@ -447,6 +447,32 @@ static void demo_lobby_install(RecompLauncherCGameInfo* gi, const char* mode) {
     gi->netplay = &demo_lobby_cb;
 }
 
+/* LNG_SETTINGS_OUT: the settings handed back to a host, as text. One line per
+ * controller field of every seat, then a hash of the whole struct, so that two
+ * runs which made the same choices write the same file. */
+static void proto_write_settings(const char* path, const RecompLauncherCSettings* s) {
+    FILE* f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "[proto] cannot write %s\n", path);
+        return;
+    }
+    for (int p = 0; p < RECOMP_LAUNCHER_MAX_PLAYERS; ++p)
+        fprintf(f, "player%d src=%d pad_mode=%d deadzone=%d guid=%s\n", p + 1,
+                s->player_src[p], s->pad_mode[p], s->deadzone[p],
+                s->player_gamepad_guid[p]);
+    fprintf(f, "multitap_enabled=%d\nmultitap_analog=%d\nmouse_enabled=%d\n",
+            s->multitap_enabled, s->multitap_analog, s->mouse_enabled);
+    uint64_t hash = 0xcbf29ce484222325ull;   /* FNV-1a over every byte */
+    const unsigned char* bytes = (const unsigned char*)s;
+    for (size_t i = 0; i < sizeof(*s); ++i) {
+        hash ^= bytes[i];
+        hash *= 0x100000001b3ull;
+    }
+    fprintf(f, "struct_bytes=%u\nstruct_fnv1a64=%016llx\n", (unsigned)sizeof(*s),
+            (unsigned long long)hash);
+    fclose(f);
+}
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
 
@@ -677,6 +703,17 @@ int main(int argc, char** argv) {
         const char* demo_lobby = SDL_getenv("LNG_DEMO_LOBBY");
         if (demo_lobby && demo_lobby[0]) demo_lobby_install(&gi, demo_lobby);
     }
+    /* Harness-only: the player count the title declares (LNG_PLAYERS=1..8) and
+     * the Multitap switch of Settings (LNG_MULTITAP=1), so that every count a
+     * host can declare has a picture. Read last: it replaces the number a
+     * variant or a demo block chose. */
+    {
+        const char* players = SDL_getenv("LNG_PLAYERS");
+        const int n = players ? atoi(players) : 0;
+        if (n >= 1 && n <= RECOMP_LAUNCHER_MAX_PLAYERS) gi.num_players = n;
+        const char* multitap = SDL_getenv("LNG_MULTITAP");
+        if (multitap && multitap[0] == '1') s.multitap_enabled = 1;
+    }
     launcher_model_init(&model, &s, &gi, rom);
     launcher_binds_load(&model, NULL, NULL);   // keybinds.ini + config.ini [KeyMap]
     fprintf(stderr, "[proto] rom=%s present=%d crc_match=%d sha_match=%d verified=%d size=%s\n",
@@ -697,6 +734,15 @@ int main(int argc, char** argv) {
 
     LngAction act = launcher_backend_run(&plat, &model, &theme);
     launcher_platform_close(&plat);
+
+    /* Harness-only: LNG_SETTINGS_OUT=<file> gets the settings a host is handed
+     * back. recomp_launcher_run_window() hands them back on every exit, Quit
+     * included, so this does too. */
+    const char* settings_out = SDL_getenv("LNG_SETTINGS_OUT");
+    if (settings_out && settings_out[0]) {
+        launcher_model_commit(&model, &s);
+        proto_write_settings(settings_out, &s);
+    }
 
     // In production this is the value recomp_launcher_run_window() returns to
     // the host, which then boots the game IN-PROCESS with the committed

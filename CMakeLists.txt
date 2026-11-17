@@ -563,6 +563,23 @@ if(BUILD_TESTING)
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
 
+    # Dashboard player tabs: the tab count per declared player number and
+    # Multitap state, and the open tab. Same shape.
+    add_executable(recomp-ui-launcher-player-tabs-test
+        tests/launcher_player_tabs_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-player-tabs-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-player-tabs-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-player-tabs
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-test>)
+
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
     # pattern) and the tri-state enabled flag. Includes launcher_model.c like
