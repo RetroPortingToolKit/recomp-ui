@@ -1451,6 +1451,14 @@ void launcher_binds_save_psx_keyboard(LauncherModel* m, int player) {
     reload_player_display(m, player);
 }
 
+int launcher_binds_load_psx_keyboard(LauncherModel* m, int player, const char* src) {
+    if (!m || !is_psx_profile(m)) return 0;
+    if (player < 1 || player > LNG_MAX_PLAYERS) return 0;
+    const int ok = rui_psx_binds_load_profile(keybinds_file_path(), player - 1, src);
+    reload_player_display(m, player);
+    return ok;
+}
+
 void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {
     if (!m || !is_psx_profile(m)) return;
     if (player < 1 || player > LNG_MAX_PLAYERS) return;

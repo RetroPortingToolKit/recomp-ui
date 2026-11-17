@@ -6453,9 +6453,24 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 // Save Profile -- keyboard captures already write keybinds.ini
                 // on every rebind, so this is the explicit commit + flush.
                 static double s_kb_profile_saved_until = 0.0;
+                // Load Profile -- replace this player's keys from another
+                // keybinds.ini (its [playerN] section, else [player1]).
+                static double s_kb_profile_loaded_until = 0.0;
+                static int s_kb_profile_load_ok = 0;
                 {
                     const float save_w = px(120.0f);
                     const float right = ImGui::GetWindowContentRegionMax().x;
+                    ImGui::SameLine(right - 2.0f * save_w - ImGui::GetStyle().ItemSpacing.x);
+                    if (ImGui::Button("Load Profile", ImVec2(save_w, 0))) {
+                        const int player = p + 1;
+                        ui_pick_file(m, "Load keyboard profile", {"*.ini"},
+                                     "Keybinds profile (*.ini)",
+                                     [m, player](const char* picked) {
+                            s_kb_profile_load_ok =
+                                launcher_binds_load_psx_keyboard(m, player, picked);
+                            s_kb_profile_loaded_until = ImGui::GetTime() + 3.0;
+                        });
+                    }
                     ImGui::SameLine(right - save_w);
                     if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
                         launcher_binds_save_psx_keyboard(m, p + 1);
@@ -6476,6 +6491,13 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 }
                 if (ImGui::GetTime() < s_kb_profile_saved_until)
                     ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
+                if (ImGui::GetTime() < s_kb_profile_loaded_until) {
+                    if (s_kb_profile_load_ok)
+                        ImGui::TextColored(col(th.accent2), "Input Profile Loaded!");
+                    else
+                        ImGui::TextColored(col(th.warn),
+                            "Not a keybinds profile; keys unchanged.");
+                }
             } else {
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
