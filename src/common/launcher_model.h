@@ -610,6 +610,11 @@ typedef struct {
     /* Play blocked because saved BIOS is not linked — offer Generate / OpenBIOS. */
     bool      bios_play_modal_open;
     bool      setup_preparing;       // prepare/rebuild/toolchain job in flight
+    /* PLAY was pressed and the launch work has not run yet (LngLaunchPending).
+     * The work (image preparation, the mod commit) blocks the frame it runs
+     * in, for seconds on some hosts, so it runs one frame after the button
+     * was drawn greyed as "Launching...". */
+    int       launch_pending;
     float     setup_prepare_pulse;   // 0..1 animation phase while preparing
     float     setup_prepare_fraction; // 0..1 real progress, or <0 for pulse-only
     char      setup_progress_title[128]; // progress modal title override
@@ -1235,6 +1240,32 @@ bool launcher_model_can_finish_setup(const LauncherModel* m);
 bool launcher_model_can_launch(const LauncherModel* m);
 // Dashboard Mods entry requires a fully verified disc and no regional handoff.
 bool launcher_model_can_open_mods(const LauncherModel* m);
+
+// The PLAY press, in three frames. The launch work blocks the frame it runs
+// in: the window does not repaint until it returns. Run in the frame of the
+// click, the player saw a PLAY button that did nothing for as long as the work
+// took. So the click only asks, the next frame draws the button greyed with
+// "Launching...", and the frame after that does the work while that picture
+// is on screen.
+typedef enum {
+    LNG_LAUNCH_IDLE = 0,       // nothing asked
+    LNG_LAUNCH_ANNOUNCE = 1,   // asked; the next button drawn is "Launching..."
+    LNG_LAUNCH_RUN = 2,        // "Launching..." was drawn; the work runs next
+    LNG_LAUNCH_WORKING = 3,    // the work was handed out, or it launched
+} LngLaunchPending;
+// The click. No effect while a launch is already pending.
+void launcher_model_launch_request(LauncherModel* m);
+// True from the click until launcher_model_launch_finish(): draw the button
+// greyed, labelled "Launching...", and take no second click.
+bool launcher_model_launch_announced(const LauncherModel* m);
+// Call once per frame, before the button is drawn. Returns true exactly once
+// per request: in the first frame after a frame that drew "Launching...".
+// The caller then does the launch work and calls launcher_model_launch_finish.
+bool launcher_model_launch_due(LauncherModel* m);
+// The work is over. launched=false returns the button to PLAY (the work
+// refused and has said why); launched=true keeps "Launching..." for the frames
+// the window still lives.
+void launcher_model_launch_finish(LauncherModel* m, bool launched);
 // True when the mounted disc is OK for online (TOC/cue policy + content).
 // Non-disc games (verify.mode!=1) always return true when netplay is supported.
 bool launcher_model_netplay_disc_ok(const LauncherModel* m);
