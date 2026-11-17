@@ -142,6 +142,12 @@ static void test_save_as(void) {
     expect(!strcmp(in_use(0), "WASD"), "the keys in use are now the profile WASD");
     expect(!strcmp(in_use(1), "Default"), "Player 2 still has the Default keys");
 
+    /* The alternate key is part of a profile: without it these are other keys. */
+    rui_psx_binds_set_slot(g_keys, 0, B_CROSS, 1, 0);
+    expect(!strcmp(in_use(0), ""), "the same keys without the alternate are not the profile WASD");
+    rui_psx_binds_set_slot(g_keys, 0, B_CROSS, 1, MOUSE1);
+    expect(!strcmp(in_use(0), "WASD"), "and with it they are again");
+
     /* A profile saved from Player 3's seat is the same kind of file. */
     set_wasd(2);
     rui_psx_binds_set_slot(g_keys, 2, B_CROSS, 0, KEY_F);

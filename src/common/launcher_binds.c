@@ -7,6 +7,7 @@
 #include "pad_binds.h"            // shared per-GUID input.ini store (path rule)
 #include "consoles/gba/gba_pad_binds.h"
 #include "consoles/psx/psx_binds.h"   // PSX-native keybind bridge (psx_keybinds.c format)
+#include "consoles/psx/psx_kb_profiles.h" // PSX named keyboard profiles (a folder of the user)
 #include "consoles/psx/psx_pad_binds.h" // PSX gamepad input.ini per-GUID bridge
 #include "consoles/n64/n64_binds.h"   // N64-native input.cfg bridge (keyboard table)
 #include "consoles/n64/n64_pad_binds.h" // N64 gamepad input.ini per-GUID bridge
@@ -1457,6 +1458,56 @@ int launcher_binds_load_psx_keyboard(LauncherModel* m, int player, const char* s
     const int ok = rui_psx_binds_load_profile(keybinds_file_path(), player - 1, src);
     reload_player_display(m, player);
     return ok;
+}
+
+/* Named keyboard profiles (consoles/psx/psx_kb_profiles.h). The folder is the
+ * user's, shared by every game; the keys come from and go to this title's
+ * keybinds.ini. */
+const char* launcher_binds_psx_kb_profiles_dir(void) {
+    static char dir[1024];
+    rui_psx_kb_profiles_dir(dir, (int)sizeof(dir));
+    return dir;
+}
+
+int launcher_binds_psx_kb_profile_list(
+        LauncherModel* m, char names[][RUI_PSX_KB_PROFILE_NAME_MAX + 1], int max) {
+    if (!m || !is_psx_profile(m)) return 0;
+    return rui_psx_kb_profiles_list(launcher_binds_psx_kb_profiles_dir(), names, max);
+}
+
+int launcher_binds_psx_kb_profile_in_use(LauncherModel* m, int player,
+                                         char* out, int cap) {
+    if (out && cap > 0) out[0] = '\0';
+    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS) return 0;
+    return rui_psx_kb_profile_in_use(launcher_binds_psx_kb_profiles_dir(),
+                                     keybinds_file_path(), player - 1, out, cap);
+}
+
+int launcher_binds_psx_kb_profile_save_as(LauncherModel* m, int player,
+                                          const char* name, int replace) {
+    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS)
+        return RUI_PSX_KBP_IO;
+    return rui_psx_kb_profile_save_as(launcher_binds_psx_kb_profiles_dir(), name,
+                                      keybinds_file_path(), player - 1, replace);
+}
+
+int launcher_binds_psx_kb_profile_load(LauncherModel* m, int player, const char* name) {
+    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS)
+        return RUI_PSX_KBP_IO;
+    const int result = rui_psx_kb_profile_load(launcher_binds_psx_kb_profiles_dir(), name,
+                                               keybinds_file_path(), player - 1);
+    reload_player_display(m, player);
+    return result;
+}
+
+int launcher_binds_psx_kb_profile_rename(LauncherModel* m, const char* from, const char* to) {
+    if (!m || !is_psx_profile(m)) return RUI_PSX_KBP_IO;
+    return rui_psx_kb_profile_rename(launcher_binds_psx_kb_profiles_dir(), from, to);
+}
+
+int launcher_binds_psx_kb_profile_delete(LauncherModel* m, const char* name) {
+    if (!m || !is_psx_profile(m)) return RUI_PSX_KBP_IO;
+    return rui_psx_kb_profile_delete(launcher_binds_psx_kb_profiles_dir(), name);
 }
 
 void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {

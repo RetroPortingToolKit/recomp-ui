@@ -73,6 +73,13 @@ void rui_psx_binds_reset(const char* path, int player) { (void)path; (void)playe
 void rui_psx_binds_save(const char* path) { (void)path; }
 int rui_psx_binds_load_profile(const char* path, int player, const char* src) { (void)path; (void)player; (void)src; return 0; }
 void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int scancode) { (void)path; (void)player; (void)b; (void)slot; (void)scancode; }
+int rui_psx_kb_profiles_dir(char* out, int cap) { (void)out; (void)cap; return 0; }
+int rui_psx_kb_profiles_list(const char* dir, char names[][RUI_PSX_KB_PROFILE_NAME_MAX + 1], int max) { (void)dir; (void)names; (void)max; return 0; }
+int rui_psx_kb_profile_in_use(const char* dir, const char* keybinds_path, int player, char* out, int cap) { (void)dir; (void)keybinds_path; (void)player; (void)out; (void)cap; return 0; }
+int rui_psx_kb_profile_save_as(const char* dir, const char* name, const char* keybinds_path, int player, int replace) { (void)dir; (void)name; (void)keybinds_path; (void)player; (void)replace; return 0; }
+int rui_psx_kb_profile_load(const char* dir, const char* name, const char* keybinds_path, int player) { (void)dir; (void)name; (void)keybinds_path; (void)player; return 0; }
+int rui_psx_kb_profile_rename(const char* dir, const char* from, const char* to) { (void)dir; (void)from; (void)to; return 0; }
+int rui_psx_kb_profile_delete(const char* dir, const char* name) { (void)dir; (void)name; return 0; }
 int rui_psx_pad_binds_deadzone(const char* path, const char* guid) { (void)path; (void)guid; return 0; }
 void rui_psx_pad_binds_delete(const char* path, const char* guid) { (void)path; (void)guid; }
 void rui_psx_pad_binds_init(const char* path) { (void)path; }

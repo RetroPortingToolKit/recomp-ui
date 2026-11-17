@@ -18,6 +18,7 @@
 
 #include "launcher_model.h"
 #include "launcher_input.h"   // LauncherPad for prepare_psx_launch
+#include "consoles/psx/psx_kb_profiles.h"   // RUI_PSX_KB_PROFILE_NAME_MAX, RuiPsxKbProfileResult
 
 #ifdef __cplusplus
 extern "C" {
@@ -117,6 +118,22 @@ void launcher_binds_save_psx_keyboard(LauncherModel* m, int player /*1-based*/);
 // from another keybinds.ini and persist. Returns 1 on success, 0 if refused.
 int launcher_binds_load_psx_keyboard(LauncherModel* m, int player /*1-based*/,
                                      const char* src);
+// Named keyboard profiles (consoles/psx/psx_kb_profiles.h): one player's keys
+// under a name, in a folder of the user that every game reads; "Default" is
+// built in and protected. save_as, load, rename and delete return a
+// RuiPsxKbProfileResult. load refreshes the player's bind display strings.
+const char* launcher_binds_psx_kb_profiles_dir(void);
+int launcher_binds_psx_kb_profile_list(
+        LauncherModel* m, char names[][RUI_PSX_KB_PROFILE_NAME_MAX + 1], int max);
+// The name of the profile that holds the player's keys now; 0 and "" when none does.
+int launcher_binds_psx_kb_profile_in_use(LauncherModel* m, int player /*1-based*/,
+                                         char* out, int cap);
+int launcher_binds_psx_kb_profile_save_as(LauncherModel* m, int player /*1-based*/,
+                                          const char* name, int replace);
+int launcher_binds_psx_kb_profile_load(LauncherModel* m, int player /*1-based*/,
+                                       const char* name);
+int launcher_binds_psx_kb_profile_rename(LauncherModel* m, const char* from, const char* to);
+int launcher_binds_psx_kb_profile_delete(LauncherModel* m, const char* name);
 // Rename the selected gamepad (custom display name for the GUID).
 void launcher_binds_rename_psx_gamepad(LauncherModel* m, int player /*1-based*/,
                                        const char* name);
