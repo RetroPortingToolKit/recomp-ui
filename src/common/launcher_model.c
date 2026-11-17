@@ -770,6 +770,9 @@ void launcher_model_init(LauncherModel* m,
     // ---- infer the SystemProfile this game belongs to (panel composition +
     // per-system specs) from the ABI caps launcher_profile_apply() already set ----
     m->profile = launcher_system_infer(game);
+    m->has_start_from = m->profile && ((const SystemProfile*)m->profile)->start_from;
+    m->start_count = 0;
+    m->start_selected = -1;
     if (m->profile && m->profile->controller.max_players > 0) {
         /* num_players is a per-game capability, while max_players is the
          * console ceiling. Raising the ABI storage width must never make a
@@ -1175,6 +1178,15 @@ void launcher_model_select_disc(LauncherModel* m, int idx) {
     if (idx < 0 || idx >= m->num_discs) return;
     if (idx == m->disc_selected) return;
     m->disc_selected = idx;
+    /* A save state belongs to the disc it was made on: with another disc to
+     * boot, the start is from power-on again. */
+    {
+        const LauncherStartEntry* e =
+            launcher_model_start_entry(m, launcher_model_start_selected(m));
+        if (e && e->kind == LNG_START_STATE && e->disc > 0 &&
+            e->disc != launcher_model_disc_number(m, idx))
+            m->start_selected = -1;
+    }
     /* set_rom re-runs the disc verdict against the newly mounted image and
      * calls back into lm_bind_disc_selection, which writes s.disc_index. */
     launcher_model_set_rom(m, launcher_model_disc_path(m, idx));
@@ -1843,6 +1855,59 @@ void launcher_model_toggle_affine_filter(LauncherModel* m) {
 void launcher_model_toggle_frame_blend(LauncherModel* m) {
     if (!m || !m->has_frame_blend) return;
     m->s.frame_blend = !m->s.frame_blend;
+}
+
+int launcher_model_start_from_available(const LauncherModel* m) {
+    return m && m->has_start_from ? 1 : 0;
+}
+
+void launcher_model_set_start_entries(LauncherModel* m, const LauncherStartEntry* entries,
+                                      int count, const LauncherStartNotes* notes) {
+    if (!m) return;
+    if (!entries || count < 0) count = 0;
+    if (count > LNG_START_MAX) count = LNG_START_MAX;
+    if (count) memcpy(m->start_entries, entries, (size_t)count * sizeof(entries[0]));
+    m->start_count = count;
+    m->start_selected = -1;
+    if (notes) m->start_notes = *notes;
+    else memset(&m->start_notes, 0, sizeof(m->start_notes));
+}
+
+int launcher_model_start_count(const LauncherModel* m) {
+    return launcher_model_start_from_available(m) ? m->start_count : 0;
+}
+
+const LauncherStartEntry* launcher_model_start_entry(const LauncherModel* m, int idx) {
+    if (idx < 0 || idx >= launcher_model_start_count(m)) return NULL;
+    return &m->start_entries[idx];
+}
+
+int launcher_model_start_selected(const LauncherModel* m) {
+    if (!m || m->start_selected < 0 || m->start_selected >= launcher_model_start_count(m))
+        return -1;
+    return m->start_selected;
+}
+
+void launcher_model_select_start(LauncherModel* m, int idx) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, idx);
+    if (!m) return;
+    if (!e || e->kind != LNG_START_STATE) {
+        m->start_selected = -1;
+        return;
+    }
+    if (e->kind == LNG_START_STATE && e->disc > 0)
+        for (int d = 0; d < m->num_discs; ++d)
+            if (launcher_model_disc_number(m, d) == e->disc)
+                launcher_model_select_disc(m, d);   /* may reset the choice: set it after */
+    m->start_selected = idx;
+}
+
+int launcher_model_start_handover(const LauncherModel* m, int* slot) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, launcher_model_start_selected(m));
+    if (slot) *slot = -1;
+    if (!e || e->kind != LNG_START_STATE || e->slot < 0) return LNG_START_POWER_ON;
+    if (slot) *slot = e->slot;
+    return LNG_START_STATE;
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {

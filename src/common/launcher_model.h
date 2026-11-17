@@ -107,6 +107,35 @@ typedef enum {
 // headroom for future systems without another struct-layout change.
 #define LNG_MAX_BUTTONS 24
 
+// ---- "Start from" entries ----------------------------------------------------
+// Most entries the dashboard lists; a lister keeps the newest.
+#define LNG_START_MAX 48
+enum { LNG_START_POWER_ON = 0, LNG_START_STATE = 1 };
+// Whether an entry was made by the build that runs: not known, yes, or no. A
+// save state of another build is refused by the host.
+enum { LNG_START_BUILD_UNKNOWN = 0, LNG_START_BUILD_SAME = 1, LNG_START_BUILD_OTHER = 2 };
+typedef struct {
+    int      kind;        // LNG_START_STATE
+    int      slot;        // the slot the host loads, 0-based
+    int      disc;        // the disc of the set it was made on, 1-based; 0 = one
+                          // disc, or the entry names none
+    int      build;       // LNG_START_BUILD_*
+    int64_t  when;        // file time, seconds since the Unix epoch
+    char     label[96];   // "Slot 3"
+    char     path[512];   // the file
+    // The entry's picture, when it has one: thumb_w x thumb_h pixels of four
+    // bytes each (blue, green, red, alpha) at thumb_offset of thumb_path.
+    char     thumb_path[512];
+    uint32_t thumb_offset;
+    int      thumb_w, thumb_h;
+} LauncherStartEntry;
+// What the lister found beside the entries.
+typedef struct {
+    int build_known;       // the running build's identity was found, so entries carry a mark
+    int states_elsewhere;  // save states of the other BIOS or of another program: not listed
+    int states_unlisted;   // older save states than the list holds
+} LauncherStartNotes;
+
 // Upper bound on a multi-image title's disc roster (GameInfo.num_discs).
 // The largest shipped PS1 sets are 4 discs (Final Fantasy IX, Xenogears is
 // 2); 8 leaves headroom without making the model struct meaningfully bigger.
@@ -374,6 +403,7 @@ typedef struct {
     bool has_affine_filter;
     bool has_frame_blend;
     bool has_run_ahead;
+    bool has_start_from;      /* SystemProfile.start_from: the dashboard's "Start from" block */
     bool has_shader;
     bool netplay_supported;
     bool netplay_policy_active;
@@ -580,6 +610,11 @@ typedef struct {
     int       cfg_player;            // 0..LNG_MAX_PLAYERS-1 — which player the Controller view edits
     int       player_tab;            // which player's card the dashboard shows when the cards are tabs (launcher_model_player_tab)
     int       card_tab;              // which memory card the dashboard shows when the cards are tabs (launcher_model_card_tab)
+    // ---- "Start from" (launcher_model_set_start_entries) ----
+    LauncherStartEntry start_entries[LNG_START_MAX];
+    int       start_count;
+    int       start_selected;        // index into start_entries; -1 = Power on
+    LauncherStartNotes start_notes;
     bool      skip_modal_open;       // "Skip the launcher on boot?" confirm
     bool      pgo_confirm_open;      // SYSTEM → VIDEO → Optimize FMV confirm
     bool      fmv_timing_confirm_open; // SYSTEM → VIDEO → Apply FMV Timing confirm
@@ -877,6 +912,29 @@ void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_bl
 // UI draws it as a dropdown, and the labels for each depth live with that
 // control alongside every other choice list.
 void launcher_model_set_run_ahead(LauncherModel* m, int frames);  // clamped, gated has_run_ahead
+// ---- "Start from": what the next PLAY starts with ---------------------------
+// Power on (the default) or one of the title's save states. A per-launch
+// choice: it is no setting and is not kept. The entries come from outside the
+// model (the console's lister), newest first.
+//
+// 1 when the console's profile has the block (SystemProfile.start_from).
+int  launcher_model_start_from_available(const LauncherModel* m);
+// Replaces the list (at most LNG_START_MAX entries are kept) and goes back to
+// Power on. notes may be NULL.
+void launcher_model_set_start_entries(LauncherModel* m, const LauncherStartEntry* entries,
+                                      int count, const LauncherStartNotes* notes);
+int  launcher_model_start_count(const LauncherModel* m);
+// NULL when idx is out of range.
+const LauncherStartEntry* launcher_model_start_entry(const LauncherModel* m, int idx);
+// The chosen entry, or -1 for Power on.
+int  launcher_model_start_selected(const LauncherModel* m);
+// Chooses entry idx; anything out of range is Power on. A save state made on
+// another disc of the set also selects that disc, because the host loads the
+// slot of the disc it boots.
+void launcher_model_select_start(LauncherModel* m, int idx);
+// What PLAY hands to the host: LNG_START_POWER_ON, or LNG_START_STATE with
+// *slot (0-based). slot may be NULL.
+int  launcher_model_start_handover(const LauncherModel* m, int* slot);
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields

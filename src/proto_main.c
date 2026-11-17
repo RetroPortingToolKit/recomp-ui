@@ -11,6 +11,7 @@
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_model.h"
+#include "consoles/psx/psx_start_from.h"
 #include "launcher_platform.h"
 #include "launcher_profile.h"
 #include "launcher_theme.h"
@@ -714,8 +715,35 @@ int main(int argc, char** argv) {
         const char* multitap = SDL_getenv("LNG_MULTITAP");
         if (multitap && multitap[0] == '1') s.multitap_enabled = 1;
     }
+    /* Harness-only: LNG_DISCS=2..8 declares a disc set (GameInfo.discs), so
+     * that a multi-disc title has a picture. Disc N is the file discN.cue of
+     * the working folder; the first is the one mounted. */
+    static RecompLauncherCDisc demo_discs[8];
+    static char demo_disc_paths[8][16];
+    {
+        const char* discs = SDL_getenv("LNG_DISCS");
+        const int n = discs ? atoi(discs) : 0;
+        if (n >= 2 && n <= 8) {
+            for (int i = 0; i < n; ++i) {
+                snprintf(demo_disc_paths[i], sizeof(demo_disc_paths[i]), "disc%d.cue", i + 1);
+                demo_discs[i].number = i + 1;
+                demo_discs[i].label = NULL;
+                demo_discs[i].path = demo_disc_paths[i];
+            }
+            gi.discs = demo_discs;
+            gi.num_discs = n;
+            rom = demo_disc_paths[0];
+        }
+    }
     launcher_model_init(&model, &s, &gi, rom);
     launcher_binds_load(&model, NULL, NULL);   // keybinds.ini + config.ini [KeyMap]
+    /* The "Start from" list, as recomp_launcher_run_window() reads it.
+     * Harness-only: LNG_PRODUCT_DIR names the product folder to read (its
+     * saves folder and its overlay_codegen_hash.h); default the exe's own. */
+    if (launcher_model_start_from_available(&model)) {
+        const char* product = SDL_getenv("LNG_PRODUCT_DIR");
+        psx_start_from_load(&model, product && product[0] ? product : SDL_GetBasePath(), NULL);
+    }
     fprintf(stderr, "[proto] rom=%s present=%d crc_match=%d sha_match=%d verified=%d size=%s\n",
             rom, model.rom_present, model.crc_match, model.sha_match,
             launcher_model_rom_verified(&model), model.rom_size);
@@ -742,6 +770,17 @@ int main(int argc, char** argv) {
     if (settings_out && settings_out[0]) {
         launcher_model_commit(&model, &s);
         proto_write_settings(settings_out, &s);
+        /* And the "Start from" hand-over, when it is not Power on: the
+         * start-up variable recomp_launcher_run_window() would set on PLAY. */
+        if (launcher_model_start_from_available(&model)) {
+            PsxStartVar var;
+            psx_start_from_vars(&model, 0, &var);
+            FILE* f = var.value[0] ? fopen(settings_out, "ab") : NULL;
+            if (f) {
+                fprintf(f, "%s=%s\n", var.name, var.value);
+                fclose(f);
+            }
+        }
     }
 
     // In production this is the value recomp_launcher_run_window() returns to
