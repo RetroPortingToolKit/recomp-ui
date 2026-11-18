@@ -3315,6 +3315,39 @@ bool launcher_model_can_launch(const LauncherModel* m) {
     return true;
 }
 
+void launcher_model_launch_request(LauncherModel* m) {
+    if (m && m->launch_pending == LNG_LAUNCH_IDLE)
+        m->launch_pending = LNG_LAUNCH_ANNOUNCE;
+}
+
+bool launcher_model_launch_announced(const LauncherModel* m) {
+    return m && m->launch_pending != LNG_LAUNCH_IDLE;
+}
+
+bool launcher_model_launch_due(LauncherModel* m) {
+    if (!m) return false;
+    if (m->launch_pending == LNG_LAUNCH_ANNOUNCE) {
+        /* This frame draws "Launching...". The work waits for the next one, so
+         * that the greyed button is on screen while it runs. */
+        m->launch_pending = LNG_LAUNCH_RUN;
+        return false;
+    }
+    if (m->launch_pending == LNG_LAUNCH_RUN && m->action == LNG_ACTION_NONE) {
+        /* Handed out once: a caller that asks again must not start the work
+         * twice. finish() ends the request. */
+        m->launch_pending = LNG_LAUNCH_WORKING;
+        return true;
+    }
+    return false;
+}
+
+void launcher_model_launch_finish(LauncherModel* m, bool launched) {
+    if (!m) return;
+    /* Refused: back to PLAY. Launched: the window is about to close; keep the
+     * greyed label for whatever frames remain. */
+    m->launch_pending = launched ? LNG_LAUNCH_WORKING : LNG_LAUNCH_IDLE;
+}
+
 bool launcher_model_netplay_disc_ok(const LauncherModel* m) {
     if (!m || !m->netplay_supported) return false;
     if (!m->profile || m->profile->verify.mode != 1)
