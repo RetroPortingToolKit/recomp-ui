@@ -604,6 +604,8 @@ typedef struct {
     LngView   view;
     LngAction action;
     int       cfg_player;            // 0..LNG_MAX_PLAYERS-1 — which player the Controller view edits
+    int       player_tab;            // which player's card the dashboard shows when the cards are tabs (launcher_model_player_tab)
+    int       card_tab;              // which memory card the dashboard shows when the cards are tabs (launcher_model_card_tab)
     bool      skip_modal_open;       // "Skip the launcher on boot?" confirm
     bool      pgo_confirm_open;      // SYSTEM → VIDEO → Optimize FMV confirm
     bool      fmv_timing_confirm_open; // SYSTEM → VIDEO → Apply FMV Timing confirm
@@ -1126,6 +1128,27 @@ int  launcher_model_multitap_available(const LauncherModel* m);
 int  launcher_model_multitap_enabled(const LauncherModel* m);
 void launcher_model_toggle_multitap(LauncherModel* m);
 int  launcher_model_visible_player_count(const LauncherModel* m);
+/* Dashboard player tabs. How many tabs stand over the controller card: one
+ * per visible player when the title shows two or more cards, on every
+ * console. 0 means no strip and one card: a one-player title, or cards
+ * hidden by lock_device. */
+int  launcher_model_player_tabs(const LauncherModel* m);
+/* The open tab, 0-based and always inside the strip: when Multitap is turned
+ * off while a later player's tab is open, it reads as the last tab left. */
+int  launcher_model_player_tab(const LauncherModel* m);
+void launcher_model_set_player_tab(LauncherModel* m, int player);
+/* 1 when the console's profile asks for the tabbed dashboard
+ * (ControllerSpec.player_tabs): the controller card and the memory-card block
+ * are one width, the card carries its pad type and device as two lists, and
+ * the memory cards are tabs. It holds for a one-player title too, which has
+ * no player strip (launcher_model_player_tabs is 0) and one card. */
+int  launcher_model_dashboard_tabbed(const LauncherModel* m);
+/* Memory-card tabs of the tabbed dashboard: one per card slot of the
+ * console's profile (SaveSpec.slots), 0 when the cards are not tabs. */
+int  launcher_model_card_tabs(const LauncherModel* m);
+/* The open card tab, 0-based and always inside the strip. */
+int  launcher_model_card_tab(const LauncherModel* m);
+void launcher_model_set_card_tab(LauncherModel* m, int slot);
 /* Player-seat ceiling for a netplay room this title hosts, 2..
  * RECOMP_LAUNCHER_NETPLAY_MAX_MEMBERS. lan_only != 0 asks for a LAN / Direct
  * IP room. The backend's create_max_slots answers when it has one (>= 2);

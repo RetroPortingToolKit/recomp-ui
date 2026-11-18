@@ -729,6 +729,8 @@ cmake -G Ninja -S . -B build
 cmake --build build -j
 # Preview a console: LNG_VARIANT = psx | snes | gba | genesis | ...
 LNG_VARIANT=genesis ./build/recomp-ui-launcher
+# Preview a player count: LNG_PLAYERS = 1..8 (LNG_MULTITAP=1 shows PSX seats 3+)
+LNG_VARIANT=psx LNG_PLAYERS=4 LNG_MULTITAP=1 ./build/recomp-ui-launcher
 ```
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.

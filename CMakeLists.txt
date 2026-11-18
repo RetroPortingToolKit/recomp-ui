@@ -635,6 +635,22 @@ if(BUILD_TESTING)
         NAME recomp-ui-netplay-seat-cap
         COMMAND $<TARGET_FILE:recomp-ui-netplay-seat-cap-test>)
 
+    # Dashboard player tabs: the tab count per declared player number and
+    # Multitap state, and the open tab. Same shape.
+    add_executable(recomp-ui-launcher-player-tabs-test
+        tests/launcher_player_tabs_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-player-tabs-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-player-tabs-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-player-tabs
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-test>)
     add_executable(recomp-ui-launcher-mouse-source-test
         tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
         src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
