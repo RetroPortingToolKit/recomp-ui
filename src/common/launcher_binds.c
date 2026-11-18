@@ -74,7 +74,7 @@ static const int* active_kb_index(const LauncherModel* m, int* out_n) {
 // active profile) and resolves the file path.
 static int is_psx_profile(const LauncherModel* m) {
     const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
-    return prof && prof->id && !strcmp(prof->id, "psx");
+    return prof && prof->id && (!strcmp(prof->id, "psx") || !strcmp(prof->id, "ps2"));
 }
 
 // NES routes to its own native bridge too (consoles/nes/nes_binds.c): the
@@ -1276,7 +1276,7 @@ static void psx_fallback_pad_label(const char* guid, char* out, size_t cap) {
     if (guid && guid[0]) {
         size_t n = strlen(guid);
         if (n >= 8)
-            snprintf(out, cap, "Controller â€¦%s", guid + n - 8);
+            snprintf(out, cap, "Controller \xE2\x80\xA6%s", guid + n - 8);
         else
             snprintf(out, cap, "Controller %s", guid);
         return;
@@ -1305,6 +1305,9 @@ void launcher_binds_hydrate_psx_pad_names(LauncherModel* m) {
 
 void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
                                          const LauncherPad* pads, int pad_count) {
+    const SystemProfile* ps2_profile=m?(const SystemProfile*)m->profile:NULL;
+    if(ps2_profile && ps2_profile->id && !strcmp(ps2_profile->id,"ps2")) return;
+
     if (!m || !is_psx_profile(m)) return;
     const char* path = psx_input_ini_path();
     const int nplayers = launcher_model_visible_player_count(m);
@@ -1470,6 +1473,9 @@ void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {
 
 void launcher_binds_prepare_psx_launch(LauncherModel* m,
                                        const LauncherPad* pads, int pad_count) {
+    const SystemProfile* ps2_profile=m?(const SystemProfile*)m->profile:NULL;
+    if(ps2_profile && ps2_profile->id && !strcmp(ps2_profile->id,"ps2")) return;
+
     if (!m || !is_psx_profile(m)) return;
     const char* path = psx_input_ini_path();
     for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {

@@ -25,6 +25,8 @@
 #endif
 
 static bool s_quit_sdl = true;
+static bool s_hidden_window = false;
+void launcher_platform_set_hidden_window(bool hidden) { s_hidden_window = hidden; }
 
 void launcher_platform_set_quit_sdl(bool quit_sdl) {
     s_quit_sdl = quit_sdl;
@@ -250,7 +252,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
                           SDL_WINDOW_ALLOW_HIGHDPI;
     /* Automated launcher checks must not steal the user's desktop/focus. */
     const bool test_hidden = getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN");
-    if (test_hidden) window_flags |= SDL_WINDOW_HIDDEN;
+    if (s_hidden_window || test_hidden) window_flags |= SDL_WINDOW_HIDDEN;
 #if defined(__ANDROID__)
     window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_BORDERLESS;
 #endif

@@ -1628,7 +1628,8 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->rom_crc32_hex[0] = '\0';
     m->rom_identified[0] = '\0';
     m->rom_detail[0] = '\0';
-    const int disc_verify = m->profile && m->profile->verify.mode == 1;
+    const int disc_verify = m->profile && (m->profile->verify.mode == 1 ||
+        (m->profile->id && !strcmp(m->profile->id, "ps2")));
     if (m->rom_present && !disc_verify && m->rom_read) {
         uint8_t* bytes = NULL;
         size_t len = 0;
@@ -2726,7 +2727,7 @@ static void lm_write_sidecar_in_dir(const char* dir, const char* name,
 static void lm_persist_cart_rom(const LauncherModel* m) {
     char absolute[1024], path[1100], exe_dir[1024];
     const char* cache;
-    if (m->setup_wizard_supported || m->num_discs > 1 ||
+    if (m->host_persists_paths || m->setup_wizard_supported || m->num_discs > 1 ||
         (m->profile && m->profile->verify.mode == 1) ||
         !lm_path_readable(m->rom_full)) return;
     if (launcher_model_rom_has_fingerprint(m) &&
