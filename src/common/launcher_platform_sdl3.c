@@ -8,6 +8,14 @@
 #include <stdlib.h>
 
 static bool s_quit_sdl = true;
+static bool s_hidden_window = false;
+
+void launcher_platform_set_hidden_window(bool hidden) { s_hidden_window = hidden; }
+
+static void release_sdl(void) {
+    if (s_quit_sdl) SDL_Quit();
+    else SDL_QuitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_SENSOR);
+}
 
 void launcher_platform_set_quit_sdl(bool quit_sdl) {
     s_quit_sdl = quit_sdl;
@@ -180,7 +188,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     /* Automated launcher checks (LNG_SCRIPT + LNG_TEST_HIDDEN, as on SDL2)
      * must not steal the user's desktop/focus. */
-    if (getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN")) flags |= SDL_WINDOW_HIDDEN;
+    if (s_hidden_window || (getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN"))) flags |= SDL_WINDOW_HIDDEN;
 
     int win_w = logical_w;
     int win_h = logical_h;
@@ -190,7 +198,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
                                  win_w, win_h, flags);
     if (!p->window) {
         fprintf(stderr, "[launcher] SDL_CreateWindow failed: %s\n", SDL_GetError());
-        if (s_quit_sdl) SDL_Quit();
+        release_sdl();
         return false;
     }
 
@@ -199,7 +207,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
         fprintf(stderr, "[launcher] SDL_GL_CreateContext failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(p->window);
         p->window = NULL;
-        if (s_quit_sdl) SDL_Quit();
+        release_sdl();
         return false;
     }
 
@@ -214,7 +222,7 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     // narrow one-column breakpoint on a 150% desktop — so this asks for the
     // pixels the requested logical size really needs, and keeps the result
     // reachable on displays that cannot show them all.
-    fit_window_to_display(p, logical_w, logical_h);
+    if (!(flags & SDL_WINDOW_HIDDEN)) fit_window_to_display(p, logical_w, logical_h);
     launcher_boot_timing_mark("rui:platform_open:window+gl_ready");
     return true;
 }
@@ -290,6 +298,5 @@ void launcher_platform_close(LauncherPlatform* p) {
      * subsystem alive across launcher↔game transitions. When we do quit, hosts
      * MUST re-SDL_Init (video+audio+gamecontroller) before recreating the game
      * window — see docs/HOST_NETPLAY.md. */
-    if (s_quit_sdl)
-        SDL_Quit();
+    release_sdl();
 }

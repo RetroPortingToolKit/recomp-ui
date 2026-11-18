@@ -87,6 +87,7 @@ void launcher_platform_close(LauncherPlatform* p);
 // window/GL context and leaves SDL initialized for the host. Default is true
 // (standalone launcher harnesses expect a full teardown).
 void launcher_platform_set_quit_sdl(bool quit_sdl);
+void launcher_platform_set_hidden_window(bool hidden);
 
 #ifdef __cplusplus
 }
