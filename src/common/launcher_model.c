@@ -145,7 +145,7 @@ static long lm_file_size(FILE* f) {
 static void lm_write_zero_padding(FILE* f, long count) {
     static const unsigned char zeros[256] = {0};
     while (count > 0) {
-        size_t n = (size_t)(count > (long)sizeof(zeros) ? sizeof(zeros) : count);
+        size_t n = count > (long)sizeof(zeros) ? sizeof(zeros) : (size_t)count;
         fwrite(zeros, 1, n, f);
         count -= (long)n;
     }
@@ -185,28 +185,59 @@ static size_t lm_path_stem(const char* path, char* out, size_t cap) {
     return n;
 }
 
-// Compare two disc paths for "same image". Exact string equality first (the
-// common case: the launcher hands back exactly the path the host gave it),
-// then a case-insensitive compare of the file-name STEM. The stem, not the
-// whole name: a .cue and the .bin it owns are one disc, and hosts hand us
-// either — psxrecomp resolves a picked .cue to its .bin before it mounts —
-// so "Disc 2.cue" and "Disc 2.bin" must land on the same roster slot. Two
-// different discs of a set never share a stem; they are numbered.
-static int lm_path_eq(const char* a, const char* b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    if (strcmp(a, b) == 0) return 1;
-    char sa[128], sb[128];
-    if (!lm_path_stem(a, sa, sizeof(sa)) || !lm_path_stem(b, sb, sizeof(sb)))
-        return 0;
-    return strcmp(sa, sb) == 0;
+// Identity key of a disc path: the whole path with the file name's last
+// extension dropped, separators unified, case-folded on Windows. Same rule as
+// psxrecomp's disc_roster_key(). The directory stays in the key, so two cache
+// folders that both hold "disc.cue" are different discs, while a .cue and the
+// same-directory .bin it owns (hosts hand us either) share one key. Hosts pass
+// normalized absolute paths, so nothing further is normalized here. Length 0
+// when there is nothing usable or the path does not fit.
+static size_t lm_path_key(const char* path, char* out, size_t cap) {
+    if (!path || !out || cap == 0) return 0;
+    out[0] = '\0';
+    size_t n = strlen(path);
+    if (n == 0 || n >= cap) return 0;
+    const char* base = path;
+    for (const char* p = path; *p; ++p)
+        if (*p == '/' || *p == '\\') base = p + 1;
+    const char* dot = NULL;
+    for (const char* p = base; *p; ++p)
+        if (*p == '.') dot = p;
+    if (dot && dot != base) n = (size_t)(dot - path);
+    for (size_t i = 0; i < n; ++i) {
+        char c = path[i] == '\\' ? '/' : path[i];
+#ifdef _WIN32
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+#endif
+        out[i] = c;
+    }
+    out[n] = '\0';
+    return n;
 }
 
 // Roster slot whose effective path is `path`, or -1 when it is off-roster.
+// Same rule as psxrecomp's disc_roster_index(): a path-key match wins; a
+// relocated image binds by file-name stem only when exactly one slot has that
+// stem. An ambiguous stem is no disc identity at all.
 static int lm_disc_index_for_path(const LauncherModel* m, const char* path) {
     if (!m || m->num_discs <= 0 || !path || !path[0]) return -1;
-    for (int i = 0; i < m->num_discs; ++i)
-        if (lm_path_eq(launcher_model_disc_path(m, i), path)) return i;
-    return -1;
+    char want[512], have[512];
+    if (lm_path_key(path, want, sizeof(want)))
+        for (int i = 0; i < m->num_discs; ++i)
+            if (lm_path_key(launcher_model_disc_path(m, i), have, sizeof(have)) &&
+                strcmp(want, have) == 0)
+                return i;
+    char sw[128], sh[128];
+    if (!lm_path_stem(path, sw, sizeof(sw))) return -1;
+    int match = -1;
+    for (int i = 0; i < m->num_discs; ++i) {
+        if (!lm_path_stem(launcher_model_disc_path(m, i), sh, sizeof(sh)) ||
+            strcmp(sw, sh) != 0)
+            continue;
+        if (match != -1) return -1;
+        match = i;
+    }
+    return match;
 }
 
 // Bind rom_full to the roster after any ROM change. Either the new path IS a
@@ -1001,6 +1032,13 @@ void launcher_model_init(LauncherModel* m,
     m->setup_wizard_open = false;
     m->setup_page = 1;
     m->setup_tc_auto = true;
+    /* Only Windows has the portable cmake/clang download; elsewhere the build
+     * tools are the system's own. */
+#if defined(_WIN32)
+    m->setup_tc_native = false;
+#else
+    m->setup_tc_native = true;
+#endif
     m->setup_tc_ready = false;
     m->setup_tc_update_available = false;
     m->setup_tc_update_skipped = false;
@@ -3929,7 +3967,8 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
         m->setup_page = 1;
         m->setup_error[0] = '\0';
         safe_copy(m->setup_status, sizeof(m->setup_status),
-                  "Using existing portable toolchain.");
+                  m->setup_tc_native ? "Using existing build tools."
+                                     : "Using existing portable toolchain.");
         return;
     }
     if (!m->ensure_toolchain_with_progress_cb) {
@@ -3947,7 +3986,9 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     g_prep_job.kind = PREP_JOB_TOOLCHAIN;
     g_prep_job.progress_pct = -1.0f;
     /* download: 0 = zip only, 1 = fetch if missing, 2 = force latest update */
-    if (m->setup_tc_auto)
+    if (m->setup_tc_native)
+        g_prep_job.download = 0;   /* native tools are checked, never fetched */
+    else if (m->setup_tc_auto)
         g_prep_job.download = want_update ? 2 : 1;
     else
         g_prep_job.download = 0;
@@ -3958,9 +3999,12 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     m->setup_prepare_fraction = -1.0f;
     m->setup_error[0] = '\0';
     safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title),
-              want_update ? "Updating build tools…" : "Installing build tools…");
+              m->setup_tc_native ? "Checking build tools…"
+              : want_update ? "Updating build tools…" : "Installing build tools…");
     safe_copy(m->setup_status, sizeof(m->setup_status),
-              m->setup_tc_auto
+              m->setup_tc_native
+                  ? "Checking for CMake, Ninja, Python 3 and Clang or GCC…"
+              : m->setup_tc_auto
                   ? (want_update ? "Downloading toolchain update…"
                                  : "Downloading portable cmake/clang…")
                   : "Installing toolchain from zip…");
@@ -5492,7 +5536,7 @@ void launcher_model_cancel_camera_capture(LauncherModel* m) {
 }
 
 const char* launcher_model_scale_label(const LauncherModel* m) {
-    static char buf[8];
+    static char buf[16];
     int s = m->s.window_scale < 1 ? 1 : m->s.window_scale;
     snprintf(buf, sizeof(buf), "%dx", s);
     return buf;
