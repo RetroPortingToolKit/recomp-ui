@@ -2125,10 +2125,12 @@ static const SettingsChoice kRunAheadChoices[RECOMP_LAUNCHER_RUN_AHEAD_MAX + 1] 
  * cannot drift apart in what they offer. */
 void row_window_scale(LauncherModel* m, const LauncherTheme& th) {
     ImGui::BeginDisabled(m->s.fullscreen != 0);
-    launcher_model_set_scale(
-        m, settings_combo_row("Window scale", th, "##window_scale",
-                              kScaleChoices, LNG_WINDOW_SCALE_MAX,
-                              m->s.window_scale < 1 ? 1 : m->s.window_scale));
+    const int picked = settings_combo_row("Window scale", th, "##window_scale",
+                                          kScaleChoices, LNG_WINDOW_SCALE_MAX,
+                                          m->s.window_scale < 1 ? 1 : m->s.window_scale);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("%s", ui_text("Window scale applies to windowed mode only."));
+    launcher_model_set_scale(m, picked);
     ImGui::EndDisabled();
 }
 

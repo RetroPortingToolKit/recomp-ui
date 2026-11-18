@@ -119,6 +119,7 @@ static const LauncherI18nEntry kItalian[] = {
     {"ROM PATCH", "PATCH ROM"},
     {"Window scale", "Scala finestra"},
     {"Window size", "Dimensione finestra"},
+    {"Window scale applies to windowed mode only.", "La scala della finestra vale solo a schermo non intero."},
     {"Fullscreen", "Schermo intero"},
     {"Screen layout", "Layout schermo"},
     {"Integer scaling", "Scala intera"},
