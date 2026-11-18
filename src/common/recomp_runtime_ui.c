@@ -12,8 +12,25 @@ static int same_text(const char *a, const char *b) {
     return strcmp(a, b) == 0;
 }
 
+/* Window scale is a windowed-output setting (docs/RUNTIME_UI.md): once the
+ * menu's fullscreen row reads borderless or exclusive, that row is inert. */
+static int fullscreen_active(const RecompRuntimeUi *ui) {
+    if (!ui->config.callbacks.get_value) return 0;
+    for (size_t i = 0; i < ui->config.item_count; ++i) {
+        const RecompRuntimeUiItem *f = &ui->config.items[i];
+        int value = 0;
+        if (f->key && strcmp(f->key, RECOMP_RUNTIME_UI_KEY_FULLSCREEN) == 0)
+            return ui->config.callbacks.get_value(ui->config.callbacks.context, f, &value) &&
+                   value != 0;
+    }
+    return 0;
+}
+
 int recomp_runtime_ui_item_enabled(const RecompRuntimeUi *ui,
                                    const RecompRuntimeUiItem *item) {
+    if (item && item->key && strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE) == 0 &&
+        fullscreen_active(ui))
+        return 0;
     if (!ui->config.callbacks.is_enabled) return 1;
     return ui->config.callbacks.is_enabled(ui->config.callbacks.context, item) != 0;
 }
