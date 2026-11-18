@@ -179,14 +179,21 @@ bool refused_tag(uint32_t tag) {
 // frame count, where it starts, its name, its picture and the codegen hash of
 // the build that recorded it. The large entries (the anchor state, the memory
 // cards) are stepped over, and the records are not read.
-bool read_replay(const std::string& path, ReplayInfo* r) {
+bool read_replay(const fs::path& path, ReplayInfo* r) {
     static const unsigned char kMagic[8] = { 'P', 'S', 'X', 'R', 'T', 'I', '3', 0 };
     unsigned char head[28];
     int64_t size = 0;
     if (!file_info(path, &size, nullptr)) return false;
-    FILE* f = std::fopen(path.c_str(), "rb");
+    std::ifstream f(path, std::ios::binary);
     if (!f) return false;
-    bool ok = std::fread(head, 1, sizeof(head), f) == sizeof(head) &&
+    // Reads up to n bytes at an offset; returns how many came back.
+    auto read_at = [&f](uint32_t at, void* buf, size_t n) -> size_t {
+        f.clear();
+        f.seekg((std::streamoff)at);
+        f.read(static_cast<char*>(buf), (std::streamsize)n);
+        return (size_t)f.gcount();
+    };
+    bool ok = read_at(0, head, sizeof(head)) == sizeof(head) &&
               std::memcmp(head, kMagic, sizeof(kMagic)) == 0 &&
               le32(head + 8) == 3 && le32(head + 12) == 12 && le32(head + 20) == 0;
     const uint32_t frames = ok ? le32(head + 16) : 0;
@@ -197,7 +204,7 @@ bool read_replay(const std::string& path, ReplayInfo* r) {
     const uint32_t end = 28 + ext;
     while (ok && pos < end) {
         unsigned char th[8];
-        if (end - pos < 8 || std::fseek(f, (long)pos, SEEK_SET) != 0 || std::fread(th, 1, 8, f) != 8) {
+        if (end - pos < 8 || read_at(pos, th, 8) != 8) {
             ok = false;
             break;
         }
@@ -211,7 +218,7 @@ bool read_replay(const std::string& path, ReplayInfo* r) {
             r->power_on = tag == kTagPowerOn;
         } else if (tag == kTagName && len >= 1 && len <= 96) {
             char text[97];
-            if (std::fread(text, 1, len, f) == len) {
+            if (read_at(pos + 8, text, len) == len) {
                 text[len] = '\0';
                 bool plain = std::strlen(text) == len;
                 for (uint32_t i = 0; plain && i < len; ++i)
@@ -221,7 +228,7 @@ bool read_replay(const std::string& path, ReplayInfo* r) {
         } else if (tag == kTagProduct) {
             char text[1025];
             const size_t want = len < sizeof(text) - 1 ? len : sizeof(text) - 1;
-            const size_t got = std::fread(text, 1, want, f);
+            const size_t got = read_at(pos + 8, text, want);
             text[got] = '\0';
             for (const char* line = std::strstr(text, "codegen="); line; line = std::strstr(line + 1, "codegen="))
                 if (line == text || line[-1] == '\n') {
@@ -231,7 +238,7 @@ bool read_replay(const std::string& path, ReplayInfo* r) {
                 }
         } else if (tag == kTagThumb && len >= 4) {
             unsigned char wh[4];
-            if (std::fread(wh, 1, 4, f) == 4) {
+            if (read_at(pos + 8, wh, 4) == 4) {
                 const uint32_t w = (uint32_t)wh[0] | ((uint32_t)wh[1] << 8);
                 const uint32_t h = (uint32_t)wh[2] | ((uint32_t)wh[3] << 8);
                 if (w >= 1 && h >= 1 && w <= 256 && h <= 256 && len == 4 + w * h * 4) {
@@ -243,7 +250,7 @@ bool read_replay(const std::string& path, ReplayInfo* r) {
         }
         pos += 8 + ((len + 3u) & ~3u);
     }
-    std::fclose(f);
+    f.close();
     ok = ok && starts == 1;   // exactly one of an anchor state and power-on
     if (ok) r->frames = frames;
     return ok;
@@ -356,14 +363,15 @@ extern "C" int psx_start_scan(const char* save_root, const char* product_dir,
     // their absolute path.
     std::vector<LauncherStartEntry> replays;
     std::error_code abs_ec;
-    fs::path replay_dir = fs::absolute(fs::path(save_root) / "replays", abs_ec);
-    if (abs_ec) replay_dir = fs::path(save_root) / "replays";
-    for (const std::string& name : files_of(replay_dir.string())) {
-        if (!parse_replay_name(name)) continue;
-        const std::string path = (replay_dir / name).string();
+    fs::path replay_dir = fs::absolute(from_utf8(save_root) / "replays", abs_ec);
+    if (abs_ec) replay_dir = from_utf8(save_root) / "replays";
+    for (const fs::path& file : files_of(replay_dir)) {
+        if (!parse_replay_name(to_utf8(file))) continue;
+        const fs::path replay = replay_dir / file;
+        const std::string path = to_utf8(replay);   // what the host is handed
         ReplayInfo info;
         LauncherStartEntry e = {};
-        if (path.size() >= sizeof(e.path) || !file_info(path, nullptr, &e.when) || !read_replay(path, &info))
+        if (path.size() >= sizeof(e.path) || !file_info(replay, nullptr, &e.when) || !read_replay(replay, &info))
             continue;
         e.kind = LNG_START_REPLAY;
         e.slot = -1;

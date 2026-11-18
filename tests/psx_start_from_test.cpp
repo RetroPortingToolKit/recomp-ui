@@ -435,6 +435,7 @@ static void test_unicode_paths(const fs::path& root) {
     write_file(saves / "scph1001" / "state_80010000_slot00.pst", state_bytes(kMine), 2);
     write_file(saves / "scph1001" / "state_80010000_slot00.thumb", thumb_bytes(128, 96, 0x77), 2);
     write_file(saves / "scph1001" / "state_80010000_slot01.pst", state_bytes(kOther), 1);
+    write_file(saves / "replays" / "TEST_00001-boot-20261118-101500Z.psxrpl", replay_bytes(ReplayShape()), 3);
 
     const std::string product_u8 = utf8_of(product), saves_u8 = utf8_of(saves);
     expect(product_u8.find("pr\xC3\xB6" "duct") != std::string::npos,
@@ -446,8 +447,11 @@ static void test_unicode_paths(const fs::path& root) {
     LauncherStartEntry list[LNG_START_MAX];
     LauncherStartNotes notes;
     const int n = psx_start_scan(saves_u8.c_str(), product_u8.c_str(), list, LNG_START_MAX, &notes);
-    expect_int(n, 2, "save states are listed under a non-ASCII folder");
-    if (n != 2) return;
+    expect_int(n, 3, "two save states and a replay are listed under a non-ASCII folder");
+    if (n != 3) return;
+    expect(list[2].kind == LNG_START_REPLAY &&
+           fs::u8path(list[2].path) == fs::absolute(saves / "replays" / "TEST_00001-boot-20261118-101500Z.psxrpl"),
+           "the replay is read there, and handed over by its UTF-8 absolute path");
     expect_int(notes.build_known, 1, "the build is known from the non-ASCII product folder");
     expect(std::strcmp(list[0].label, "Slot 2") == 0 && std::strcmp(list[1].label, "Slot 1") == 0,
            "the states are the ones written there, newest first");
@@ -469,7 +473,7 @@ static void test_unicode_paths(const fs::path& root) {
     game.name = "Unicode Fixture";
     launcher_model_init(m, &io, &game, nullptr);
     psx_start_from_load(m, product_u8.c_str(), nullptr);
-    expect_int(launcher_model_start_count(m), 2, "the model is filled from a non-ASCII product folder");
+    expect_int(launcher_model_start_count(m), 3, "the model is filled from a non-ASCII product folder");
     std::free(m);
 }
 
