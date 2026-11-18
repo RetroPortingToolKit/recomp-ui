@@ -420,6 +420,59 @@ static void test_hand_over(const fs::path& root) {
     std::free(m);
 }
 
+// SDL hands the launcher UTF-8 paths. An install folder with non-ASCII
+// characters (here u-umlaut, e-acute and two kana) must list its save states
+// and their pictures, and the hash header must be found, on Windows too.
+static std::string utf8_of(const fs::path& p) {
+    const auto u = p.u8string();
+    return std::string(u.begin(), u.end());
+}
+
+static void test_unicode_paths(const fs::path& root) {
+    const fs::path product = root / fs::u8path("pr\xC3\xB6" "duct caf\xC3\xA9 \xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0");
+    const fs::path saves = product / "saves";
+    write_text(product / "overlay_codegen_hash.h", "#define PSX_OVERLAY_CODEGEN_HASH 0x25fd1f54u\n");
+    write_file(saves / "scph1001" / "state_80010000_slot00.pst", state_bytes(kMine), 2);
+    write_file(saves / "scph1001" / "state_80010000_slot00.thumb", thumb_bytes(128, 96, 0x77), 2);
+    write_file(saves / "scph1001" / "state_80010000_slot01.pst", state_bytes(kOther), 1);
+
+    const std::string product_u8 = utf8_of(product), saves_u8 = utf8_of(saves);
+    expect(product_u8.find("pr\xC3\xB6" "duct") != std::string::npos,
+           "the fixture folder name is non-ASCII");
+    uint32_t hash = 0;
+    expect(psx_start_codegen_hash(product_u8.c_str(), &hash) == 1 && hash == kMine,
+           "the codegen hash is found under a non-ASCII folder");
+
+    LauncherStartEntry list[LNG_START_MAX];
+    LauncherStartNotes notes;
+    const int n = psx_start_scan(saves_u8.c_str(), product_u8.c_str(), list, LNG_START_MAX, &notes);
+    expect_int(n, 2, "save states are listed under a non-ASCII folder");
+    if (n != 2) return;
+    expect_int(notes.build_known, 1, "the build is known from the non-ASCII product folder");
+    expect(std::strcmp(list[0].label, "Slot 2") == 0 && std::strcmp(list[1].label, "Slot 1") == 0,
+           "the states are the ones written there, newest first");
+    expect(fs::u8path(list[1].path) == saves / "scph1001" / "state_80010000_slot00.pst",
+           "an entry's path comes back as the same UTF-8 path");
+    expect(list[1].thumb_w == 128 && list[1].thumb_h == 96 &&
+           fs::exists(fs::u8path(list[1].thumb_path)),
+           "the picture beside the state is found");
+    expect(list[0].thumb_w == 0, "a state with no picture has none");
+
+    // With no save root named, the lister looks in "<product>/saves".
+    LauncherModel* m = (LauncherModel*)std::calloc(1, sizeof(LauncherModel));
+    if (!m) { expect(false, "out of memory"); return; }
+    RecompLauncherCGameInfo game;
+    RecompLauncherCSettings io;
+    std::memset(&game, 0, sizeof(game));
+    std::memset(&io, 0, sizeof(io));
+    launcher_profile_apply("psx", &game);
+    game.name = "Unicode Fixture";
+    launcher_model_init(m, &io, &game, nullptr);
+    psx_start_from_load(m, product_u8.c_str(), nullptr);
+    expect_int(launcher_model_start_count(m), 2, "the model is filled from a non-ASCII product folder");
+    std::free(m);
+}
+
 int main(int argc, char** argv) {
     const fs::path root = fs::path(argc > 1 ? argv[1] : ".") / "psx-start-from-fixture";
     std::error_code ec;
@@ -428,6 +481,7 @@ int main(int argc, char** argv) {
     test_scan(root);
     test_many_states(root);
     test_hand_over(root);
+    test_unicode_paths(root);
     fs::remove_all(root, ec);
     if (fails) { std::fprintf(stderr, "psx_start_from_test: %d failure(s)\n", fails); return 1; }
     std::printf("psx_start_from_test: all checks passed\n");

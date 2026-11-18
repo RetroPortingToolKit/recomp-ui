@@ -24,6 +24,8 @@ struct RecompRuntimeUi {
     size_t row_index;
     int open;
     int in_section;
+    int pointer_down, pointer_target;
+    size_t pointer_row;
     char page[192];             /* path below the section; "" = section root */
     size_t page_depth;
     size_t row_stack[RECOMP_RUNTIME_UI_MAX_DEPTH]; /* row to restore on Back */

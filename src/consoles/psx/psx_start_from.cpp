@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -17,15 +18,25 @@ namespace {
 
 namespace fs = std::filesystem;
 
+// Paths cross the C interface as UTF-8 (SDL hands them over that way), which
+// on Windows is not the ANSI code page fs::path(std::string) and fopen assume.
+// Everything below keeps them as fs::path and converts at the edges.
+fs::path from_utf8(const std::string& s) { return fs::u8path(s); }
+
+std::string to_utf8(const fs::path& p) {
+    const auto u = p.u8string();   // std::string before C++20, std::u8string after
+    return std::string(u.begin(), u.end());
+}
+
 uint32_t le32(const unsigned char* p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 // Size and modified time of a file with content; false for anything else.
-bool file_info(const std::string& path, int64_t* size, int64_t* when) {
+bool file_info(const fs::path& path, int64_t* size, int64_t* when) {
 #ifdef _WIN32
     struct _stat64 st;
-    if (_stat64(path.c_str(), &st) != 0) return false;
+    if (_wstat64(path.c_str(), &st) != 0) return false;
 #else
     struct stat st;
     if (stat(path.c_str(), &st) != 0) return false;
@@ -37,12 +48,12 @@ bool file_info(const std::string& path, int64_t* size, int64_t* when) {
 }
 
 // The files of one folder, by name. An absent folder has none.
-std::vector<std::string> files_of(const std::string& dir) {
-    std::vector<std::string> names;
+std::vector<fs::path> files_of(const fs::path& dir) {
+    std::vector<fs::path> names;
     std::error_code ec;
-    for (fs::directory_iterator it(fs::path(dir), ec), end; !ec && it != end; it.increment(ec)) {
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         std::error_code is_ec;
-        if (it->is_regular_file(is_ec) && !is_ec) names.push_back(it->path().filename().string());
+        if (it->is_regular_file(is_ec) && !is_ec) names.push_back(it->path().filename());
     }
     return names;
 }
@@ -70,7 +81,7 @@ struct StateFile {
     uint32_t    entry = 0; // the program it belongs to
     int         disc = 0, slot = -1;
     int64_t     when = 0;
-    std::string path;
+    fs::path    path;
     uint32_t    codegen = 0;
 };
 
@@ -78,31 +89,33 @@ const uint32_t kStateMagic = 0x50535842u;   // "PSXB", boot_state.h
 const size_t   kStateHeader = 36;           // nine 32-bit fields
 
 // The codegen hash in a save state's header; false when it is no save state.
-bool read_state_codegen(const std::string& path, uint32_t* codegen) {
+bool read_state_codegen(const fs::path& path, uint32_t* codegen) {
     unsigned char head[kStateHeader];
-    FILE* f = std::fopen(path.c_str(), "rb");
+    std::ifstream f(path, std::ios::binary);
     if (!f) return false;
-    const size_t got = std::fread(head, 1, sizeof(head), f);
-    std::fclose(f);
+    f.read(reinterpret_cast<char*>(head), (std::streamsize)sizeof(head));
+    const size_t got = (size_t)f.gcount();
     if (got != sizeof(head) || le32(head) != kStateMagic) return false;
     *codegen = le32(head + 16);
     return true;
 }
 
 // A save state's picture: "PSTH", width, height, then the pixels.
-void find_state_thumb(const std::string& state_path, LauncherStartEntry* e) {
-    std::string path = state_path.substr(0, state_path.size() - 4) + ".thumb";
+void find_state_thumb(const fs::path& state_path, LauncherStartEntry* e) {
+    fs::path path = state_path;
+    path.replace_extension(".thumb");
     unsigned char head[12];
     int64_t size = 0;
-    FILE* f = std::fopen(path.c_str(), "rb");
+    std::ifstream f(path, std::ios::binary);
     if (!f) return;
-    const size_t got = std::fread(head, 1, sizeof(head), f);
-    std::fclose(f);
+    f.read(reinterpret_cast<char*>(head), (std::streamsize)sizeof(head));
+    const size_t got = (size_t)f.gcount();
+    f.close();
     if (got != sizeof(head) || std::memcmp(head, "PSTH", 4) != 0) return;
     const uint32_t w = le32(head + 4), h = le32(head + 8);
     if (w < 1 || h < 1 || w > 512 || h > 512) return;
     if (!file_info(path, &size, nullptr) || size < (int64_t)(12 + (uint64_t)w * h * 4)) return;
-    std::snprintf(e->thumb_path, sizeof(e->thumb_path), "%s", path.c_str());
+    std::snprintf(e->thumb_path, sizeof(e->thumb_path), "%s", to_utf8(path).c_str());
     e->thumb_offset = 12;
     e->thumb_w = (int)w;
     e->thumb_h = (int)h;
@@ -260,10 +273,10 @@ void put_env(const char* name, const char* value) {
 // The hash in one overlay_codegen_hash.h; false when it is absent or holds none.
 bool codegen_hash_in(const fs::path& path, uint32_t* hash) {
     char text[2048];
-    FILE* f = std::fopen(path.string().c_str(), "rb");
+    std::ifstream f(path, std::ios::binary);
     if (!f) return false;
-    const size_t got = std::fread(text, 1, sizeof(text) - 1, f);
-    std::fclose(f);
+    f.read(text, (std::streamsize)(sizeof(text) - 1));
+    const size_t got = (size_t)f.gcount();
     text[got] = '\0';
     static const char kName[] = "PSX_OVERLAY_CODEGEN_HASH";
     for (const char* at = std::strstr(text, kName); at; at = std::strstr(at + 1, kName)) {
@@ -284,7 +297,7 @@ bool codegen_hash_in(const fs::path& path, uint32_t* hash) {
 extern "C" int psx_start_codegen_hash(const char* product_dir, uint32_t* hash) {
     if (!product_dir || !hash) return 0;
     // A packaged product carries the header in its overlay toolchain.
-    const fs::path dir(product_dir);
+    const fs::path dir = from_utf8(product_dir);
     if (codegen_hash_in(dir / "overlay_toolchain" / "include" / "overlay_codegen_hash.h", hash)) return 1;
     return codegen_hash_in(dir / "overlay_codegen_hash.h", hash) ? 1 : 0;
 }
@@ -301,12 +314,12 @@ extern "C" int psx_start_scan(const char* save_root, const char* product_dir,
     static const char* const kBios[] = { "scph1001", "openbios" };
     std::vector<StateFile> states;
     for (const char* bios : kBios) {
-        const std::string dir = (fs::path(save_root) / bios).string();
-        for (const std::string& name : files_of(dir)) {
+        const fs::path dir = from_utf8(save_root) / bios;
+        for (const fs::path& file : files_of(dir)) {
             StateFile sf;
             sf.bios = bios;
-            sf.path = (fs::path(dir) / name).string();
-            if (!parse_state_name(name, &sf.entry, &sf.disc, &sf.slot)) continue;
+            sf.path = dir / file;
+            if (!parse_state_name(to_utf8(file), &sf.entry, &sf.disc, &sf.slot)) continue;
             if (sf.slot < 0 || sf.slot > 11) continue;
             if (!file_info(sf.path, nullptr, &sf.when)) continue;
             if (!read_state_codegen(sf.path, &sf.codegen)) continue;
@@ -329,7 +342,7 @@ extern "C" int psx_start_scan(const char* save_root, const char* product_dir,
         e.when = sf.when;
         e.build = build_mark(known, mine, true, sf.codegen);
         std::snprintf(e.label, sizeof(e.label), "Slot %d", sf.slot + 1);   // as the save-state menu counts
-        std::snprintf(e.path, sizeof(e.path), "%s", sf.path.c_str());
+        std::snprintf(e.path, sizeof(e.path), "%s", to_utf8(sf.path).c_str());
         find_state_thumb(sf.path, &e);
         list.push_back(e);
     }
@@ -386,7 +399,7 @@ extern "C" void psx_start_from_load(LauncherModel* m, const char* product_dir, c
     if (!launcher_model_start_from_available(m)) return;
     const std::string product = product_dir ? product_dir : "";
     const std::string root = save_root ? std::string(save_root)
-                                       : (fs::path(product) / "saves").string();
+                                       : to_utf8(from_utf8(product) / "saves");
     static LauncherStartEntry entries[LNG_START_MAX];
     LauncherStartNotes notes = {};
     const int count = psx_start_scan(root.c_str(), product.c_str(), entries, LNG_START_MAX, &notes);

@@ -539,7 +539,7 @@ int rui_pad_binds_known_at(const RuiPadSpec* spec, const char* path,
                 else {
                     size_t gl = strlen(st->maps[i].guid);
                     if (gl >= 8)
-                        snprintf(name, (size_t)name_cap, "Controller …%s",
+                        snprintf(name, (size_t)name_cap, "Controller \xE2\x80\xA6%s",
                                  st->maps[i].guid + gl - 8);
                     else
                         copy_str(name, (size_t)name_cap, "Controller");

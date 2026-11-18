@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct TestState {
@@ -78,7 +79,80 @@ static void visible(void *context, int open) {
     ((TestState *)context)->visible = open;
 }
 
+typedef struct PointerState { TestState values; RecompRuntimeUi *ui; } PointerState;
+static int pointer_action(void *context,const RecompRuntimeUiItem *item) {
+    PointerState *state=context;
+    if(!strcmp(item->key,RECOMP_RUNTIME_UI_KEY_RESUME)) {
+        recomp_runtime_ui_close(state->ui);return 1;
+    }
+    return run_action(&state->values,item);
+}
+static void tap(RecompRuntimeUi *ui,int w,int h,int x,int y) {
+    assert(recomp_runtime_ui_handle_pointer(ui,w,h,x,y,1));
+    assert(recomp_runtime_ui_handle_pointer(ui,w,h,x,y,0));
+}
+static void test_software_pointer(int w,int h) {
+    static const RecompRuntimeUiItem items[]={
+        {"enabled","Video","Enabled","",RECOMP_RUNTIME_UI_BOOL,0,1,1,NULL,0,NULL},
+        {"level","Video","Level","",RECOMP_RUNTIME_UI_INT,0,10,2,NULL,0,NULL},
+        {"reset","System","Reset","",RECOMP_RUNTIME_UI_ACTION,0,0,0,NULL,0,NULL},
+        {RECOMP_RUNTIME_UI_KEY_RESUME,"System","Resume","",RECOMP_RUNTIME_UI_ACTION,0,0,0,NULL,0,NULL}
+    };
+    PointerState state={0};RecompRuntimeUiConfig config={0};
+    config.title="Touch menu";config.items=items;config.item_count=4;
+    config.presentation_flags=RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY;
+    config.callbacks=(RecompRuntimeUiCallbacks){.context=&state,.get_value=get_value,.set_value=set_value,
+        .run_action=pointer_action,.save=save,.visibility_changed=visible};
+    state.ui=recomp_runtime_ui_create(&config);assert(state.ui);
+    RecompRuntimeUi *ui=state.ui;recomp_runtime_ui_open(ui);
+    /* Same visible controls at native scale, doubled scale and a wide canvas. */
+    int s=h/224,x=(w-244*s)/2;
+    uint32_t *pixels=calloc((size_t)w*h,sizeof(*pixels));assert(pixels);
+    recomp_runtime_ui_render_argb8888(ui,pixels,w,h,w*4);free(pixels);
+    tap(ui,w,h,x+20*s,45*s); /* Video section. */
+    assert(!state.values.enabled);
+    assert(recomp_runtime_ui_handle_pointer(ui,w,h,x+20*s,45*s,1));
+    assert(!state.values.enabled); /* Down never performs an action. */
+    assert(recomp_runtime_ui_handle_pointer(ui,w,h,x+20*s,45*s,0));
+    assert(state.values.enabled && state.values.save_count==1);
+    recomp_runtime_ui_handle_pointer(ui,w,h,x+20*s,45*s,0); /* duplicate release */
+    assert(state.values.enabled && state.values.save_count==1);
+    tap(ui,w,h,x+225*s,74*s);assert(state.values.level==2 && state.values.save_count==2);
+    tap(ui,w,h,x+189*s,74*s);assert(state.values.level==0 && state.values.save_count==3);
+    recomp_runtime_ui_handle_pointer(ui,w,h,x+225*s,74*s,1);
+    recomp_runtime_ui_handle_pointer(ui,w,h,0,0,0);assert(state.values.level==0); /* drag out */
+    recomp_runtime_ui_handle_pointer(ui,w,h,x+225*s,74*s,1);
+    recomp_runtime_ui_handle_pointer(ui,w,h,0,0,-1);
+    recomp_runtime_ui_handle_pointer(ui,w,h,x+225*s,74*s,0);assert(state.values.level==0);
+    tap(ui,w,h,x+35*s,198*s);assert(recomp_runtime_ui_is_open(ui)); /* Back to sections. */
+    tap(ui,w,h,x+20*s,74*s);tap(ui,w,h,x+20*s,45*s);
+    assert(state.values.action_count==1); /* real host action */
+    tap(ui,w,h,x+20*s,74*s);assert(!recomp_runtime_ui_is_open(ui) && !state.values.visible); /* Resume action */
+    recomp_runtime_ui_open(ui);tap(ui,w,h,x+20*s,45*s);
+    tap(ui,w,h,x+209*s,198*s);assert(!recomp_runtime_ui_is_open(ui)); /* Close inside a section. */
+    recomp_runtime_ui_open(ui);recomp_runtime_ui_handle_pointer(ui,w,h,x+20*s,45*s,1);
+    press(ui,RECOMP_RUNTIME_UI_INPUT_BACK);assert(!recomp_runtime_ui_is_open(ui));
+    recomp_runtime_ui_open(ui);recomp_runtime_ui_handle_pointer(ui,w,h,x+20*s,45*s,0);
+    RecompRuntimeUiRowView view;assert(recomp_runtime_ui_view_row(ui,0,&view) && !view.item && !strcmp(view.label,"Video")); /* old press cannot activate after reopen. */
+    tap(ui,w,h,x+35*s,198*s);assert(!recomp_runtime_ui_is_open(ui));
+    recomp_runtime_ui_destroy(ui);
+}
+
+/* TEXT rows must reach both native renderers, including disabled readouts. */
+static const char *display_text = "1x (target 4x)";
+static int text_reads;
+static int read_display_text(void *context, const RecompRuntimeUiItem *item,
+                             char *out, size_t size) {
+    (void)context; (void)item; ++text_reads;
+    snprintf(out, size, "%s", display_text);
+    return 1;
+}
+static int readonly_display_text(void *context, const RecompRuntimeUiItem *item) {
+    (void)context; (void)item; return 0;
+}
+
 int main(void) {
+    test_software_pointer(320,224);test_software_pointer(640,448);test_software_pointer(720,224);
     static const RecompRuntimeUiItem items[] = {
         { "enabled", "Video", "Enabled", "Toggle the feature.",
           RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL },
@@ -418,6 +492,34 @@ int main(void) {
         assert(nested_values['g' - 'a'] == 1 && nested_values['h' - 'a'] == 1);
         recomp_runtime_ui_destroy(n);
     }
+    {
+        static const RecompRuntimeUiItem text_row = {
+            "quality.now", "Graphics", "Resolution now", "Actual quality.",
+            RECOMP_RUNTIME_UI_TEXT, 0, 0, 0, NULL, 0, NULL };
+        RecompRuntimeUiConfig readout = {0};
+        readout.items = &text_row; readout.item_count = 1;
+        readout.callbacks.get_text = read_display_text;
+        readout.callbacks.is_enabled = readonly_display_text;
+        RecompRuntimeUi *t = recomp_runtime_ui_create(&readout);
+        static uint32_t first[256 * 192], second[256 * 192];
+        assert(t != NULL);
+        recomp_runtime_ui_open(t);
+        press(t, RECOMP_RUNTIME_UI_INPUT_ACCEPT);
+        text_reads = 0;
+        display_text = "1x (target 4x)";
+        recomp_runtime_ui_render_argb8888(t, first, 256, 192, 256 * 4);
+        if (text_reads != 1) return 91;
+        display_text = "4x (target 4x)";
+        recomp_runtime_ui_render_argb8888(t, second, 256, 192, 256 * 4);
+        assert(text_reads == 2 && memcmp(first, second, sizeof(first)) != 0);
+        RecompRuntimeUiRowView row;
+        assert(recomp_runtime_ui_view_row(t, 0, &row));
+        assert(!strcmp(row.value, display_text) && !row.enabled);
+        press(t, RECOMP_RUNTIME_UI_INPUT_ACCEPT);
+        assert(!recomp_runtime_ui_wants_text_input(t));
+        recomp_runtime_ui_destroy(t);
+    }
+
     puts("runtime UI tests passed");
     return 0;
 }
