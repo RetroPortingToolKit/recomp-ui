@@ -165,6 +165,12 @@ if(BUILD_TESTING)
         src/common/crc32.c)
     target_include_directories(recomp-ui-ips-patch-test PRIVATE src/common)
     add_test(NAME recomp-ui-ips-patch COMMAND $<TARGET_FILE:recomp-ui-ips-patch-test>)
+    add_executable(recomp-ui-theme-overrides-test
+        tests/launcher_theme_overrides_test.c
+        src/common/launcher_theme_overrides.c)
+    target_include_directories(recomp-ui-theme-overrides-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-theme-overrides-test PRIVATE m)
+    add_test(NAME recomp-ui-theme-overrides COMMAND $<TARGET_FILE:recomp-ui-theme-overrides-test>)
 
     # The photosensitivity flash guard. Pure arithmetic on two ARGB frames --
     # no SDL, no window, no ROM -- so it runs anywhere the rest of these do.
@@ -277,13 +283,15 @@ if(BUILD_TESTING)
     add_executable(recomp-runtime-ui-test
         tests/runtime_ui_test.c
         src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c
         src/common/recomp_runtime_settings.c)
     target_include_directories(recomp-runtime-ui-test PRIVATE src)
     add_test(NAME recomp-runtime-ui COMMAND $<TARGET_FILE:recomp-runtime-ui-test>)
 
     add_executable(recomp-runtime-ui-view-test
         tests/runtime_ui_view_test.c
-        src/common/recomp_runtime_ui.c)
+        src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c)
     target_include_directories(recomp-runtime-ui-view-test PRIVATE src)
     add_test(NAME recomp-runtime-ui-view
              COMMAND $<TARGET_FILE:recomp-runtime-ui-view-test>)
@@ -299,6 +307,7 @@ if(BUILD_TESTING)
             tests/psx_menu_provider_test.cpp
             src/consoles/psx/psx_menu_provider.cpp
             src/common/recomp_runtime_ui.c
+            src/common/launcher_theme_overrides.c
             src/common/recomp_runtime_settings.c
             "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/src/host_overlay.c")
         target_include_directories(recomp-ui-psx-menu-provider-test PRIVATE
@@ -975,6 +984,7 @@ if(BUILD_TESTING)
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
         src/consoles/psx/psx_start_from.cpp
+        src/common/launcher_theme_overrides.c
         src/common/launcher_assets_dir.c
         src/common/launcher_model.c
         src/common/crc32.c
@@ -997,6 +1007,7 @@ if(BUILD_TESTING)
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
         src/consoles/psx/psx_start_from.cpp
+        src/common/launcher_theme_overrides.c
         src/common/launcher_assets_dir.c
         src/common/launcher_model.c
         src/common/crc32.c
@@ -1046,6 +1057,7 @@ if(BUILD_TESTING)
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp
         src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c
         src/common/recomp_runtime_settings.c
         src/third_party/imgui/imgui.cpp
         src/third_party/imgui/imgui_draw.cpp

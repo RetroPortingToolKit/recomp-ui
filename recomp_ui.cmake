@@ -7,7 +7,8 @@
 #     recomp_target_launcher_ui(<host_target> CONSOLE <console-id>
 #                                              [BOXART <path-to-boxart.tga>]
 #                                              [BOXART_NAME <dest-basename.tga>]
-#                                              [PAD <pad.tga>] [BRAND <brand.tga>])
+#                                              [PAD <pad.tga>] [BRAND <brand.tga>]
+#                                              [THEME <colors.ini>])
 #
 # This is the console-agnostic extraction of the SNES-recomp "launcher_ng"
 # Dear ImGui launcher: same UI, same behavior, generic C ABI
@@ -146,7 +147,7 @@ function(recomp_target_launcher_ui TGT)
     cmake_parse_arguments(
         RUI
         "HOST_IMGUI"
-        "CONSOLE;BOXART;BOXART_NAME;PAD;BRAND;IMGUI_DIR;LANGUAGE"
+        "CONSOLE;BOXART;BOXART_NAME;PAD;BRAND;THEME;IMGUI_DIR;LANGUAGE"
         ""
         ${ARGN})
 
@@ -218,6 +219,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/recomp_flash_guard.c # shared photosensitivity flash filter
         ${RUI_SRC}/common/launcher_boot_timing.c  # PSX_LAUNCHER_BOOT_TIMING / LNG_BOOT_TIMING
         ${RUI_SRC}/common/launcher_ng_capi.c   # implements recomp_launcher_run_window()
+        ${RUI_SRC}/common/launcher_theme_overrides.c # per-game colors (THEME)
         ${RUI_SRC}/common/launcher_assets_dir.c # assets_dir contract: base dir vs assets folder
         ${RUI_SRC}/common/launcher_launch_options.c
         ${RUI_SRC}/common/launcher_mod_text_path.c
@@ -392,6 +394,14 @@ function(recomp_target_launcher_ui TGT)
         add_custom_command(TARGET ${TGT} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     ${RUI_BRAND} $<TARGET_FILE_DIR:${TGT}>/assets/img/brand_game.tga
+            VERBATIM)
+    endif()
+    # Game colors over the console theme ([colors] INI, launcher_theme_overrides.h),
+    # staged as assets/theme_game.ini and loaded by the launcher.
+    if(RUI_THEME AND EXISTS ${RUI_THEME})
+        add_custom_command(TARGET ${TGT} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${RUI_THEME} $<TARGET_FILE_DIR:${TGT}>/assets/theme_game.ini
             VERBATIM)
     endif()
 endfunction()

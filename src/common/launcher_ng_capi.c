@@ -9,6 +9,7 @@
 
 #include "recomp_launcher.h"
 
+#include "launcher_assets_dir.h"
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_boot_timing.h"
@@ -17,6 +18,7 @@
 #include "launcher_platform.h"
 #include "launcher_settings.h"
 #include "launcher_theme.h"
+#include "launcher_theme_overrides.h"
 #include "launcher_window_size.h"
 #include "consoles/psx/psx_start_from.h"   // "Start from": the list and the hand-over
 
@@ -167,6 +169,17 @@ fail:
     return 1;
 }
 
+#define GAME_THEME_FILE "theme_game.ini"
+
+/* assets_dir contract (assets folder or its base dir): launcher_assets_dir.h. */
+static void load_game_theme_from(const char* assets_dir) {
+    char folder[4096], path[4200];
+    if (launcher_theme_game_overrides_loaded() || !assets_dir) return;
+    if (!launcher_assets_dir_resolve(assets_dir, folder, sizeof folder)) return;
+    const int n = snprintf(path, sizeof path, "%s/" GAME_THEME_FILE, folder);
+    if (n > 0 && n < (int)sizeof path) launcher_theme_load_game_overrides(path);
+}
+
 int recomp_launcher_run_window(const char* window_title,
                              RecompLauncherCSettings* io,
                              const RecompLauncherCGameInfo* game,
@@ -234,7 +247,8 @@ int recomp_launcher_run_window(const char* window_title,
     }
     launcher_boot_timing_mark("rui:model+binds_ready");
 
-    LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
+    load_game_theme_from(assets_dir);
+    LauncherTheme theme = launcher_theme_for_game(game ? game->theme : NULL);
 
     launcher_backend_set_assets_directory(assets_dir);   /* contract: launcher_assets_dir.h */
     LngAction act = launcher_backend_run(&plat, &model, &theme);

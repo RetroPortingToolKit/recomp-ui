@@ -694,6 +694,7 @@ recomp_target_launcher_ui(game-target
 | `BOXART_NAME <name>` | Optional destination basename when several targets share one output directory. Pair it with `GameInfo.boxart_path`. |
 | `PAD <path>` | Optional controller-art override staged as `assets/img/pad.tga`. |
 | `BRAND <path>` | Optional top-left game mark staged as `assets/img/brand_game.tga`; it wins over the console profile's own mark. |
+| `THEME <path>` | Optional game colors staged as `assets/theme_game.ini`: a `[colors]` section with `LauncherTheme` field names as keys and `#RRGGBB` or `#RRGGBBAA` values (`accent = #ECC57D`). Set keys override the console theme in the launcher and the in-game menu; the rest stay. A host that skips the launcher loads the file itself with `launcher_theme_load_game_overrides()`. |
 | `HOST_IMGUI` + `IMGUI_DIR <path>` | Reuse Dear ImGui already compiled by the host, avoiding duplicate core/backend symbols. `IMGUI_DIR` must contain `imgui.h` and the backend headers. |
 
 `RECOMP_UI_HOST_IMGUI=ON` plus `RECOMP_UI_HOST_IMGUI_INCLUDE=<path>` remains
