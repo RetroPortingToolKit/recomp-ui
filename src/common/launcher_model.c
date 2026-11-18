@@ -614,6 +614,8 @@ void launcher_model_init(LauncherModel* m,
         m->has_affine_filter    = game->has_affine_filter != 0;
         m->has_frame_blend      = game->has_frame_blend != 0;
         m->has_run_ahead        = game->has_run_ahead != 0;
+        m->has_record_replay    = game->has_record_replay != 0;
+        m->record_replay_tooltip = game->record_replay_tooltip;
         m->has_shader           = game->has_shader != 0;
         m->netplay_supported    = game->netplay_supported != 0 && game->netplay != NULL;
         m->netplay              = game->netplay;
@@ -712,6 +714,10 @@ void launcher_model_init(LauncherModel* m,
         if (m->s.run_ahead > RECOMP_LAUNCHER_RUN_AHEAD_MAX)
             m->s.run_ahead = RECOMP_LAUNCHER_RUN_AHEAD_MAX;
     }
+    /* A console without the checkbox, or resuming a running session, never
+     * hands a recording request back. */
+    m->s.record_replay =
+        launcher_model_record_replay_available(m) && m->s.record_replay > 0 ? 1 : 0;
     memset(&m->s.netplay_launch, 0, sizeof(m->s.netplay_launch));
     if (!m->s.netplay_player_name[0] && m->netplay && m->netplay->player_name) {
         safe_copy(m->s.netplay_player_name, sizeof(m->s.netplay_player_name),
@@ -1898,7 +1904,9 @@ void launcher_model_request_restore_defaults(LauncherModel* m) {
 
 void launcher_model_restore_defaults(LauncherModel* m) {
     if (!launcher_model_can_restore_defaults(m)) return;
+    const int record_replay = m->s.record_replay;   /* a session choice, kept */
     m->s = m->default_settings;
+    m->s.record_replay = record_replay;
     {
         int d = m->s.rewind_depth;
         if (d != 50 && d != 100 && d != 150 && d != 200)
@@ -2031,6 +2039,20 @@ int launcher_model_start_handover(const LauncherModel* m, int* slot, const char*
     if (!e || e->kind != LNG_START_STATE || e->slot < 0) return LNG_START_POWER_ON;
     if (slot) *slot = e->slot;
     return LNG_START_STATE;
+}
+
+bool launcher_model_record_replay_available(const LauncherModel* m) {
+    return m && m->has_record_replay && !m->in_session;
+}
+
+const char* launcher_model_record_replay_tooltip(const LauncherModel* m) {
+    return m && m->record_replay_tooltip && m->record_replay_tooltip[0]
+        ? m->record_replay_tooltip : NULL;
+}
+
+void launcher_model_toggle_record_replay(LauncherModel* m) {
+    if (!launcher_model_record_replay_available(m)) return;
+    m->s.record_replay = !m->s.record_replay;
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {

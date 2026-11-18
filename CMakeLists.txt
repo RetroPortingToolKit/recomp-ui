@@ -651,6 +651,22 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-launcher-player-tabs
         COMMAND $<TARGET_FILE:recomp-ui-launcher-player-tabs-test>)
+    # The "Record replay" footer checkbox: gated on the host's
+    # has_record_replay, handed back on PLAY, kept by Restore Defaults.
+    add_executable(recomp-ui-launcher-record-replay-test
+        tests/launcher_record_replay_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-record-replay-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-record-replay-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-record-replay
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-record-replay-test>)
     add_executable(recomp-ui-launcher-mouse-source-test
         tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
         src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
