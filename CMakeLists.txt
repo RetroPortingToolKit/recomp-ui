@@ -219,6 +219,14 @@ if(BUILD_TESTING)
             COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_no_raw_pickers.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}")
+        # OpenBIOS is offered only in a build that holds it: every "Use
+        # OpenBIOS" button behind the model's answer, and the accepted words
+        # for a build that needs the player's own BIOS.
+        add_test(
+            NAME recomp-ui-bios-step-words
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_bios_step_words.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
         # The disc panel's "Disc image" row: only for a file setup refused,
         # with the accepted words and a red cross.
         add_test(
@@ -609,6 +617,23 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-confirm-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
+
+    # The BIOS step of a build that holds no BIOS of its own: the model's
+    # answer to "is OpenBIOS offered" and "must Generate wait for a BIOS".
+    # Same include-the-TU shape.
+    add_executable(recomp-ui-launcher-bios-step-test
+        tests/launcher_bios_step_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-bios-step-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-bios-step-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-bios-step
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-bios-step-test>)
 
     # Setup window: the disc panel follows a file that setup refused. After a
     # failed prepare the disc check runs again, so "Disc verified" does not

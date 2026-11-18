@@ -669,6 +669,7 @@ typedef struct {
     bool      setup_bios_ok;         // last bios_verify_cb result (or path-only ok)
     bool      setup_bios_warn;
     bool      setup_bios_needs_regen; // valid dump but not linked in this binary
+    bool      bundled_bios_offered;  // empty-path verdict cached before the chosen BIOS
     char      setup_bios_detail[256];
     bool      bios_not_needed;       // host: the selected image needs no BIOS
     bool      bios_pick_rejected;    // the last pick failed verification (detail says why)
@@ -1477,9 +1478,21 @@ bool launcher_model_disc_note_reveal(LauncherModel* m);
 // in the same coordinates (the screen's).
 float launcher_model_scroll_into_view(float item_top, float item_bottom,
                                       float view_top, float view_bottom, float margin);
-// Re-run bios_verify_cb against m->s.bios_path. Empty path means "bundled
-// BIOS" — OK unless the host verifier refuses "".
+// Refresh the empty-path offer, then re-run bios_verify_cb against m->s.bios_path.
+// Draw-time queries use the cached offer and do not call the host verifier.
+// Empty path means "bundled BIOS" — OK unless the host verifier refuses "".
 void launcher_model_refresh_bios_status(LauncherModel* m);
+// True when this build runs with no BIOS file chosen: it holds a BIOS of its
+// own (OpenBIOS on the PlayStation). The host says so by accepting an empty
+// BIOS path. A build that needs the player's own image refuses the empty path,
+// and the launcher then offers no "Use OpenBIOS" and does not call the BIOS
+// optional. With no host to ask, or one that does not answer, it is true: the
+// words stay as they were.
+bool launcher_model_bundled_bios_offered(const LauncherModel* m);
+// True when the setup window's Generate must wait for a BIOS: the build holds
+// none of its own and the player has not chosen one that is usable ("OK", or
+// one that Generate will build in). Confirm waits for the same.
+bool launcher_model_setup_bios_blocks_generate(const LauncherModel* m);
 // The SYSTEM card / BIOS state applies to this image (has_bios and the host
 // did not say the selected image needs none).
 bool launcher_model_bios_applies(const LauncherModel* m);

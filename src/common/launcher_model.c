@@ -1087,6 +1087,7 @@ void launcher_model_init(LauncherModel* m,
     m->setup_tc_remote_ver[0] = '\0';
     m->setup_tc_zip[0] = '\0';
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_confirm_open = false;
     m->bios_pending_path[0] = '\0';
     m->setup_wizard_suspended_for_bios = false;
@@ -2926,6 +2927,7 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
     m->setup_bios_ok = false;
     m->setup_bios_warn = false;
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_not_needed = false;
     m->bios_pick_rejected = false;
     m->setup_bios_detail[0] = '\0';
@@ -2934,7 +2936,12 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
         return;
     }
     RecompLauncherCBiosVerify bv;
-    const int r = lm_bios_verify(m, m->s.bios_path, &bv);
+    int r = lm_bios_verify(m, "", &bv);
+    if (r > 0)
+        m->bundled_bios_offered = bv.ok != 0 || bv.not_needed != 0;
+    /* Host verification also updates its run report. Ask about the chosen
+     * file last, and never ask again from the draw-time offer query. */
+    if (m->s.bios_path[0]) r = lm_bios_verify(m, m->s.bios_path, &bv);
     /* Empty path = the host's own choice: the BIOS this build ships with
      * (OpenBIOS / bundled), or a host lookup (a required system file). Host
      * bios_verify("", ...) may refuse that for titles that require a retail
@@ -2987,6 +2994,16 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
 
 bool launcher_model_bios_applies(const LauncherModel* m) {
     return m && m->has_bios && !m->bios_not_needed;
+}
+
+bool launcher_model_bundled_bios_offered(const LauncherModel* m) {
+    return m && m->bundled_bios_offered;
+}
+
+bool launcher_model_setup_bios_blocks_generate(const LauncherModel* m) {
+    if (!m || !m->has_bios) return false;
+    if (launcher_model_bundled_bios_offered(m)) return false;
+    return !(m->setup_bios_ok || m->setup_bios_needs_regen);
 }
 
 bool launcher_model_bios_missing(const LauncherModel* m) {
