@@ -10,6 +10,8 @@ int launcher_mod_feature_concealed(const RecompLauncherCModProvider* mods,
 int launcher_mod_feature_listed(const RecompLauncherCModProvider* mods,
                                 const RecompLauncherCModFeature* feature) {
     if (!feature) return 0;
+    /* Built-in preferences use the provider transport, but belong in Settings. */
+    if (strcmp(feature->package_id, "psx.runtime.settings") == 0) return 0;
     if (!feature->hidden) return 1;
     if (launcher_mod_feature_concealed(mods, feature)) return 0;
     return feature->enabled != 0;   /* default: shown while enabled */
