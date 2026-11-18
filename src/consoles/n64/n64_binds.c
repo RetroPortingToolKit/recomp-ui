@@ -243,6 +243,16 @@ void rui_n64_binds_set(const char* path, int device, int b, int slot,
     save_file(path);
 }
 
+void rui_n64_binds_default(int device, int b, int slot, int* out_type, int* out_id) {
+    if (out_type) *out_type = RUI_N64_FIELD_NONE;
+    if (out_id)   *out_id   = -1;
+    if (device < 0 || device > 1 || b < 0 || b >= LNG_N64_PAD_BUTTON_COUNT ||
+        slot < 0 || slot >= RUI_N64_BINDS_PER_INPUT) return;
+    const N64Field* f = device ? &kN64DefaultsPad[b][slot] : &kN64DefaultsKb[b][slot];
+    if (out_type) *out_type = f->type;
+    if (out_id)   *out_id   = f->id;
+}
+
 void rui_n64_binds_reset_device(const char* path, int device) {
     if (device < 0 || device > 1) return;
     ensure_init(path);

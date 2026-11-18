@@ -1,6 +1,7 @@
 # recomp-ui
 
 PSX controller startup uses [automatic controller mode](docs/PSX_CONTROLLER_MODE.md).
+Hosts can also expose [native PSX peripheral choices](docs/PSX_NATIVE_PERIPHERALS.md).
 
 > ℹ️ **Note from mstan:** This repo and I are now part of [RetroPortingToolkit](https://retroportingtoolkit.com/). I remain a primary maintainer of recomp-ui alongside the team. [More info](https://1379.tech/forming-a-collective-retro-porting-toolkit/).
 
@@ -99,7 +100,7 @@ Adding a console is (ideally) **one `SystemProfile` row** in
 data passed through the C ABI — theme, platform label, box art, pad image,
 which panels — so there is no `../snes` / `../psx` source fork.
 
-The DRY heart is [`src/launcher_model.h`](src/launcher_model.h): all launcher
+The DRY heart is [`src/common/launcher_model.h`](src/common/launcher_model.h): all launcher
 STATE + BEHAVIOR, free of any UI toolkit, built purely from the C ABI structs —
 so behavior is identical across every game.
 
@@ -154,6 +155,16 @@ then exposes a dedicated Display → Screen layout cycle backed by
 features. The Nintendo DS profile uses it for stacked versus separate windows,
 keeps Player 1's ordinary buttons controller-configurable, and leaves the
 bottom-screen pointer/touch mapping to the host.
+
+The PSX Settings page uses compact General and Display groups: two columns by
+default, three where useful on wide windows, and one on narrow windows. Internal
+Resolution and PGXP controls sit in the first Display group. With a supporting
+host provider and built-in enhancement catalog, Faithful / Best presets write
+the actual preferences; subsequent edits show Custom. Both retain 4:3 and
+original motion. Best raises rendering quality and can increase GPU demand.
+Audio, bindings, cards and unrelated mod choices are retained. Unsupported
+providers do not expose a preset that cannot be applied. The exact visual map
+is in `src/common/backends/imgui/launcher_psx_settings.inc`.
 
 ### 3. Call it from your `main()`
 
@@ -455,6 +466,24 @@ directory may retain the former recomp-ui default (`OFF`); reconfigure it with
 the explicit `-DRECOMP_UI_ENABLE_MODS:BOOL=ON` command above. PSXRecomp emits a
 CMake warning when it detects this Mods-less cached state.
 
+#### Cover button and desktop icon (PlayStation disc panel)
+
+The disc panel carries a **Fetch cover** button and a **desktop icon** button.
+recomp-ui ships no cover and has no built-in cover source: the host sets
+`GameInfo.cover_url_template` to an `https://` address with the disc serial as
+`{serial}` (for example `https://example.org/covers/{serial}.jpg`, with the
+serial as `SLUS-04321`). Apart from the placeholder, only letters, digits and
+`/ . - _` are accepted (no query, port or credentials). With no usable
+template the Fetch cover button is not shown. It is also not shown once the
+title has box art, either its own or a fetched `launcher-cover.jpg`. Nothing
+is fetched without a click; the request is made by the system's `curl` with an
+argument vector (no shell), https only, and the result must be a JPEG/PNG of a
+sane size.
+
+Both buttons save into the folder of the host's settings file
+(`GameInfo.config_path`; a bare file name resolves to the current folder when
+the launcher opens). Without a settings file they are disabled.
+
 ### In-game settings overlay
 
 [`src/recomp_runtime_ui.h`](src/recomp_runtime_ui.h) is the separate runtime
@@ -683,6 +712,7 @@ recomp_target_launcher_ui(game-target
 | `BOXART_NAME <name>` | Optional destination basename when several targets share one output directory. Pair it with `GameInfo.boxart_path`. |
 | `PAD <path>` | Optional controller-art override staged as `assets/img/pad.tga`. |
 | `BRAND <path>` | Optional top-left game mark staged as `assets/img/brand_game.tga`; it wins over the console profile's own mark. |
+| `THEME <path>` | Optional game colors staged as `assets/theme_game.ini`: a `[colors]` section with `LauncherTheme` field names as keys and `#RRGGBB` or `#RRGGBBAA` values (`accent = #ECC57D`). Set keys override the console theme in the launcher and the in-game menu; the rest stay. A host that skips the launcher loads the file itself with `launcher_theme_load_game_overrides()`. |
 | `HOST_IMGUI` + `IMGUI_DIR <path>` | Reuse Dear ImGui already compiled by the host, avoiding duplicate core/backend symbols. `IMGUI_DIR` must contain `imgui.h` and the backend headers. |
 
 `RECOMP_UI_HOST_IMGUI=ON` plus `RECOMP_UI_HOST_IMGUI_INCLUDE=<path>` remains
@@ -718,11 +748,13 @@ cmake -G Ninja -S . -B build
 cmake --build build -j
 # Preview a console: LNG_VARIANT = psx | snes | gba | genesis | ...
 LNG_VARIANT=genesis ./build/recomp-ui-launcher
+# Preview a player count: LNG_PLAYERS = 1..8 (LNG_MULTITAP=1 shows PSX seats 3+)
+LNG_VARIANT=psx LNG_PLAYERS=4 LNG_MULTITAP=1 ./build/recomp-ui-launcher
 ```
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.
 `LNG_SCRIPT="wait:40;view:settings;shot:out.png;quit"` (see
-[`src/launcher_debug.h`](src/launcher_debug.h)).
+[`src/common/launcher_debug.h`](src/common/launcher_debug.h)).
 
 Requires SDL3 (`find_package(SDL3 CONFIG)`) by default, OpenGL, and a C++17
 compiler.

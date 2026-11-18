@@ -32,6 +32,8 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title, int w, int h
 void launcher_platform_close(LauncherPlatform* p) { (void)p; }
 void launcher_platform_set_icon(LauncherPlatform* p, const char* icon) { (void)p; (void)icon; }
 void launcher_platform_set_quit_sdl(bool value) { (void)value; }
+void launcher_platform_set_hidden_window(bool value) { (void)value; }
+void launcher_backend_set_assets_directory(const char* directory) { (void)directory; }
 void launcher_boot_timing_mark(const char* phase) { (void)phase; }
 int launcher_file_picker_selftest(void) { return 0; }
 void launcher_binds_load(LauncherModel* m, const char* config, const char* binds) {
@@ -48,8 +50,8 @@ LngAction launcher_backend_run(LauncherPlatform* p, LauncherModel* m,
     observed = m->s;
     if (toggle_tf) launcher_model_toggle_texture_filter(m);
     if (edit) {
+        launcher_model_set_scale(m, 4); /* windowed-only: set before fullscreen */
         launcher_model_set_fullscreen(m, edit);
-        launcher_model_set_scale(m, 4);
         m->s.linear_filter = 1;
         m->s.volume = 37;
         m->s.vsync = RECOMP_LAUNCHER_VSYNC_ADAPTIVE;

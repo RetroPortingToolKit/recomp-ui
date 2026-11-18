@@ -80,7 +80,7 @@ void recompui_sha256_compute(const uint8_t *data, size_t len, uint8_t out[32]) {
     size_t total_tail = (tail_len < 56) ? 64 : 128;
     memset(tail + pad_start, 0, total_tail - pad_start - 8);
     uint64_t bits = (uint64_t)len * 8;
-    for (int i = 0; i < 8; i++) {
+    for (size_t i = 0; i < 8; i++) {
         tail[total_tail - 1 - i] = (uint8_t)(bits >> (i * 8));
     }
     sha256_block(H, tail);

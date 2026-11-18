@@ -19,6 +19,10 @@ void launcher_model_begin_hk_capture(LauncherModel* m, LngHotkey hotkey) { (void
 void launcher_model_begin_assist_capture(LauncherModel* m, int action, bool gamepad) {
     (void)m; ++mutations; assist_action = action; assist_gamepad = gamepad;
 }
+void launcher_model_set_player_tab(LauncherModel* m, int tab) { (void)m; (void)tab; ++mutations; }
+void launcher_model_set_card_tab(LauncherModel* m, int tab) { (void)m; (void)tab; ++mutations; }
+void launcher_model_select_start(LauncherModel* m, int idx) { (void)m; (void)idx; ++mutations; }
+void launcher_model_select_disc(LauncherModel* m, int idx) { (void)m; (void)idx; ++mutations; }
 void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }

@@ -3,6 +3,7 @@
 
 #include "recomp_runtime_ui_internal.h"
 #include "launcher_theme.h"
+#include "launcher_theme_overrides.h"
 
 #include "imgui.h"
 
@@ -118,9 +119,17 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
         ImGui::PushID(static_cast<int>(index));
         if (!enabled) ImGui::BeginDisabled();
         const ImVec2 start = ImGui::GetCursorScreenPos();
-        const float row_h = item->description && item->description[0]
-                                ? theme.row_height + theme.spacing_sm
-                                : theme.row_height;
+        /* A description wraps inside the row; the row grows by its extra lines. */
+        const bool has_desc = item->description && item->description[0];
+        const float desc_wrap_w =
+            std::max(1.0f, ImGui::GetContentRegionAvail().x - theme.spacing_md * 2.0f);
+        const float desc_extra_h =
+            has_desc ? std::max(0.0f, ImGui::CalcTextSize(item->description, nullptr, false,
+                                                          desc_wrap_w).y -
+                                          ImGui::GetTextLineHeight())
+                     : 0.0f;
+        const float row_h = has_desc ? theme.row_height + theme.spacing_sm + desc_extra_h
+                                     : theme.row_height;
         const float step_button_w =
             touch_friendly ? std::max(76.0f, row_h * 0.90f) : 38.0f * desktop_scale;
         const float step_gap = touch_friendly ? 12.0f : 6.0f * desktop_scale;
@@ -167,11 +176,13 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
                                                   : theme.text_muted),
                           value);
         }
-        if (item->description && item->description[0]) {
-            draw->AddText(ImVec2(start.x + theme.spacing_md,
-                                start.y + theme.spacing_sm +
-                                    ImGui::GetTextLineHeight() + 2.0f * desktop_scale),
-                          u32(theme.text_muted), item->description);
+        if (has_desc) {
+            draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                          ImVec2(start.x + theme.spacing_md,
+                                 start.y + theme.spacing_sm +
+                                     ImGui::GetTextLineHeight() + 2.0f * desktop_scale),
+                          u32(theme.text_muted), item->description, nullptr,
+                          desc_wrap_w);
         }
         if (editing_this && enabled) {
             const float field_w = touch_friendly
@@ -312,11 +323,11 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
     if (!ui || ImGui::GetCurrentContext() == nullptr) return;
     if (!ui->open) {
         if (recomp_runtime_ui_toast_visible(ui))
-            draw_toast(ui, launcher_theme_by_name(ui->config.theme));
+            draw_toast(ui, launcher_theme_for_game(ui->config.theme));
         return;
     }
 
-    LauncherTheme theme = launcher_theme_by_name(ui->config.theme);
+    LauncherTheme theme = launcher_theme_for_game(ui->config.theme);
     ImGuiIO &io = ImGui::GetIO();
     const ImVec2 display = io.DisplaySize;
     if (display.x <= 0.0f || display.y <= 0.0f) return;

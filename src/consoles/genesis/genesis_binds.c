@@ -308,6 +308,12 @@ void rui_genesis_binds_set_pad(const char* path, int player, int b,
     gen_write_player(path, player);
 }
 
+int rui_genesis_binds_default_key(int player, int b) {
+    if (player < 0 || player >= RUI_GEN_MAX_PLAYERS || b < 0 || b >= GEN_NBTN) return 0;
+    if (player > 1) return 0;
+    return player == 1 ? kGenDefaultKeyP2[b] : kGenDefaultKeyP1[b];
+}
+
 void rui_genesis_binds_reset(const char* path, int player) {
     gen_ensure_init(path);
     if (player < 0 || player >= RUI_GEN_MAX_PLAYERS) return;

@@ -236,6 +236,18 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         if (pl < 0) pl = 0;
         if (pl > LNG_MAX_PLAYERS - 1) pl = LNG_MAX_PLAYERS - 1;
         m->cfg_player = pl;
+    } else if (strncmp(c, "tab:", 4) == 0) {
+        // Open a player's tab on the dashboard (0-based), as a click on it does.
+        launcher_model_set_player_tab(m, atoi(c + 4));
+    } else if (strncmp(c, "start:", 6) == 0) {
+        // Choose a "Start from" entry by its place in the list; -1 is Power on.
+        launcher_model_select_start(m, atoi(c + 6));
+    } else if (strncmp(c, "disc:", 5) == 0) {
+        // Choose the disc to boot of a multi-disc title (0-based).
+        launcher_model_select_disc(m, atoi(c + 5));
+    } else if (strncmp(c, "cardtab:", 8) == 0) {
+        // Open a memory card's tab on the dashboard (0-based).
+        launcher_model_set_card_tab(m, atoi(c + 8));
     } else if (strncmp(c, "capbtn:", 7) == 0) {
         launcher_model_begin_capture(m, atoi(c + 7));   // rebind a player button (generic spec index)
     } else if (strncmp(c, "cappad:", 7) == 0) {

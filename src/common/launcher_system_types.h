@@ -80,6 +80,17 @@ typedef struct {
     // this 0 (the zero-fill of every older positional initializer, so adding
     // this changed no existing console). See launcher_model_pak_ports().
     int  has_pak;
+    // ---- dashboard: tabbed layout -------------------------------------------
+    // Every console with two or more players shows one tab per player over
+    // one controller card (launcher_model_player_tabs). 1 here also gives the
+    // tabbed dashboard layout, for a console whose dashboard carries memory
+    // cards: the controller card is as wide as the memory-card block and
+    // carries its pad type and its device as two lists, and the memory cards
+    // are tabs too, one card shown. 0 (the zero-fill of every older
+    // positional initializer) keeps the card with its accessory beside it, so
+    // adding this changed no console until it opted in. See
+    // launcher_model_dashboard_tabbed().
+    int  player_tabs;
 } ControllerSpec;
 
 // ---- Save module --------------------------------------------------------------
@@ -174,6 +185,12 @@ typedef struct SystemProfile {
     // wordmark may be a third-party trademark); an absent file falls back to
     // the text, so this is inert unless a host drops the asset in.
     const char* wordmark_image;
+    // 1 when the dashboard has the "Start from" block: Power on, or one of the
+    // title's save states, for the next PLAY (PSX). Whoever opens
+    // the launcher for that console lists the entries
+    // (launcher_model_set_start_entries) and carries the choice to the host;
+    // see consoles/psx/psx_start_from.h. Appended, so the other rows have 0.
+    int start_from;
 } SystemProfile;                                    // ONE ROW PER CONSOLE
 
 // ---- shared panel composition arrays (NULL-terminated) --------------------------
