@@ -610,6 +610,7 @@ typedef struct {
     bool      setup_wizard_open;     // first-run BIOS/ROM setup (blocking)
     int       setup_page;            // 0 = toolchain, 1 = BIOS/ROM/generate
     bool      setup_tc_auto;         // Windows portable-tool download (default true)
+    bool      setup_tc_native;       // POSIX: the player's own cmake/clang/gcc; never downloads
     bool      setup_tc_ready;        // toolchain resolved / installed
     bool      setup_tc_update_available; // remote latest newer than local
     bool      setup_tc_update_skipped;   // user skipped update this session

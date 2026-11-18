@@ -1023,6 +1023,13 @@ void launcher_model_init(LauncherModel* m,
     m->setup_wizard_open = false;
     m->setup_page = 1;
     m->setup_tc_auto = true;
+    /* Only Windows has the portable cmake/clang download; elsewhere the build
+     * tools are the system's own. */
+#if defined(_WIN32)
+    m->setup_tc_native = false;
+#else
+    m->setup_tc_native = true;
+#endif
     m->setup_tc_ready = false;
     m->setup_tc_update_available = false;
     m->setup_tc_update_skipped = false;
@@ -3856,7 +3863,8 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
         m->setup_page = 1;
         m->setup_error[0] = '\0';
         safe_copy(m->setup_status, sizeof(m->setup_status),
-                  "Using existing portable toolchain.");
+                  m->setup_tc_native ? "Using existing build tools."
+                                     : "Using existing portable toolchain.");
         return;
     }
     if (!m->ensure_toolchain_with_progress_cb) {
@@ -3874,7 +3882,9 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     g_prep_job.kind = PREP_JOB_TOOLCHAIN;
     g_prep_job.progress_pct = -1.0f;
     /* download: 0 = zip only, 1 = fetch if missing, 2 = force latest update */
-    if (m->setup_tc_auto)
+    if (m->setup_tc_native)
+        g_prep_job.download = 0;   /* native tools are checked, never fetched */
+    else if (m->setup_tc_auto)
         g_prep_job.download = want_update ? 2 : 1;
     else
         g_prep_job.download = 0;
@@ -3885,9 +3895,12 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     m->setup_prepare_fraction = -1.0f;
     m->setup_error[0] = '\0';
     safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title),
-              want_update ? "Updating build tools…" : "Installing build tools…");
+              m->setup_tc_native ? "Checking build tools…"
+              : want_update ? "Updating build tools…" : "Installing build tools…");
     safe_copy(m->setup_status, sizeof(m->setup_status),
-              m->setup_tc_auto
+              m->setup_tc_native
+                  ? "Checking for CMake, Ninja, Python 3 and Clang or GCC…"
+              : m->setup_tc_auto
                   ? (want_update ? "Downloading toolchain update…"
                                  : "Downloading portable cmake/clang…")
                   : "Installing toolchain from zip…");

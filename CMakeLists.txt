@@ -876,6 +876,21 @@ if(BUILD_TESTING)
                      "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
 
+    # Setup toolchain step wording and download request, native vs portable.
+    add_executable(recomp-ui-launcher-setup-toolchain-native-test
+        tests/launcher_setup_toolchain_native_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-toolchain-native-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-toolchain-native-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(NAME recomp-ui-launcher-setup-toolchain-native
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-toolchain-native-test>)
+
     # The PLAY press: asked in one frame, shown as "Launching..." in the next,
     # done in the one after that.
     add_executable(recomp-ui-launcher-play-launching-test
