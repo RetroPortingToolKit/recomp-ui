@@ -267,13 +267,15 @@ if(BUILD_TESTING)
     add_executable(recomp-runtime-ui-test
         tests/runtime_ui_test.c
         src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c
         src/common/recomp_runtime_settings.c)
     target_include_directories(recomp-runtime-ui-test PRIVATE src)
     add_test(NAME recomp-runtime-ui COMMAND $<TARGET_FILE:recomp-runtime-ui-test>)
 
     add_executable(recomp-runtime-ui-view-test
         tests/runtime_ui_view_test.c
-        src/common/recomp_runtime_ui.c)
+        src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c)
     target_include_directories(recomp-runtime-ui-view-test PRIVATE src)
     add_test(NAME recomp-runtime-ui-view
              COMMAND $<TARGET_FILE:recomp-runtime-ui-view-test>)
@@ -289,6 +291,7 @@ if(BUILD_TESTING)
             tests/psx_menu_provider_test.cpp
             src/consoles/psx/psx_menu_provider.cpp
             src/common/recomp_runtime_ui.c
+            src/common/launcher_theme_overrides.c
             src/common/recomp_runtime_settings.c
             "${RECOMP_UI_PSXRECOMP_ROOT}/runtime/src/host_overlay.c")
         target_include_directories(recomp-ui-psx-menu-provider-test PRIVATE
@@ -806,6 +809,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_theme_overrides.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -826,6 +830,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-netplay-handoff-test
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_theme_overrides.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -874,6 +879,7 @@ if(BUILD_TESTING)
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp
         src/common/recomp_runtime_ui.c
+        src/common/launcher_theme_overrides.c
         src/common/recomp_runtime_settings.c
         src/third_party/imgui/imgui.cpp
         src/third_party/imgui/imgui_draw.cpp

@@ -3,6 +3,7 @@
 
 #include "recomp_runtime_ui_internal.h"
 #include "launcher_theme.h"
+#include "launcher_theme_overrides.h"
 
 #include "imgui.h"
 
@@ -322,11 +323,11 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
     if (!ui || ImGui::GetCurrentContext() == nullptr) return;
     if (!ui->open) {
         if (recomp_runtime_ui_toast_visible(ui))
-            draw_toast(ui, launcher_theme_by_name(ui->config.theme));
+            draw_toast(ui, launcher_theme_for_game(ui->config.theme));
         return;
     }
 
-    LauncherTheme theme = launcher_theme_by_name(ui->config.theme);
+    LauncherTheme theme = launcher_theme_for_game(ui->config.theme);
     ImGuiIO &io = ImGui::GetIO();
     const ImVec2 display = io.DisplaySize;
     if (display.x <= 0.0f || display.y <= 0.0f) return;

@@ -128,3 +128,13 @@ int launcher_theme_load_game_overrides(const char* path) {
 const LauncherThemeOverrides* launcher_theme_game_overrides(void) { return &g_game_overrides; }
 
 int launcher_theme_game_overrides_loaded(void) { return g_game_overrides_loaded; }
+
+void launcher_theme_apply_game_overrides(LauncherTheme* t) {
+    launcher_theme_overrides_apply(&g_game_overrides, t);
+}
+
+LauncherTheme launcher_theme_for_game(const char* theme_name) {
+    LauncherTheme t = launcher_theme_by_name(theme_name);
+    launcher_theme_apply_game_overrides(&t);
+    return t;
+}

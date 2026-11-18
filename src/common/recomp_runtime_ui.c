@@ -1,5 +1,6 @@
 #include "recomp_runtime_ui_internal.h"
 #include "launcher_theme.h"
+#include "launcher_theme_overrides.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -721,7 +722,7 @@ int recomp_runtime_ui_view_row(RecompRuntimeUi *ui, size_t row,
 /* The toast in the frame's top rows: a panel sized to its longest line. */
 static void render_toast_argb(RecompRuntimeUi *ui, void *pixels, int width,
                               int height, int pitch, int scale) {
-    LauncherTheme theme = launcher_theme_by_name(ui->config.theme);
+    LauncherTheme theme = launcher_theme_for_game(ui->config.theme);
     #define RGB8(c) (((uint32_t)((c).r * 255.0f) << 16) | \
                      ((uint32_t)((c).g * 255.0f) << 8) | \
                      (uint32_t)((c).b * 255.0f))
@@ -766,7 +767,7 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
         render_toast_argb(ui, pixels, width, height, pitch, toast_scale < 1 ? 1 : toast_scale);
     }
     if (!ui->open) return;
-    LauncherTheme theme = launcher_theme_by_name(ui->config.theme);
+    LauncherTheme theme = launcher_theme_for_game(ui->config.theme);
     int scale = height / 224;
     if (scale < 1) scale = 1;
     int margin = 6 * scale;

@@ -32,9 +32,11 @@ int launcher_theme_load_game_overrides(const char* path);
 const LauncherThemeOverrides* launcher_theme_game_overrides(void);
 int launcher_theme_game_overrides_loaded(void);
 
-// Applies the game overrides; on first use without an explicit load it reads
-// <exe dir>/assets/theme_game.ini (launcher_theme_overrides_sdl.c).
+// Applies the loaded game overrides (none until a host or the launcher loads).
 void launcher_theme_apply_game_overrides(LauncherTheme* t);
+
+// Console theme by name with the game overrides on top.
+LauncherTheme launcher_theme_for_game(const char* theme_name);
 
 #ifdef __cplusplus
 }
