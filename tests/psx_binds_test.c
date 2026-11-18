@@ -1,4 +1,6 @@
 #include "consoles/psx/psx_binds.h"
+#include "consoles/psx/psx_profile.h"
+#include "../src/common/launcher_ini.inc"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -180,6 +182,30 @@ int main(int argc, char **argv)
     }
 
     remove(path);
-    puts("PSX dual-bind persistence tests passed");
+    /* PS2 hosts supply their keyboard defaults and retain ownership of all
+     * other settings in the same file. Exercise the actual surgical writer. */
+    {
+        int defaults[2][LNG_PSX_PAD_BUTTON_COUNT] = {{0}};
+        defaults[0][TEST_CROSS] = TEST_KEY_S;
+        defaults[1][TEST_CROSS] = TEST_KEY_S + 1;
+        FILE* file = fopen(path, "w");
+        require(file != NULL, "create host-owned settings");
+        fputs("[Host]\nCustom = KeepMe\n[player2]\nPadSource = Keyboard\n", file);
+        fclose(file);
+        rui_psx_binds_host_defaults(&defaults[0][0], 2);
+        rui_psx_binds_init(path);
+        require(rui_psx_binds_get(path, 0, TEST_CROSS) == TEST_KEY_S,
+                "host P1 defaults are applied");
+        require(rui_psx_binds_get(path, 1, TEST_CROSS) == TEST_KEY_S + 1,
+                "host P2 defaults remain independent");
+        rui_psx_binds_reset(path, 0);
+        require(file_contains(path, "Custom = KeepMe") &&
+                file_contains(path, "PadSource = Keyboard"),
+                "host binding writes preserve other settings");
+        require(rui_psx_binds_check_saved(path), "host bindings reload exactly");
+        rui_psx_binds_host_defaults(NULL, 0);
+    }
+    remove(path);
+    puts("PSX and host-owned dual-bind persistence tests passed");
     return 0;
 }
