@@ -192,12 +192,20 @@ static int psx_kb_key_is_native_only(int b) {
 // Returns the count of NATIVE-ONLY keys matched (see above) — the caller
 // uses this to detect a foreign-format file instead of silently blending
 // its overlapping-name values into the defaults.
-static int psx_kb_load_ini(const char* path) {
+typedef SDL_Scancode PsxKbMap[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
+
+// Parses `path` over the maps given and reports the [player<N>] sections it
+// saw in `*seen_out`. Touches nothing else, so a profile file can be read
+// without disturbing the live map.
+static int psx_kb_parse_ini(const char* path, PsxKbMap binds, PsxKbMap binds_alt,
+                            unsigned* seen_out) {
     FILE* f = fopen(path, "r");
     if (!f) return 0;
     int player = -1;   // -1 none, 0..PSX_BINDS_MAX_PLAYERS-1
     int native_hits = 0;
-    s_psx_kb_seen_players = 0;
+    unsigned seen_local = 0;
+    unsigned* seen = seen_out ? seen_out : &seen_local;
+    *seen = 0;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         size_t n = strlen(line);
@@ -216,7 +224,7 @@ static int psx_kb_load_ini(const char* path) {
                     npl = npl * 10 + (*c - '0');
                 if (npl >= 1 && npl <= PSX_BINDS_MAX_PLAYERS) {
                     player = npl - 1;
-                    s_psx_kb_seen_players |= 1u << player;
+                    *seen |= 1u << player;
                 }
             }
             continue;
@@ -246,8 +254,8 @@ static int psx_kb_load_ini(const char* path) {
         }
         for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
             if (!strcmp(key, kPsxKbKeyName[b])) {
-                s_psx_binds[player][b] = psx_kb_name_to_scancode(val);
-                s_psx_binds_alt[player][b] =
+                binds[player][b] = psx_kb_name_to_scancode(val);
+                binds_alt[player][b] =
                     alt_val ? psx_kb_name_to_scancode(alt_val) : SDL_SCANCODE_UNKNOWN;
                 if (psx_kb_key_is_native_only(b)) ++native_hits;
                 break;
@@ -258,14 +266,26 @@ static int psx_kb_load_ini(const char* path) {
     return native_hits;
 }
 
+static int psx_kb_load_ini(const char* path) {
+    return psx_kb_parse_ini(path, s_psx_binds, s_psx_binds_alt, &s_psx_kb_seen_players);
+}
+
+/* The keys a player has after Reset: the host's own defaults when it supplied
+ * them (rui_psx_binds_host_defaults), else the built-in map. No alternate. */
+static void psx_kb_default_row(int p, SDL_Scancode* row, SDL_Scancode* row_alt) {
+    memcpy(row, (p < s_host_players) ? s_host_defaults[p] : kPsxDefaults,
+           sizeof(kPsxDefaults));
+    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
+        row_alt[b] = SDL_SCANCODE_UNKNOWN;   /* no alt by default */
+}
+
+static void psx_kb_seed_maps(PsxKbMap binds, PsxKbMap binds_alt) {
+    for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p)
+        psx_kb_default_row(p, binds[p], binds_alt[p]);
+}
+
 static void psx_kb_seed_defaults(void) {
-    for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p) {
-        memcpy(s_psx_binds[p], kPsxDefaults, sizeof(kPsxDefaults));
-        if (p < s_host_players)
-            memcpy(s_psx_binds[p], s_host_defaults[p], sizeof(kPsxDefaults));
-        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            s_psx_binds_alt[p][b] = SDL_SCANCODE_UNKNOWN;   /* no alt by default */
-    }
+    psx_kb_seed_maps(s_psx_binds, s_psx_binds_alt);
 }
 
 static int psx_kb_player_all_unbound(int player) {
@@ -302,22 +322,19 @@ void rui_psx_binds_init(const char* path) {
 }
 
 int rui_psx_binds_check_saved(const char* path) {
-    SDL_Scancode expected[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    SDL_Scancode expected_alt[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    memcpy(expected, s_psx_binds, sizeof(expected));
-    memcpy(expected_alt, s_psx_binds_alt, sizeof(expected_alt));
     /* Missing/partial writes cannot inherit the expected values by accident. */
+    PsxKbMap saved, saved_alt;
     for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p)
-        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            s_psx_binds[p][b] = (SDL_Scancode)-1;
-    int hits = psx_kb_load_ini(path);
+        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
+            saved[p][b] = (SDL_Scancode)-1;
+            saved_alt[p][b] = SDL_SCANCODE_UNKNOWN;
+        }
+    int hits = psx_kb_parse_ini(path, saved, saved_alt, NULL);
     int players = s_host_players ? s_host_players : PSX_BINDS_MAX_PLAYERS;
     int ok = hits > 0;
     for (int p = 0; p < players; ++p)
         for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            if (expected[p][b] != s_psx_binds[p][b]) ok = 0;
-    memcpy(s_psx_binds, expected, sizeof(expected));
-    memcpy(s_psx_binds_alt, expected_alt, sizeof(expected_alt));
+            if (s_psx_binds[p][b] != saved[p][b]) ok = 0;
     return ok;
 }
 
@@ -387,20 +404,15 @@ void rui_psx_binds_save(const char* path) {
  * refused, the same test rui_psx_binds_init() applies. */
 static int psx_kb_read_profile_row(const char* src, int player,
                                    SDL_Scancode* row, SDL_Scancode* row_alt) {
-    SDL_Scancode keep[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    SDL_Scancode keep_alt[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    memcpy(keep, s_psx_binds, sizeof(keep));
-    memcpy(keep_alt, s_psx_binds_alt, sizeof(keep_alt));
-    psx_kb_seed_defaults();
-    const int native_hits = psx_kb_load_ini(src);
-    const unsigned seen = s_psx_kb_seen_players;
+    PsxKbMap binds, binds_alt;
+    unsigned seen = 0;
+    psx_kb_seed_maps(binds, binds_alt);
+    const int native_hits = psx_kb_parse_ini(src, binds, binds_alt, &seen);
     const int from = (seen & (1u << player)) ? player : ((seen & 1u) ? 0 : -1);
     if (from >= 0) {
-        memcpy(row, s_psx_binds[from], sizeof(s_psx_binds[from]));
-        memcpy(row_alt, s_psx_binds_alt[from], sizeof(s_psx_binds_alt[from]));
+        memcpy(row, binds[from], sizeof(binds[from]));
+        memcpy(row_alt, binds_alt[from], sizeof(binds_alt[from]));
     }
-    memcpy(s_psx_binds, keep, sizeof(keep));
-    memcpy(s_psx_binds_alt, keep_alt, sizeof(keep_alt));
     return native_hits != 0 && from >= 0;
 }
 
@@ -442,22 +454,28 @@ int rui_psx_binds_matches_profile(const char* path, int player, const char* src)
            memcmp(row_alt, s_psx_binds_alt[player], sizeof(row_alt)) == 0;
 }
 
+int rui_psx_binds_default_key(int player, int b, int slot) {
+    if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS ||
+        b < 0 || b >= LNG_PSX_PAD_BUTTON_COUNT) return SDL_SCANCODE_UNKNOWN;
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    psx_kb_default_row(player, row, row_alt);
+    return (int)(slot == 1 ? row_alt[b] : row[b]);
+}
+
+/* Compares with what Reset puts there: the host's defaults when it has
+ * supplied them, else the built-in map. */
 int rui_psx_binds_is_default(const char* path, int player) {
     if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return 0;
     if (!s_psx_binds_init) rui_psx_binds_init(path);
-    if (memcmp(s_psx_binds[player], kPsxDefaults, sizeof(kPsxDefaults)) != 0) return 0;
-    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-        if (s_psx_binds_alt[player][b] != SDL_SCANCODE_UNKNOWN) return 0;
-    return 1;
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    psx_kb_default_row(player, row, row_alt);
+    return memcmp(s_psx_binds[player], row, sizeof(row)) == 0 &&
+           memcmp(s_psx_binds_alt[player], row_alt, sizeof(row_alt)) == 0;
 }
 
 void rui_psx_binds_reset(const char* path, int player) {
     if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return;
     if (!s_psx_binds_init) rui_psx_binds_init(path);
-    memcpy(s_psx_binds[player], kPsxDefaults, sizeof(kPsxDefaults));
-    if (player < s_host_players)
-        memcpy(s_psx_binds[player], s_host_defaults[player], sizeof(kPsxDefaults));
-    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-        s_psx_binds_alt[player][b] = SDL_SCANCODE_UNKNOWN;
+    psx_kb_default_row(player, s_psx_binds[player], s_psx_binds_alt[player]);
     psx_kb_write_ini(path);
 }

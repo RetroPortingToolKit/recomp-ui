@@ -70,7 +70,12 @@ int rui_psx_binds_save_profile(const char* path, int player, const char* dst);
 // player's keys, primary and alternate, are the ones the file holds.
 int rui_psx_binds_matches_profile(const char* path, int player, const char* src);
 
-// 1 when the player's keys are the shared default map with no alternate.
+// The key Reset puts on (player, b, slot 0 primary / 1 alternate): the host's
+// supplied defaults when there are any, else the shared built-in map.
+int rui_psx_binds_default_key(int player, int b, int slot);
+
+// 1 when the player's keys are what Reset puts there (the effective defaults,
+// host-supplied or built-in) with no alternate.
 int rui_psx_binds_is_default(const char* path, int player);
 
 // Reset one player to the shared default keyboard map + persist.
