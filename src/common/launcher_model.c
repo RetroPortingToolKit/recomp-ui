@@ -1891,7 +1891,7 @@ int launcher_model_start_selected(const LauncherModel* m) {
 void launcher_model_select_start(LauncherModel* m, int idx) {
     const LauncherStartEntry* e = launcher_model_start_entry(m, idx);
     if (!m) return;
-    if (!e || e->kind != LNG_START_STATE) {
+    if (!e || (e->kind != LNG_START_STATE && e->kind != LNG_START_REPLAY)) {
         m->start_selected = -1;
         return;
     }
@@ -1899,12 +1899,28 @@ void launcher_model_select_start(LauncherModel* m, int idx) {
         for (int d = 0; d < m->num_discs; ++d)
             if (launcher_model_disc_number(m, d) == e->disc)
                 launcher_model_select_disc(m, d);   /* may reset the choice: set it after */
+#ifdef RECOMP_LAUNCHER_HAS_RECORD_REPLAY
+    /* A recording starts at power-on, so it does not go with this start. */
+    m->s.record_replay = 0;
+#endif
     m->start_selected = idx;
 }
 
-int launcher_model_start_handover(const LauncherModel* m, int* slot) {
+void launcher_model_start_sync(LauncherModel* m) {
+    if (!m) return;
+#ifdef RECOMP_LAUNCHER_HAS_RECORD_REPLAY
+    if (m->s.record_replay) m->start_selected = -1;
+#endif
+}
+
+int launcher_model_start_handover(const LauncherModel* m, int* slot, const char** path) {
     const LauncherStartEntry* e = launcher_model_start_entry(m, launcher_model_start_selected(m));
     if (slot) *slot = -1;
+    if (path) *path = NULL;
+    if (e && e->kind == LNG_START_REPLAY && e->path[0]) {
+        if (path) *path = e->path;
+        return LNG_START_REPLAY;
+    }
     if (!e || e->kind != LNG_START_STATE || e->slot < 0) return LNG_START_POWER_ON;
     if (slot) *slot = e->slot;
     return LNG_START_STATE;

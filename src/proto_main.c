@@ -773,12 +773,15 @@ int main(int argc, char** argv) {
         /* And the "Start from" hand-over, when it is not Power on: the
          * start-up variable recomp_launcher_run_window() would set on PLAY. */
         if (launcher_model_start_from_available(&model)) {
-            PsxStartVar var;
-            psx_start_from_vars(&model, 0, &var);
-            FILE* f = var.value[0] ? fopen(settings_out, "ab") : NULL;
-            if (f) {
-                fprintf(f, "%s=%s\n", var.name, var.value);
-                fclose(f);
+            PsxStartVar vars[PSX_START_VARS];
+            launcher_model_start_sync(&model);
+            psx_start_from_vars(&model, 0, vars);
+            for (int i = 0; i < PSX_START_VARS; ++i) {
+                FILE* f = vars[i].value[0] ? fopen(settings_out, "ab") : NULL;
+                if (f) {
+                    fprintf(f, "%s=%s\n", vars[i].name, vars[i].value);
+                    fclose(f);
+                }
             }
         }
     }
