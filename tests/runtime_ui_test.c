@@ -78,6 +78,19 @@ static void visible(void *context, int open) {
     ((TestState *)context)->visible = open;
 }
 
+/* TEXT rows must reach both native renderers, including disabled readouts. */
+static const char *display_text = "1x (target 4x)";
+static int text_reads;
+static int read_display_text(void *context, const RecompRuntimeUiItem *item,
+                             char *out, size_t size) {
+    (void)context; (void)item; ++text_reads;
+    snprintf(out, size, "%s", display_text);
+    return 1;
+}
+static int readonly_display_text(void *context, const RecompRuntimeUiItem *item) {
+    (void)context; (void)item; return 0;
+}
+
 int main(void) {
     static const RecompRuntimeUiItem items[] = {
         { "enabled", "Video", "Enabled", "Toggle the feature.",
@@ -418,6 +431,34 @@ int main(void) {
         assert(nested_values['g' - 'a'] == 1 && nested_values['h' - 'a'] == 1);
         recomp_runtime_ui_destroy(n);
     }
+    {
+        static const RecompRuntimeUiItem text_row = {
+            "quality.now", "Graphics", "Resolution now", "Actual quality.",
+            RECOMP_RUNTIME_UI_TEXT, 0, 0, 0, NULL, 0, NULL };
+        RecompRuntimeUiConfig readout = {0};
+        readout.items = &text_row; readout.item_count = 1;
+        readout.callbacks.get_text = read_display_text;
+        readout.callbacks.is_enabled = readonly_display_text;
+        RecompRuntimeUi *t = recomp_runtime_ui_create(&readout);
+        static uint32_t first[256 * 192], second[256 * 192];
+        assert(t != NULL);
+        recomp_runtime_ui_open(t);
+        press(t, RECOMP_RUNTIME_UI_INPUT_ACCEPT);
+        text_reads = 0;
+        display_text = "1x (target 4x)";
+        recomp_runtime_ui_render_argb8888(t, first, 256, 192, 256 * 4);
+        if (text_reads != 1) return 91;
+        display_text = "4x (target 4x)";
+        recomp_runtime_ui_render_argb8888(t, second, 256, 192, 256 * 4);
+        assert(text_reads == 2 && memcmp(first, second, sizeof(first)) != 0);
+        RecompRuntimeUiRowView row;
+        assert(recomp_runtime_ui_view_row(t, 0, &row));
+        assert(!strcmp(row.value, display_text) && !row.enabled);
+        press(t, RECOMP_RUNTIME_UI_INPUT_ACCEPT);
+        assert(!recomp_runtime_ui_wants_text_input(t));
+        recomp_runtime_ui_destroy(t);
+    }
+
     puts("runtime UI tests passed");
     return 0;
 }

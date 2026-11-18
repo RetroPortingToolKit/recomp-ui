@@ -662,6 +662,10 @@ static void item_value(RecompRuntimeUi *ui, const RecompRuntimeUiItem *item,
         snprintf(out, out_size, ">");
         return;
     }
+    if (item->type == RECOMP_RUNTIME_UI_TEXT) {
+        recomp_runtime_ui_current_text(ui, item, out, out_size);
+        return;
+    }
     int value = 0;
     if (!recomp_runtime_ui_current_value(ui, item, &value)) {
         snprintf(out, out_size, "?");
