@@ -267,6 +267,22 @@ int main(int argc, char** argv) {
         launcher_model_set_rom(m, zip);
         require(read_calls == 3 && m->rom_verdict == LNG_ROM_ARCHIVE, "incomplete provider falls back to raw path");
     }
+    /* PS2 disc identities are host-owned. The cartridge decoder must remain
+     * available for cartridges without reading a PS2 image through that API. */
+    {
+        RecompLauncherCGameInfo disc = game;
+        disc.platform = "PLAYSTATION 2";
+        disc.rom_read = read_rom;
+        disc.rom_read_free = free_rom;
+        disc.rom_read_ctx = &read_calls;
+        const int before = read_calls;
+        launcher_model_init(m, &settings, &disc, "");
+        launcher_model_set_rom(m, zip);
+        require(m->profile && !strcmp(m->profile->id, "ps2"), "PS2 platform selects its profile");
+        require(read_calls == before, "PS2 disc skips the cartridge reader");
+        require(m->rom_verdict == LNG_ROM_NONE, "PS2 disc skips cartridge identity");
+        require(m->rom_size[0] != '\0', "PS2 disc retains its size label");
+    }
     free(m);
     puts("launcher rom identity: ok");
     return 0;
