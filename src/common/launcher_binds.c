@@ -58,6 +58,10 @@ static const int kKbIndexSnes[LNG_SNES_PAD_BUTTON_COUNT] = {
 // consoles/gba/gba_profile.h); everything else is SNES-shaped (12 buttons).
 static const int* active_kb_index(const LauncherModel* m, int* out_n) {
     const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    if (prof && prof->id && !strcmp(prof->id, "3do")) {
+        *out_n = LNG_3DO_PAD_BUTTON_COUNT;
+        return k3doKbIndex;
+    }
     if (prof && prof->id && !strcmp(prof->id, "gba")) {
         *out_n = LNG_GBA_PAD_BUTTON_COUNT;
         return kGbaKbIndex;
@@ -74,7 +78,7 @@ static const int* active_kb_index(const LauncherModel* m, int* out_n) {
 // active profile) and resolves the file path.
 static int is_psx_profile(const LauncherModel* m) {
     const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
-    return prof && prof->id && !strcmp(prof->id, "psx");
+    return prof && prof->id && (!strcmp(prof->id, "psx") || !strcmp(prof->id, "ps2"));
 }
 
 // NES routes to its own native bridge too (consoles/nes/nes_binds.c): the
@@ -367,9 +371,12 @@ static void reload_player_display(LauncherModel* m, int player) {
         copy_str(m->binds[player - 1][b], sizeof(m->binds[player - 1][b]), scancode_label(sc));
     }
     if (is_gba_profile(m) && player==1) {
-        for(int b=0;b<10;++b)
+        for(int b=0;b<RUI_GBA_PAD_ACTIONS;++b) {
             rui_pad_binds_label(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0],b,
                                m->pad_binds[0][b],sizeof(m->pad_binds[0][b]));
+            rui_pad_binds_label(&kRuiGbaPadSpec,gba_input_ini_path(),m->s.player_gamepad_guid[0],b+RUI_GBA_PAD_ACTIONS,
+                               m->pad_binds_alt[0][b],sizeof(m->pad_binds_alt[0][b]));
+        }
     }
     if (is_snes_profile(m)) {
         char controls[LNG_SNES_PAD_BUTTON_COUNT][48];
@@ -1116,14 +1123,24 @@ void launcher_binds_set_field(LauncherModel* m, int player, int b, int slot,
     launcher_binds_refresh(m);
 }
 
-void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
-                                   int kind, int code, int axis_dir) {
+void launcher_binds_set_pad_button_slot(LauncherModel* m, int player, int b,
+                                        int slot, int kind, int code, int axis_dir) {
+    if (!m || slot<0 || slot>1) return;
     if (is_gba_profile(m)) {
-        if(player!=1 || b<0 || b>=10 || !m->s.player_gamepad_guid[0][0])return;
+        if(player!=1 || b<0 || b>=RUI_GBA_PAD_ACTIONS || !m->s.player_gamepad_guid[0][0])return;
         const char* path=gba_input_ini_path();
-        rui_pad_binds_set(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],b,kind,code,axis_dir);
+        rui_pad_binds_set(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],b+slot*RUI_GBA_PAD_ACTIONS,kind,code,axis_dir);
         rui_pad_binds_remember(&kRuiGbaPadSpec,path,m->s.player_gamepad_guid[0],m->player_pad_name[0],-1);
         launcher_binds_refresh(m);return;
+    }
+    if (slot==0) launcher_binds_set_pad_button(m,player,b,kind,code,axis_dir);
+}
+
+void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
+                                   int kind, int code, int axis_dir) {
+    if (!m) return;
+    if (is_gba_profile(m)) {
+        launcher_binds_set_pad_button_slot(m,player,b,0,kind,code,axis_dir);return;
     }
     if (player < 1 || player > LNG_MAX_PLAYERS) return;
     if (is_psx_profile(m)) {
@@ -1263,7 +1280,7 @@ static void psx_fallback_pad_label(const char* guid, char* out, size_t cap) {
     if (guid && guid[0]) {
         size_t n = strlen(guid);
         if (n >= 8)
-            snprintf(out, cap, "Controller â€¦%s", guid + n - 8);
+            snprintf(out, cap, "Controller \xE2\x80\xA6%s", guid + n - 8);
         else
             snprintf(out, cap, "Controller %s", guid);
         return;
@@ -1292,6 +1309,9 @@ void launcher_binds_hydrate_psx_pad_names(LauncherModel* m) {
 
 void launcher_binds_sync_psx_pad_sources(LauncherModel* m,
                                          const LauncherPad* pads, int pad_count) {
+    const SystemProfile* ps2_profile=m?(const SystemProfile*)m->profile:NULL;
+    if(ps2_profile && ps2_profile->id && !strcmp(ps2_profile->id,"ps2")) return;
+
     if (!m || !is_psx_profile(m)) return;
     const char* path = psx_input_ini_path();
     const int nplayers = launcher_model_visible_player_count(m);
@@ -1457,6 +1477,9 @@ void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {
 
 void launcher_binds_prepare_psx_launch(LauncherModel* m,
                                        const LauncherPad* pads, int pad_count) {
+    const SystemProfile* ps2_profile=m?(const SystemProfile*)m->profile:NULL;
+    if(ps2_profile && ps2_profile->id && !strcmp(ps2_profile->id,"ps2")) return;
+
     if (!m || !is_psx_profile(m)) return;
     const char* path = psx_input_ini_path();
     for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {

@@ -96,6 +96,9 @@ function(_recomp_ui_utf8_manifest TGT)
         endif()
     endforeach()
     set(_manifest "${RECOMP_UI_ROOT}/windows/recomp_utf8.manifest")
+    # Resource scripts interpret backslashes as escapes. A caller's native
+    # Windows cache path can otherwise break the next configure/build.
+    file(TO_CMAKE_PATH "${_manifest}" _manifest)
     if(MSVC)
         target_sources(${TGT} PRIVATE "${_manifest}")
     else()

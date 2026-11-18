@@ -70,6 +70,9 @@ void launcher_binds_refresh(LauncherModel* m);
 // string. No-op on consoles without a pad-bind store.
 void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
                                    int kind, int code, int axis_dir);
+// GBA supports a second physical source per action; other stores accept slot 0.
+void launcher_binds_set_pad_button_slot(LauncherModel* m, int player, int b,
+                                        int slot, int kind, int code, int axis_dir);
 
 // Reset one player's keyboard bindings to defaults and persist.
 // (N64: resets the whole device TABLE the player's source selects.)
