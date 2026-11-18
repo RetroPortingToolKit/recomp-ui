@@ -62,6 +62,24 @@ static int test_comment_line_ignored(void) {
                   "comment line ignored");
 }
 
+static int test_inline_comments_stripped(void) {
+    const LauncherTheme t = themed("[colors]\naccent = #ECC57D ; gold\n"
+                                   "text = #112233 # hash comment\n"
+                                   "panel = #0F2547F0; tight\n"
+                                   "border = #445566\t; tab\n");
+    return expect(near(t.accent.r, 0xEC / 255.0f) && near(t.text.g, 0x22 / 255.0f) &&
+                  near(t.panel.a, 0xF0 / 255.0f) && near(t.border.b, 0x66 / 255.0f) &&
+                  parsed_count("[colors]\naccent = #ECC57D ; gold\ntext = #112233 # c\n"
+                               "panel = #0F2547F0; x\n") == 3,
+                  "inline ; and # comments are stripped");
+}
+
+static int test_inline_comment_does_not_hide_bad_value(void) {
+    return expect(parsed_count("[colors]\naccent = #ECC5 ; short\ntext = ; nothing\n"
+                               "border = #ECC57DAB12 ; long\n") == 0,
+                  "comment stripping does not make bad values valid");
+}
+
 static int test_missing_file_leaves_theme_unchanged(void) {
     LauncherTheme t = launcher_theme_psx();
     launcher_theme_load_game_overrides("/nonexistent/theme_game.ini");
@@ -93,6 +111,8 @@ int main(void) {
     ok &= test_keys_outside_colors_section_ignored();
     ok &= test_invalid_value_skipped_others_apply();
     ok &= test_comment_line_ignored();
+    ok &= test_inline_comments_stripped();
+    ok &= test_inline_comment_does_not_hide_bad_value();
     ok &= test_missing_file_leaves_theme_unchanged();
     ok &= test_load_file_applies();
     return ok ? 0 : 1;

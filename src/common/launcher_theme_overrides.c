@@ -43,6 +43,18 @@ static void trim(const char** begin, const char** end) {
     while (*end > *begin && isspace((unsigned char)(*end)[-1])) --*end;
 }
 
+// Drops a trailing comment from a value: ';' anywhere, or '#' after whitespace.
+// The value's own leading '#' (the color) is never a comment.
+static void strip_inline_comment(const char* begin, const char** end) {
+    for (const char* p = begin + 1; p < *end; ++p) {
+        if (*p == ';' || (*p == '#' && isspace((unsigned char)p[-1]))) {
+            *end = p;
+            break;
+        }
+    }
+    trim(&begin, end);
+}
+
 static int token_index(const char* key, size_t len) {
     for (int i = 0; i < LAUNCHER_THEME_OVERRIDE_TOKENS; ++i)
         if (strlen(k_tokens[i].key) == len && strncmp(k_tokens[i].key, key, len) == 0) return i;
@@ -72,6 +84,7 @@ static int parse_entry(const char* line, const char* end, LauncherThemeOverrides
     const char *kb = line, *ke = eq, *vb = eq + 1, *ve = end;
     trim(&kb, &ke);
     trim(&vb, &ve);
+    strip_inline_comment(vb, &ve);
     const int index = token_index(kb, (size_t)(ke - kb));
     LngColor color;
     if (index < 0 || !parse_color(vb, (size_t)(ve - vb), &color)) {

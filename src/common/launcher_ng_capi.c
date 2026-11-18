@@ -9,6 +9,7 @@
 
 #include "recomp_launcher.h"
 
+#include "launcher_assets_dir.h"
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_boot_timing.h"
@@ -169,19 +170,12 @@ fail:
 
 #define GAME_THEME_FILE "theme_game.ini"
 
-static int path_ends_with_assets(const char* dir) {
-    size_t n = strlen(dir);
-    while (n > 0 && (dir[n - 1] == '/' || dir[n - 1] == '\\')) --n;
-    return n >= 6 && strncmp(dir + n - 6, "assets", 6) == 0 &&
-           (n == 6 || dir[n - 7] == '/' || dir[n - 7] == '\\');
-}
-
-/* Hosts pass either the assets folder or the exe dir that holds it (#171). */
+/* assets_dir contract (assets folder or its base dir): launcher_assets_dir.h. */
 static void load_game_theme_from(const char* assets_dir) {
+    char folder[4096], path[4200];
     if (launcher_theme_game_overrides_loaded() || !assets_dir) return;
-    char path[4096];
-    const char* sub = path_ends_with_assets(assets_dir) ? "" : "assets/";
-    const int n = snprintf(path, sizeof path, "%s/%s" GAME_THEME_FILE, assets_dir, sub);
+    if (!launcher_assets_dir_resolve(assets_dir, folder, sizeof folder)) return;
+    const int n = snprintf(path, sizeof path, "%s/" GAME_THEME_FILE, folder);
     if (n > 0 && n < (int)sizeof path) launcher_theme_load_game_overrides(path);
 }
 
@@ -244,7 +238,7 @@ int recomp_launcher_run_window(const char* window_title,
     load_game_theme_from(assets_dir);
     LauncherTheme theme = launcher_theme_for_game(game ? game->theme : NULL);
 
-    launcher_backend_set_assets_directory(assets_dir);
+    launcher_backend_set_assets_directory(assets_dir);   /* contract: launcher_assets_dir.h */
     LngAction act = launcher_backend_run(&plat, &model, &theme);
     launcher_backend_set_assets_directory(NULL);
 

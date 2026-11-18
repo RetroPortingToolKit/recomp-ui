@@ -220,6 +220,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_boot_timing.c  # PSX_LAUNCHER_BOOT_TIMING / LNG_BOOT_TIMING
         ${RUI_SRC}/common/launcher_ng_capi.c   # implements recomp_launcher_run_window()
         ${RUI_SRC}/common/launcher_theme_overrides.c # per-game colors (THEME)
+        ${RUI_SRC}/common/launcher_assets_dir.c # assets_dir contract: base dir vs assets folder
         ${RUI_SRC}/common/launcher_launch_options.c
         ${RUI_SRC}/common/launcher_mod_text_path.c
         ${RUI_SRC}/common/launcher_i18n.cpp
