@@ -44,6 +44,9 @@ void rui_nes_binds_set(const char* path, int player, int b, int scancode);
 // Reset one player to the runner's defaults + persist.
 void rui_nes_binds_reset(const char* path, int player);
 
+// The key Reset puts on (player, b); 0 (unbound) for players without defaults.
+int rui_nes_binds_default(int player, int b);
+
 // Zapper switches ([zapper] mouse/crosshair; runner defaults: both ON).
 // _get auto-initializes from `path`; _set persists surgically.
 void rui_nes_zapper_get(const char* path, int* mouse_enabled, int* crosshair);

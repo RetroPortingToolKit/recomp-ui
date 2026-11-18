@@ -7,11 +7,23 @@
 #include <string.h>
 
 enum {
+    TEST_TRIANGLE = 4,
     TEST_CIRCLE = 5,
     TEST_CROSS = 6,
     TEST_KEY_S = 22,   /* SDL_SCANCODE_S: Circle's default key */
+    TEST_KEY_F = 9,    /* SDL_SCANCODE_F */
+    TEST_KEY_R = 21,   /* SDL_SCANCODE_R */
     TEST_MOUSE1 = 513
 };
+
+static void require(int condition, const char *message);
+static void write_text(const char *path, const char *text)
+{
+    FILE *file = fopen(path, "w");
+    require(file != NULL, "can write a profile fixture");
+    fputs(text, file);
+    fclose(file);
+}
 
 static void require(int condition, const char *message)
 {
@@ -97,6 +109,77 @@ int main(int argc, char **argv)
             "clearing Circle leaves Cross's alternate");
     require(file_contains(path, "circle    = None"),
             "the cleared Circle key is gone from disk too");
+
+    /* Load Profile: a Player 1 profile with a mouse primary and an alternate. */
+    {
+        char profile[1024], foreign[1024];
+        snprintf(profile, sizeof(profile), "%s.profile.ini", path);
+        snprintf(foreign, sizeof(foreign), "%s.foreign.ini", path);
+        write_text(profile, "[player1]\ncross     = Mouse1\ntriangle  = R, F\n");
+        write_text(foreign, "[general]\nvolume = 7\n");
+
+        require(rui_psx_binds_load_profile(path, 0, profile) == 1,
+                "a keybinds profile loads");
+        require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 0) == TEST_MOUSE1,
+                "loaded Cross is Mouse1");
+        require(rui_psx_binds_get_slot(path, 0, TEST_TRIANGLE, 0) == TEST_KEY_R &&
+                rui_psx_binds_get_slot(path, 0, TEST_TRIANGLE, 1) == TEST_KEY_F,
+                "loaded Triangle keeps its alternate");
+        require(rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 0) == TEST_KEY_S &&
+                rui_psx_binds_get_slot(path, 0, TEST_CIRCLE, 1) == 0,
+                "a key the profile omits takes the default");
+        require(file_contains(path, "Mouse1"),
+                "the loaded profile persists to keybinds.ini");
+
+        /* No [player2] section: Player 2 takes the [player1] map. */
+        require(rui_psx_binds_load_profile(path, 1, profile) == 1 &&
+                rui_psx_binds_get_slot(path, 1, TEST_CROSS, 0) == TEST_MOUSE1,
+                "a Player 1 profile loads onto Player 2");
+
+        /* A foreign file is refused and changes nothing. */
+        rui_psx_binds_set_slot(path, 0, TEST_CROSS, 0, TEST_KEY_S);
+        require(rui_psx_binds_load_profile(path, 0, foreign) == 0,
+                "a foreign ini is refused");
+        require(rui_psx_binds_get_slot(path, 0, TEST_CROSS, 0) == TEST_KEY_S &&
+                rui_psx_binds_get_slot(path, 1, TEST_CROSS, 0) == TEST_MOUSE1,
+                "a refused load leaves every player unchanged");
+        require(rui_psx_binds_load_profile(path, 0, "no-such-profile.ini") == 0,
+                "a missing file is refused");
+
+        /* Save Profile: one player's keys as a file that Load Profile takes
+         * back, for any player. Player 2 holds Cross = Mouse1, Triangle = R, F. */
+        {
+            char saved[1024];
+            snprintf(saved, sizeof(saved), "%s.saved.ini", path);
+            remove(saved);
+            require(rui_psx_binds_is_default(path, 0) == 0 &&
+                    rui_psx_binds_is_default(path, 2) == 1,
+                    "the default map is told from a changed one");
+            require(rui_psx_binds_matches_profile(path, 1, profile) == 1 &&
+                    rui_psx_binds_matches_profile(path, 0, profile) == 0 &&
+                    rui_psx_binds_matches_profile(path, 1, foreign) == 0,
+                    "a player's keys are compared with a profile file");
+            require(rui_psx_binds_save_profile(path, 1, saved) == 1,
+                    "a player's keys are saved as a profile");
+            require(file_contains(saved, "[player1]\n") && !file_contains(saved, "[player2]") &&
+                    file_contains(saved, "cross     = Mouse1\n") &&
+                    file_contains(saved, "triangle  = R, F\n"),
+                    "the saved profile is one [player1] section of key names");
+            require(rui_psx_binds_get_slot(path, 2, TEST_CROSS, 0) != TEST_MOUSE1 &&
+                    rui_psx_binds_load_profile(path, 2, saved) == 1 &&
+                    rui_psx_binds_get_slot(path, 2, TEST_CROSS, 0) == TEST_MOUSE1 &&
+                    rui_psx_binds_get_slot(path, 2, TEST_TRIANGLE, 1) == TEST_KEY_F,
+                    "a profile saved from Player 2 loads onto Player 3");
+            require(rui_psx_binds_matches_profile(path, 2, saved) == 1,
+                    "and then holds that player's keys");
+            require(rui_psx_binds_save_profile(path, 9, saved) == 0 &&
+                    rui_psx_binds_save_profile(path, 0, "") == 0,
+                    "a player or a file that is not there saves nothing");
+            remove(saved);
+        }
+        remove(profile);
+        remove(foreign);
+    }
 
     remove(path);
     /* PS2 hosts supply their keyboard defaults and retain ownership of all

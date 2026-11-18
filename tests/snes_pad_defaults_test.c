@@ -67,10 +67,25 @@ void rui_nes_camera_bind_reset(const char* path) { (void)path; }
 void rui_nes_camera_bind_set(const char* path, int action, int scancode) { (void)path; (void)action; (void)scancode; }
 void rui_nes_zapper_get(const char* path, int* mouse_enabled, int* crosshair) { (void)path; (void)mouse_enabled; (void)crosshair; }
 void rui_nes_zapper_set(const char* path, int mouse_enabled, int crosshair) { (void)path; (void)mouse_enabled; (void)crosshair; }
+int rui_kbp_dir(const RuiKbAdapter* a, char* out, int cap) { (void)a; (void)out; (void)cap; return 0; }
+int rui_kbp_list(const char* dir, char names[][RUI_KBP_NAME_MAX + 1], int max) { (void)dir; (void)names; (void)max; return 0; }
+int rui_kbp_in_use(const RuiKbAdapter* a, const char* dir, const char* keys_path, int player, char* out, int cap) { (void)a; (void)dir; (void)keys_path; (void)player; (void)out; (void)cap; return 0; }
+int rui_kbp_save_as(const RuiKbAdapter* a, const char* dir, const char* name, const char* keys_path, int player, int replace) { (void)a; (void)dir; (void)name; (void)keys_path; (void)player; (void)replace; return 0; }
+int rui_kbp_load(const RuiKbAdapter* a, const char* dir, const char* name, const char* keys_path, int player) { (void)a; (void)dir; (void)name; (void)keys_path; (void)player; return 0; }
+int rui_kbp_load_file(const RuiKbAdapter* a, const char* keys_path, int player, const char* src) { (void)a; (void)keys_path; (void)player; (void)src; return 0; }
+int rui_kbp_rename(const char* dir, const char* from, const char* to) { (void)dir; (void)from; (void)to; return 0; }
+int rui_kbp_delete(const char* dir, const char* name) { (void)dir; (void)name; return 0; }
+const RuiKbAdapter* rui_psx_kb_adapter(const char* console_id) { (void)console_id; return 0; }
+int rui_nes_binds_default(int player, int b) { (void)player; (void)b; return 0; }
+int rui_genesis_binds_default_key(int player, int b) { (void)player; (void)b; return 0; }
+int rui_gb_binds_default(int b, int slot) { (void)b; (void)slot; return 0; }
+void rui_n64_binds_default(int device, int b, int slot, int* out_type, int* out_id) { (void)device; (void)b; (void)slot; (void)out_type; (void)out_id; }
+SDL_Scancode recompui_keybinds_default_button(int player, int button) { (void)player; (void)button; return 0; }
 int rui_psx_binds_get_slot(const char* path, int player, int b, int slot) { (void)path; (void)player; (void)b; (void)slot; return 0; }
 void rui_psx_binds_init(const char* path) { (void)path; }
 void rui_psx_binds_reset(const char* path, int player) { (void)path; (void)player; }
 void rui_psx_binds_save(const char* path) { (void)path; }
+int rui_psx_binds_load_profile(const char* path, int player, const char* src) { (void)path; (void)player; (void)src; return 0; }
 void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int scancode) { (void)path; (void)player; (void)b; (void)slot; (void)scancode; }
 int rui_psx_pad_binds_deadzone(const char* path, const char* guid) { (void)path; (void)guid; return 0; }
 void rui_psx_pad_binds_delete(const char* path, const char* guid) { (void)path; (void)guid; }

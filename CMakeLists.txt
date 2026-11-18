@@ -387,6 +387,26 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_BINARY_DIR}/hotkey-store-test.ini")
     endif()
 
+    # Named keyboard profiles (common/kb_profiles.c through the PSX adapter):
+    # save as, load, rename, delete, the list, the built-in Default that none
+    # of them may change, host-supplied defaults, atomic writes and the cache of
+    # the profile in use. Its folder is a scratch folder of the build tree,
+    # never the user's.
+    add_executable(recomp-ui-psx-kb-profiles-test
+        tests/psx_kb_profiles_test.c
+        src/common/kb_profiles.c
+        src/consoles/psx/psx_kb_profiles.c
+        src/consoles/psx/psx_binds.c)
+    target_include_directories(recomp-ui-psx-kb-profiles-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-psx-kb-profiles-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-psx-kb-profiles-test PRIVATE ${RUI_SDL_DEFS})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/psx-kb-profiles-test")
+    add_test(
+        NAME recomp-ui-psx-kb-profiles
+        COMMAND $<TARGET_FILE:recomp-ui-psx-kb-profiles-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/psx-kb-profiles-test")
+
     # Multi-disc roster: sibling autofill + per-slot binding. Includes
     # launcher_model.c (not links it) to reach the static path rewriter, so the
     # model's own deps are compiled in alongside.
@@ -1116,6 +1136,8 @@ if(BUILD_TESTING)
         src/common/pad_binds.c
         src/consoles/nes/nes_binds.c
         src/consoles/psx/psx_binds.c
+        src/common/kb_profiles.c
+        src/consoles/psx/psx_kb_profiles.c
         src/consoles/psx/psx_pad_binds.c
         src/consoles/snes/snes_pad_binds.c
         src/consoles/n64/n64_binds.c
@@ -1135,6 +1157,41 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-nes-host-bindings
         COMMAND $<TARGET_FILE:recomp-ui-nes-host-bindings-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/nes-host-bindings")
+
+    # The launcher's side of the named keyboard profiles: the folder it reads
+    # per console, the key labels of the Controls page after a load, and the
+    # profiles of every console with a keyboard bind card (PSX, PS2, NES,
+    # Genesis, GB/GBC, N64, SNES, GBA, 3DO) but not a host-owned
+    # store. Links the real stores, as the test above.
+    add_executable(recomp-ui-launcher-kb-profiles-test
+        tests/launcher_kb_profiles_test.c
+        src/common/launcher_model.c
+        src/common/launcher_binds.c
+        src/common/keybinds.c
+        src/common/pad_binds.c
+        src/consoles/nes/nes_binds.c
+        src/consoles/psx/psx_binds.c
+        src/common/kb_profiles.c
+        src/consoles/psx/psx_kb_profiles.c
+        src/consoles/psx/psx_pad_binds.c
+        src/consoles/snes/snes_pad_binds.c
+        src/consoles/n64/n64_binds.c
+        src/consoles/n64/n64_pad_binds.c
+        src/consoles/genesis/genesis_binds.c
+        src/consoles/gb/gb_binds.c
+        src/consoles/psx/memcard_format.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c)
+    target_include_directories(recomp-ui-launcher-kb-profiles-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-kb-profiles-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-kb-profiles-test PRIVATE ${RUI_SDL_DEFS})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-kb-profiles-test")
+    add_test(NAME recomp-ui-launcher-kb-profiles
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-kb-profiles-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/launcher-kb-profiles-test")
 
     add_executable(recomp-runtime-ui-imgui-test
         tests/runtime_ui_imgui_test.cpp

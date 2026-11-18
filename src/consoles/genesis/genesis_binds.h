@@ -64,6 +64,9 @@ void rui_genesis_binds_set_pad(const char* path, int player, int b,
 // Reset one player to the engine defaults + persist.
 void rui_genesis_binds_reset(const char* path, int player);
 
+// The key Reset puts on (player, b); 0 (unbound) for players without defaults.
+int  rui_genesis_binds_default_key(int player, int b);
+
 #ifdef __cplusplus
 }
 #endif

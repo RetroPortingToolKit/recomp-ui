@@ -72,6 +72,9 @@ void rui_gb_binds_set(const char* path, int b, int scancode);
 // Reset all buttons, both slots, to gb-recompiled's defaults + persist.
 void rui_gb_binds_reset(const char* path);
 
+// The key Reset puts on (b, slot).
+int  rui_gb_binds_default(int b, int slot);
+
 #ifdef __cplusplus
 }
 #endif

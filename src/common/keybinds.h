@@ -84,6 +84,7 @@ SDL_Scancode recompui_keybinds_get_button(int player, int button);   /* player 1
 void         recompui_keybinds_set_button(int player, int button, SDL_Scancode sc);
 /* Reset one player's bindings to the built-in defaults (P2 = all unbound). */
 void         recompui_keybinds_reset_player(int player);
+SDL_Scancode recompui_keybinds_default_button(int player, int button);   /* what reset_player puts there */
 /* Persist the current bindings to keybinds.ini (same path recompui_keybinds_init
  * resolved; call recompui_keybinds_init first). */
 void         recompui_keybinds_save(void);

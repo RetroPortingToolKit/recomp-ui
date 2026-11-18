@@ -56,6 +56,8 @@ static SDL_Scancode s_psx_binds[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT]
  * UNKNOWN = no alt bound. */
 static SDL_Scancode s_psx_binds_alt[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
 static int s_psx_binds_init = 0;
+/* Bit p set when the last psx_kb_load_ini() saw a [player<p+1>] section. */
+static unsigned s_psx_kb_seen_players = 0;
 static int s_host_players = 0;
 static SDL_Scancode s_host_defaults[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
 
@@ -120,6 +122,19 @@ static const char* psx_kb_scancode_to_name(SDL_Scancode sc) {
     return (n && n[0]) ? n : "None";
 }
 
+// One player's 24 key lines, as keybinds.ini and a profile file both hold them.
+static void psx_kb_write_player_keys(FILE* f, int p) {
+    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
+        if (s_psx_binds_alt[p][b] != SDL_SCANCODE_UNKNOWN)
+            fprintf(f, "%-9s = %s, %s\n", kPsxKbKeyName[b],
+                    psx_kb_scancode_to_name(s_psx_binds[p][b]),
+                    psx_kb_scancode_to_name(s_psx_binds_alt[p][b]));
+        else
+            fprintf(f, "%-9s = %s\n", kPsxKbKeyName[b],
+                    psx_kb_scancode_to_name(s_psx_binds[p][b]));
+    }
+}
+
 static void psx_kb_write_ini(const char* path) {
     if (s_host_players) {
         /* Reuse the shared surgical writer instead of replacing the host's
@@ -148,15 +163,7 @@ static void psx_kb_write_ini(const char* path) {
         "# Use SDL key names, or \"None\" to leave an input unbound.\n\n");
     for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p) {
         fprintf(f, "[player%d]\n", p + 1);
-        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
-            if (s_psx_binds_alt[p][b] != SDL_SCANCODE_UNKNOWN)
-                fprintf(f, "%-9s = %s, %s\n", kPsxKbKeyName[b],
-                        psx_kb_scancode_to_name(s_psx_binds[p][b]),
-                        psx_kb_scancode_to_name(s_psx_binds_alt[p][b]));
-            else
-                fprintf(f, "%-9s = %s\n", kPsxKbKeyName[b],
-                        psx_kb_scancode_to_name(s_psx_binds[p][b]));
-        }
+        psx_kb_write_player_keys(f, p);
         fprintf(f, "\n");
     }
     fclose(f);
@@ -185,11 +192,20 @@ static int psx_kb_key_is_native_only(int b) {
 // Returns the count of NATIVE-ONLY keys matched (see above) — the caller
 // uses this to detect a foreign-format file instead of silently blending
 // its overlapping-name values into the defaults.
-static int psx_kb_load_ini(const char* path) {
+typedef SDL_Scancode PsxKbMap[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
+
+// Parses `path` over the maps given and reports the [player<N>] sections it
+// saw in `*seen_out`. Touches nothing else, so a profile file can be read
+// without disturbing the live map.
+static int psx_kb_parse_ini(const char* path, PsxKbMap binds, PsxKbMap binds_alt,
+                            unsigned* seen_out) {
     FILE* f = fopen(path, "r");
     if (!f) return 0;
     int player = -1;   // -1 none, 0..PSX_BINDS_MAX_PLAYERS-1
     int native_hits = 0;
+    unsigned seen_local = 0;
+    unsigned* seen = seen_out ? seen_out : &seen_local;
+    *seen = 0;
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         size_t n = strlen(line);
@@ -206,7 +222,10 @@ static int psx_kb_load_ini(const char* path) {
                 int npl = 0;
                 for (const char* c = section + 6; *c >= '0' && *c <= '9'; ++c)
                     npl = npl * 10 + (*c - '0');
-                if (npl >= 1 && npl <= PSX_BINDS_MAX_PLAYERS) player = npl - 1;
+                if (npl >= 1 && npl <= PSX_BINDS_MAX_PLAYERS) {
+                    player = npl - 1;
+                    *seen |= 1u << player;
+                }
             }
             continue;
         }
@@ -235,8 +254,8 @@ static int psx_kb_load_ini(const char* path) {
         }
         for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
             if (!strcmp(key, kPsxKbKeyName[b])) {
-                s_psx_binds[player][b] = psx_kb_name_to_scancode(val);
-                s_psx_binds_alt[player][b] =
+                binds[player][b] = psx_kb_name_to_scancode(val);
+                binds_alt[player][b] =
                     alt_val ? psx_kb_name_to_scancode(alt_val) : SDL_SCANCODE_UNKNOWN;
                 if (psx_kb_key_is_native_only(b)) ++native_hits;
                 break;
@@ -247,14 +266,26 @@ static int psx_kb_load_ini(const char* path) {
     return native_hits;
 }
 
+static int psx_kb_load_ini(const char* path) {
+    return psx_kb_parse_ini(path, s_psx_binds, s_psx_binds_alt, &s_psx_kb_seen_players);
+}
+
+/* The keys a player has after Reset: the host's own defaults when it supplied
+ * them (rui_psx_binds_host_defaults), else the built-in map. No alternate. */
+static void psx_kb_default_row(int p, SDL_Scancode* row, SDL_Scancode* row_alt) {
+    memcpy(row, (p < s_host_players) ? s_host_defaults[p] : kPsxDefaults,
+           sizeof(kPsxDefaults));
+    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
+        row_alt[b] = SDL_SCANCODE_UNKNOWN;   /* no alt by default */
+}
+
+static void psx_kb_seed_maps(PsxKbMap binds, PsxKbMap binds_alt) {
+    for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p)
+        psx_kb_default_row(p, binds[p], binds_alt[p]);
+}
+
 static void psx_kb_seed_defaults(void) {
-    for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p) {
-        memcpy(s_psx_binds[p], kPsxDefaults, sizeof(kPsxDefaults));
-        if (p < s_host_players)
-            memcpy(s_psx_binds[p], s_host_defaults[p], sizeof(kPsxDefaults));
-        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            s_psx_binds_alt[p][b] = SDL_SCANCODE_UNKNOWN;   /* no alt by default */
-    }
+    psx_kb_seed_maps(s_psx_binds, s_psx_binds_alt);
 }
 
 static int psx_kb_player_all_unbound(int player) {
@@ -291,22 +322,19 @@ void rui_psx_binds_init(const char* path) {
 }
 
 int rui_psx_binds_check_saved(const char* path) {
-    SDL_Scancode expected[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    SDL_Scancode expected_alt[PSX_BINDS_MAX_PLAYERS][LNG_PSX_PAD_BUTTON_COUNT];
-    memcpy(expected, s_psx_binds, sizeof(expected));
-    memcpy(expected_alt, s_psx_binds_alt, sizeof(expected_alt));
     /* Missing/partial writes cannot inherit the expected values by accident. */
+    PsxKbMap saved, saved_alt;
     for (int p = 0; p < PSX_BINDS_MAX_PLAYERS; ++p)
-        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            s_psx_binds[p][b] = (SDL_Scancode)-1;
-    int hits = psx_kb_load_ini(path);
+        for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
+            saved[p][b] = (SDL_Scancode)-1;
+            saved_alt[p][b] = SDL_SCANCODE_UNKNOWN;
+        }
+    int hits = psx_kb_parse_ini(path, saved, saved_alt, NULL);
     int players = s_host_players ? s_host_players : PSX_BINDS_MAX_PLAYERS;
     int ok = hits > 0;
     for (int p = 0; p < players; ++p)
         for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-            if (expected[p][b] != s_psx_binds[p][b]) ok = 0;
-    memcpy(s_psx_binds, expected, sizeof(expected));
-    memcpy(s_psx_binds_alt, expected_alt, sizeof(expected_alt));
+            if (s_psx_binds[p][b] != saved[p][b]) ok = 0;
     return ok;
 }
 
@@ -368,13 +396,86 @@ void rui_psx_binds_save(const char* path) {
     psx_kb_write_ini(path);
 }
 
+/* Load Profile: take one player's keyboard map from another keybinds.ini.
+ * The source section is [player<N>] for this player, else [player1], so a
+ * profile saved as Player 1 loads onto any player. Keys the section omits
+ * take the shared defaults, as they do on first load. Other players are
+ * untouched. A file with no native-only key is foreign-format and is
+ * refused, the same test rui_psx_binds_init() applies. */
+static int psx_kb_read_profile_row(const char* src, int player,
+                                   SDL_Scancode* row, SDL_Scancode* row_alt) {
+    PsxKbMap binds, binds_alt;
+    unsigned seen = 0;
+    psx_kb_seed_maps(binds, binds_alt);
+    const int native_hits = psx_kb_parse_ini(src, binds, binds_alt, &seen);
+    const int from = (seen & (1u << player)) ? player : ((seen & 1u) ? 0 : -1);
+    if (from >= 0) {
+        memcpy(row, binds[from], sizeof(binds[from]));
+        memcpy(row_alt, binds_alt[from], sizeof(binds_alt[from]));
+    }
+    return native_hits != 0 && from >= 0;
+}
+
+int rui_psx_binds_load_profile(const char* path, int player, const char* src) {
+    if (!src || !src[0] || player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return 0;
+    if (!s_psx_binds_init) rui_psx_binds_init(path);
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    if (!psx_kb_read_profile_row(src, player, row, row_alt)) return 0;
+    memcpy(s_psx_binds[player], row, sizeof(row));
+    memcpy(s_psx_binds_alt[player], row_alt, sizeof(row_alt));
+    psx_kb_write_ini(path);
+    return 1;
+}
+
+/* A profile file: one player's keys as a [player1] section, so that it loads
+ * onto any player and is the same text a keybinds.ini holds. */
+int rui_psx_binds_save_profile(const char* path, int player, const char* dst) {
+    if (!dst || !dst[0] || player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return 0;
+    if (!s_psx_binds_init) rui_psx_binds_init(path);
+    FILE* f = fopen(dst, "w");
+    if (!f) return 0;
+    fprintf(f,
+        "# psxrecomp keyboard profile: one player's keys (keyboard -> DualShock).\n"
+        "# The file name is the profile's name. Values are SDL key names, which\n"
+        "# name a key by its place on the keyboard; \"None\" leaves an input\n"
+        "# unbound; a second name after a comma is the alternate key.\n\n"
+        "[player1]\n");
+    psx_kb_write_player_keys(f, player);
+    const int failed = ferror(f);
+    return fclose(f) == 0 && !failed;
+}
+
+int rui_psx_binds_matches_profile(const char* path, int player, const char* src) {
+    if (!src || !src[0] || player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return 0;
+    if (!s_psx_binds_init) rui_psx_binds_init(path);
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    if (!psx_kb_read_profile_row(src, player, row, row_alt)) return 0;
+    return memcmp(row, s_psx_binds[player], sizeof(row)) == 0 &&
+           memcmp(row_alt, s_psx_binds_alt[player], sizeof(row_alt)) == 0;
+}
+
+int rui_psx_binds_default_key(int player, int b, int slot) {
+    if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS ||
+        b < 0 || b >= LNG_PSX_PAD_BUTTON_COUNT) return SDL_SCANCODE_UNKNOWN;
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    psx_kb_default_row(player, row, row_alt);
+    return (int)(slot == 1 ? row_alt[b] : row[b]);
+}
+
+/* Compares with what Reset puts there: the host's defaults when it has
+ * supplied them, else the built-in map. */
+int rui_psx_binds_is_default(const char* path, int player) {
+    if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return 0;
+    if (!s_psx_binds_init) rui_psx_binds_init(path);
+    SDL_Scancode row[LNG_PSX_PAD_BUTTON_COUNT], row_alt[LNG_PSX_PAD_BUTTON_COUNT];
+    psx_kb_default_row(player, row, row_alt);
+    return memcmp(s_psx_binds[player], row, sizeof(row)) == 0 &&
+           memcmp(s_psx_binds_alt[player], row_alt, sizeof(row_alt)) == 0;
+}
+
 void rui_psx_binds_reset(const char* path, int player) {
     if (player < 0 || player >= PSX_BINDS_MAX_PLAYERS) return;
     if (!s_psx_binds_init) rui_psx_binds_init(path);
-    memcpy(s_psx_binds[player], kPsxDefaults, sizeof(kPsxDefaults));
-    if (player < s_host_players)
-        memcpy(s_psx_binds[player], s_host_defaults[player], sizeof(kPsxDefaults));
-    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b)
-        s_psx_binds_alt[player][b] = SDL_SCANCODE_UNKNOWN;
+    psx_kb_default_row(player, s_psx_binds[player], s_psx_binds_alt[player]);
     psx_kb_write_ini(path);
 }

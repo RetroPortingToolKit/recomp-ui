@@ -210,6 +210,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_files.c
         ${RUI_SRC}/common/launcher_debug.c
         ${RUI_SRC}/common/launcher_binds.c
+        ${RUI_SRC}/common/kb_profiles.c        # named keyboard profiles (every console with a keyboard bind card)
         ${RUI_SRC}/common/pad_binds.c          # per-GUID input.ini store (all consoles)
         ${RUI_SRC}/common/launcher_udp_port.c  # host-lobby UDP port probe / auto-pick
         ${RUI_SRC}/common/launcher_cover.c     # the cover button: fetch with the system curl, check, save
@@ -239,6 +240,7 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/consoles/psx/memcard_format.c   # PS1 blank memory-card image writer
         ${RUI_SRC}/consoles/psx/psx_start_from.cpp # "Start from": a title's save states
         ${RUI_SRC}/consoles/psx/psx_binds.c        # PSX-native keybind persistence bridge
+        ${RUI_SRC}/consoles/psx/psx_kb_profiles.c  # PSX adapter of the named keyboard profiles
         ${RUI_SRC}/consoles/psx/psx_pad_binds.c    # PSX button table over common/pad_binds.c
         ${RUI_SRC}/consoles/psx/psx_menu_provider.cpp       # psxrecomp in-game menu provider (psx_menu_host.h)
         ${RUI_SRC}/consoles/psx/psx_menu_provider_imgui.cpp # its SDL input + ImGui presentation
