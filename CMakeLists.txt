@@ -156,6 +156,12 @@ if(BUILD_TESTING)
         src/common/crc32.c)
     target_include_directories(recomp-ui-ips-patch-test PRIVATE src/common)
     add_test(NAME recomp-ui-ips-patch COMMAND $<TARGET_FILE:recomp-ui-ips-patch-test>)
+    add_executable(recomp-ui-theme-overrides-test
+        tests/launcher_theme_overrides_test.c
+        src/common/launcher_theme_overrides.c)
+    target_include_directories(recomp-ui-theme-overrides-test PRIVATE src/common)
+    target_link_libraries(recomp-ui-theme-overrides-test PRIVATE m)
+    add_test(NAME recomp-ui-theme-overrides COMMAND $<TARGET_FILE:recomp-ui-theme-overrides-test>)
 
     # The photosensitivity flash guard. Pure arithmetic on two ARGB frames --
     # no SDL, no window, no ROM -- so it runs anywhere the rest of these do.
