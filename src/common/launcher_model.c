@@ -400,6 +400,45 @@ static void lm_warn_non_utf8_code_page(void) {
 }
 #endif
 
+/* The title's own writable folder: the folder of the host's settings file, with
+ * its last separator. A bare file name ("config.ini") has no folder part, so it
+ * resolves to the current folder -- taken now, as an absolute path, so a later
+ * chdir cannot move where covers and icons land. "" when there is no settings
+ * file or the folder cannot be had. */
+static void lm_user_dir_from_config(const char* cfg, char* out, size_t cap) {
+    const char* slash = cfg ? strrchr(cfg, '/') : NULL;
+    const char* back = cfg ? strrchr(cfg, '\\') : NULL;
+    size_t n;
+    out[0] = '\0';
+    if (!cfg || !cfg[0]) return;
+    if (back && (!slash || back > slash)) slash = back;
+    if (slash) {
+        n = (size_t)(slash - cfg + 1);
+        if (n < cap) { memcpy(out, cfg, n); out[n] = '\0'; }
+        return;
+    }
+#if defined(_WIN32)
+    {
+        wchar_t wide[1024];
+        const DWORD w = GetCurrentDirectoryW(1024, wide);
+        if (!w || w >= 1024 ||
+            !WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)cap, NULL, NULL)) {
+            out[0] = '\0';
+            return;
+        }
+    }
+#else
+    if (!getcwd(out, cap)) { out[0] = '\0'; return; }
+#endif
+    n = strlen(out);
+    if (n && n + 1 < cap && out[n - 1] != '/' && out[n - 1] != '\\') {
+        out[n] = '/';
+        out[n + 1] = '\0';
+    } else if (!n || n + 1 >= cap) {
+        out[0] = '\0';
+    }
+}
+
 void launcher_model_init(LauncherModel* m,
                          const RecompLauncherCSettings* io,
                          const RecompLauncherCGameInfo* game,
@@ -591,6 +630,8 @@ void launcher_model_init(LauncherModel* m,
         m->fmv_timing_busy_status = game->fmv_timing_busy_status;
         m->fmv_timing_success_status = game->fmv_timing_success_status;
         m->boxart_path          = game->boxart_path;      // NULL => default boxart.tga
+        lm_user_dir_from_config(game->config_path, m->user_dir, sizeof(m->user_dir));
+        m->cover_url_template   = game->cover_url_template;
         m->aspect_labels        = game->aspect_labels;    // NULL => built-in 4:3/16:9/21:9
         m->num_aspect_labels    = game->num_aspect_labels;
         m->aspect_experimental  = game->aspect_experimental != 0;
@@ -2092,6 +2133,10 @@ const char* launcher_model_record_replay_tooltip(const LauncherModel* m) {
 void launcher_model_toggle_record_replay(LauncherModel* m) {
     if (!launcher_model_record_replay_available(m)) return;
     m->s.record_replay = !m->s.record_replay;
+}
+
+const char* launcher_model_user_dir(const LauncherModel* m) {
+    return m ? m->user_dir : "";
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {

@@ -42,6 +42,8 @@
 #include "launcher_nav.h"
 #include "launcher_mod_button.h"
 #include "launcher_player_tabs.h" // the dashboard tab strips
+#include "launcher_cover.h"       // the cover button: fetch, check, save
+#include "launcher_icon.h"        // a desktop icon file from the cover or a save
 #if defined(LNG_SDL3)
   #include "imgui_impl_sdl3.h"
   #define LNG_ImplSDL_InitForOpenGL  ImGui_ImplSDL3_InitForOpenGL
@@ -2531,10 +2533,221 @@ void draw_artwork_gallery(LauncherModel* m,float height,float width) {
     }
 }
 
+// ---- cover and desktop icon -------------------------------------------------
+// Two small buttons at the top right of the disc panel. The first fetches the
+// cover of the mounted disc from the address the host names
+// (GameInfo.cover_url_template; no template, no button) and saves it in the
+// title's own folder; the cover slot shows it from then on, and the button is
+// gone once the title has box art. Nothing is fetched without the click, and
+// no cover is shipped. The second makes a desktop icon file from that cover,
+// or from the icon of the game's own save on a memory card (launcher_cover.h,
+// launcher_icon.h). Both need a known game folder (launcher_model_user_dir).
+static std::string g_cover_path;        // <title's folder>/launcher-cover.jpg
+static char        g_cover_line[200];   // what the last click did
+static double      g_cover_line_until;  // ImGui time until which the line shows
+static int         g_cover_tool = -1;   // this system has a curl: not asked yet
+static int         g_icon_save_card;    // the card (1 or 2) that holds a save of this title; 0 none
+static unsigned char g_icon_save_px[16 * 16 * 4];
+
+static std::string user_file(const LauncherModel* m, const char* leaf) {
+    return std::string(launcher_model_user_dir(m)) + leaf;
+}
+
+static void cover_say(const char* text) {
+    snprintf(g_cover_line, sizeof(g_cover_line), "%s", text);
+    g_cover_line_until = ImGui::GetTime() + 8.0;
+}
+
+// The saved cover into the cover slot, when it is there and is a picture.
+// The cover button is offered for PlayStation discs only: the source it
+// fetches from is keyed by PlayStation serial.
+static bool cover_applies(const LauncherModel* m) {
+    const SystemProfile* prof = (const SystemProfile*)m->profile;
+    return prof && prof->id && std::strcmp(prof->id, "psx") == 0;
+}
+
+static void cover_show(const LauncherModel* m) {
+    // No known game folder: nothing is read from, or written to, the current one.
+    g_cover_path = launcher_model_user_dir(m)[0] ? user_file(m, LAUNCHER_COVER_FILE) : std::string();
+    if (g_cover_path.empty()) return;
+    if (!launcher_cover_check_file(g_cover_path.c_str(), nullptr, nullptr)) return;
+    LauncherTexture t = launcher_texture_load(g_cover_path.c_str());
+    if (!t.id) return;
+    launcher_texture_free(&g_boxart);
+    g_boxart = t;
+}
+
+// The serials to ask the source for: the mounted disc's, and for a later disc
+// of a set the first disc's too (a set often has one cover, under disc 1).
+static int cover_serials(LauncherModel* m, char out[2][16]) {
+    int n = 0;
+    if (m->verify.serial[0]) snprintf(out[n++], 16, "%s", m->verify.serial);
+    if (launcher_model_disc_count(m) > 1 && launcher_model_disc_selected(m) > 0 &&
+        m->disc_verify_cb) {
+        RecompLauncherCDiscVerify first = {};
+        const char* path = launcher_model_disc_path(m, 0);
+        if (path && path[0] && m->disc_verify_cb(path, &first) && first.serial[0])
+            snprintf(out[n++], 16, "%s", first.serial);
+    }
+    return n;
+}
+
+// A small square button with a drawn picture: 0 the download arrow, 1 a
+// picture frame. Reached by the pad and the keyboard like any button.
+static bool corner_button(const char* id, float side, bool enabled, int picture,
+                          const LauncherTheme& th) {
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    if (!enabled) ImGui::BeginDisabled();
+    const bool clicked = ImGui::InvisibleButton(id, ImVec2(side, side), ImGuiButtonFlags_EnableNav);
+    if (!enabled) ImGui::EndDisabled();
+    const bool hot = enabled && ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p1(p0.x + side, p0.y + side);
+    dl->AddRectFilled(p0, p1, imcol(hot ? th.control_hovered : th.control), px(th.radius_sm));
+    dl->AddRect(p0, p1, imcol(th.border), px(th.radius_sm), 0, px(1.0f));
+    const ImU32 ink = imcol(enabled ? (hot ? th.accent : th.text) : th.text_muted, enabled ? 1.0f : 0.45f);
+    const float cx = p0.x + side * 0.5f, cy = p0.y + side * 0.5f, u = side / 30.0f;
+    if (picture == 0) {   // an arrow into a tray
+        dl->AddLine(ImVec2(cx, cy - 8 * u), ImVec2(cx, cy + 3 * u), ink, 2.0f * u);
+        dl->AddLine(ImVec2(cx - 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
+        dl->AddLine(ImVec2(cx + 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
+        dl->AddLine(ImVec2(cx - 8 * u, cy + 4 * u), ImVec2(cx - 8 * u, cy + 8 * u), ink, 2.0f * u);
+        dl->AddLine(ImVec2(cx - 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 8 * u), ink, 2.0f * u);
+        dl->AddLine(ImVec2(cx + 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 4 * u), ink, 2.0f * u);
+    } else {              // a frame with a picture in it
+        dl->AddRect(ImVec2(cx - 8 * u, cy - 8 * u), ImVec2(cx + 8 * u, cy + 8 * u), ink, 3.0f * u, 0, 2.0f * u);
+        dl->AddRectFilled(ImVec2(cx - 4 * u, cy - 4 * u), ImVec2(cx + 4 * u, cy + 4 * u), ink, 1.0f * u);
+    }
+    return clicked;
+}
+
+// Writes launcher-icon.ico and launcher-icon.png from a picture and says so.
+static void icon_write(const LauncherModel* m, const unsigned char* rgba, int w, int h, bool hard) {
+    const std::string ico = user_file(m, LAUNCHER_ICON_ICO), png = user_file(m, LAUNCHER_ICON_PNG);
+    const bool ok = launcher_icon_write_ico(ico.c_str(), rgba, w, h, hard ? 1 : 0) != 0;
+    launcher_icon_write_png(png.c_str(), rgba, w, h, 256, hard ? 1 : 0);
+    char line[200];
+    if (ok) snprintf(line, sizeof(line), "%s %s", ui_text("Icon saved in the game folder:"), LAUNCHER_ICON_ICO);
+    else    snprintf(line, sizeof(line), "%s", ui_text("The icon could not be saved in the game folder."));
+    cover_say(line);
+}
+
+// The two buttons, at the top right of a panel whose content starts at
+// `corner` and is `availw` wide. The cursor is put back where it was.
+static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2 corner, float availw) {
+    const float side = px(30.0f);
+    const ImVec2 back = ImGui::GetCursorPos();
+    if (g_cover_tool < 0) g_cover_tool = launcher_cover_tool_available() ? 1 : 0;
+
+    // A fetch that has ended: show the cover, say what happened.
+    char used[16] = "";
+    const int state = launcher_cover_job_poll(used);
+    if (launcher_cover_job_take_finished()) {
+        if (state == LNG_COVER_SAVED) cover_show(m);
+        cover_say(ui_text(launcher_cover_state_text(state)));
+    }
+    const bool busy = state == LNG_COVER_BUSY;
+    const bool have_dir = launcher_model_user_dir(m)[0] != 0;
+    if (have_dir && g_cover_path.empty()) g_cover_path = user_file(m, LAUNCHER_COVER_FILE);
+
+    // Offered only while the host names a source and the title has no box art:
+    // its own, a fetched cover, or a gallery of the player's pictures.
+    const bool have_art = g_boxart.id != 0 || !g_artwork.textures.empty();
+    const bool offer_fetch = launcher_cover_fetch_offered(m->cover_url_template, have_art) != 0;
+    float y = corner.y;
+    if (offer_fetch) {
+        ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
+        y += side + px(6.0f);
+        if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy && have_dir, 0, th)) {
+            char serials[2][16];
+            const int n = cover_serials(m, serials);
+            const char* list[2] = { serials[0], serials[1] };
+            if (n == 0)
+                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_NO_SERIAL)));
+            else if (launcher_cover_job_start(m->cover_url_template, list, n, g_cover_path.c_str(),
+                                              nullptr, nullptr))
+                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_BUSY)));
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort)) {
+            if (!have_dir)
+                ImGui::SetTooltip("%s", ui_text("The game folder is not known, so a cover cannot be saved."));
+            else if (g_cover_tool == 1)
+                ImGui::SetTooltip("%s", ui_text(
+                    "Downloads this game's cover and saves it in the\n"
+                    "game folder (" LAUNCHER_COVER_FILE ")."));
+            else
+                ImGui::SetTooltip("%s", ui_text(launcher_cover_state_text(LNG_COVER_NO_TOOL)));
+        }
+    }
+
+    ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
+    if (corner_button("##desk_icon", side, have_dir, 1, th)) {
+        // What the menu can offer is looked up once, as it opens.
+        char serials[2][16];
+        const int n = cover_serials(m, serials);
+        const char* list[2] = { serials[0], serials[1] };
+        g_icon_save_card = 0;
+        for (int slot = 0; slot < 2 && !g_icon_save_card && n > 0; ++slot)
+            if (m->s.memcard_path[slot][0] &&
+                launcher_icon_from_memcard(m->s.memcard_path[slot], list, n, g_icon_save_px, nullptr))
+                g_icon_save_card = slot + 1;
+        ImGui::OpenPopup("##desk_icon_menu");
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("%s", ui_text(have_dir
+            ? "Makes a desktop icon file for this game, from its cover\n"
+              "or from the icon of its save on a memory card."
+            : "The game folder is not known, so an icon cannot be saved."));
+    if (ImGui::BeginPopup("##desk_icon_menu")) {
+        const bool has_cover = launcher_cover_check_file(g_cover_path.c_str(), nullptr, nullptr) != 0;
+        if (!has_cover) ImGui::BeginDisabled();
+        if (ImGui::Selectable(ui_text("Icon from the cover")) && has_cover) {
+            int w = 0, h = 0;
+            if (unsigned char* rgba = launcher_image_load_rgba(g_cover_path.c_str(), &w, &h)) {
+                icon_write(m, rgba, w, h, false);
+                launcher_image_free(rgba);
+            } else {
+                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_BAD_IMAGE)));
+            }
+        }
+        if (!has_cover) ImGui::EndDisabled();
+        if (g_icon_save_card) {
+            char label[64];
+            snprintf(label, sizeof(label), "%s (%s %d)", ui_text("Icon from the game's save"),
+                     ui_text("Card"), g_icon_save_card);
+            if (ImGui::Selectable(label)) icon_write(m, g_icon_save_px, 16, 16, true);
+        }
+        ImGui::Separator();
+        ImGui::TextColored(col(th.text_muted), "%s",
+                           ui_text(has_cover ? "The file is " LAUNCHER_ICON_ICO " in the game folder.\n"
+                                               "Use it in your shortcut: Properties, Change Icon."
+                                             : "No cover file in the game folder yet. A save of this\n"
+                                               "game on a memory card gives its save icon."));
+        ImGui::EndPopup();
+    }
+    ImGui::SetCursorPos(back);
+}
+
+// The line of the last click, over the lower edge of the cover slot, so that
+// it moves nothing on the panel.
+static void draw_cover_line(const LauncherTheme& th, ImVec2 slot_min, ImVec2 slot_max, float x0, float x1) {
+    if (!g_cover_line[0] || ImGui::GetTime() > g_cover_line_until) return;
+    const ImVec2 ts = ImGui::CalcTextSize(g_cover_line, nullptr, false, x1 - x0 - px(12.0f));
+    const ImVec2 a(x0, slot_max.y - ts.y - px(10.0f)), b(x1, slot_max.y);
+    (void)slot_min;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(a, b, imcol(th.panel, 0.92f), px(4.0f));
+    dl->AddRect(a, b, imcol(th.border), px(4.0f), 0, px(1.0f));
+    dl->AddText(nullptr, 0.0f, ImVec2(x0 + px(6.0f), a.y + px(5.0f)), imcol(th.text), g_cover_line,
+                nullptr, x1 - x0 - px(12.0f));
+}
+
 void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = false) {
     if (!begin_panel("game", 0, fill_h)) { end_panel(); return; }
     // No "GAME" eyebrow: the box art itself tells the user this is the game.
     const float availw = ImGui::GetContentRegionAvail().x;
+    const ImVec2 corner = ImGui::GetCursorPos();
+    const ImVec2 corner_screen = ImGui::GetCursorScreenPos();
 
     // Verify module: verify.mode==1 systems (PSX) render a disc-verdict block
     // (icon + Serial/Region/ISO checklist) here instead of the CRC/SHA line;
@@ -2594,6 +2807,13 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
                 draw_artwork_gallery(m, art_h, availw);
             } else {
                 hero_boxart_centered(g_boxart, art_h, availw);
+            }
+            // The cover button and the desktop-icon button beside the cover
+            // slot, and the line of the last click over its lower edge.
+            if (disc_verdict && cover_applies(m)) {
+                draw_cover_line(th, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                corner_screen.x, corner_screen.x + availw);
+                draw_cover_buttons(m, th, corner, availw);
             }
             ImGui::Dummy(ImVec2(0, px(10)));
         }
@@ -16201,6 +16421,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     g_boxart = launcher_texture_load(
         asset(m->boxart_path && m->boxart_path[0] ? m->boxart_path
                                                   : "assets/img/boxart.tga").c_str());
+    // A cover the player fetched (the cover button) goes in front of it.
+    if (cover_applies(m)) cover_show(m);
     // Controller art comes from the active SystemProfile's ControllerSpec —
     // never hardcoded console filenames in this common backend. Conventions:
     // a 32-bit TGA carries real alpha -> the plain alpha-respecting loader;

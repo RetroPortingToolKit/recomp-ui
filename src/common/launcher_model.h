@@ -368,6 +368,12 @@ typedef struct {
     // Box-art path relative to the assets dir (GameInfo.boxart_path);
     // NULL => the default "assets/img/boxart.tga".
     const char* boxart_path;
+    // The title's own writable folder, with its last separator: the folder of
+    // the host's settings file (GameInfo.config_path). See
+    // launcher_model_user_dir(); "" = unknown.
+    char        user_dir[512];
+    // GameInfo.cover_url_template (borrowed; NULL = no cover source, no button).
+    const char* cover_url_template;
 
     // ---- N64 Transfer Pak --------------------------------------------------
     // Per-slot facts refreshed via tpak_inspect_cb (the HOST's cartridge
@@ -996,6 +1002,12 @@ bool launcher_model_record_replay_available(const LauncherModel* m);
 const char* launcher_model_record_replay_tooltip(const LauncherModel* m);
 #define LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT \
     "Record this session's inputs to a replay file."
+// The title's own writable folder, ending in its separator: where the launcher
+// saves a fetched cover and a made icon. It is the folder of the host's
+// settings file; a bare file name resolves to the current folder as it was when
+// the model was built, as an absolute path. "" when there is no settings file
+// or its folder cannot be resolved: the cover and icon buttons are then off.
+const char* launcher_model_user_dir(const LauncherModel* m);
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields

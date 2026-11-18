@@ -212,6 +212,8 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_binds.c
         ${RUI_SRC}/common/pad_binds.c          # per-GUID input.ini store (all consoles)
         ${RUI_SRC}/common/launcher_udp_port.c  # host-lobby UDP port probe / auto-pick
+        ${RUI_SRC}/common/launcher_cover.c     # the cover button: fetch with the system curl, check, save
+        ${RUI_SRC}/common/launcher_icon.c      # a desktop icon file from the cover or from a save's icon
         ${RUI_SRC}/common/recomp_runtime_ui.c # renderer-agnostic in-game overlay
         ${RUI_SRC}/common/recomp_runtime_settings.c # shared cross-ecosystem setting catalog
         ${RUI_SRC}/common/recomp_frame_blend.c # shared presentation blend (Settings.frame_blend)
