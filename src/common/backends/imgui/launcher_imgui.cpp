@@ -13,6 +13,7 @@
 //       breakpoint switches the dashboard between two columns and one column.
 
 #include "card_manager_support.hpp"
+#include "launcher_assets_dir.h"
 #include "launcher_backend.h"
 #include "launcher_boot_timing.h"
 #include "launcher_gl.h"
@@ -15476,10 +15477,11 @@ std::string asset(const char* rel) {
     std::string path = normalized_path(rel);
     if (is_absolute_path(path)) return path;
     if (!s_assets_directory.empty()) {
-        std::filesystem::path root=std::filesystem::u8path(s_assets_directory);
-        if (!root.has_filename()) root=root.parent_path();   // tolerate a trailing slash
-        // Hosts pass either the assets folder itself or the exe dir that holds it (psxrecomp).
-        if (root.filename()!="assets") return (root/std::filesystem::u8path(path)).u8string();
+        // assets_dir is the assets folder itself, or (probed, see launcher_assets_dir.h)
+        // the base dir that contains assets/.
+        char resolved[4096];
+        if (!launcher_assets_dir_resolve(s_assets_directory.c_str(), resolved, sizeof resolved)) return path;
+        std::filesystem::path root=std::filesystem::u8path(resolved);
         if (path.rfind("assets/",0)==0) return (root/std::filesystem::u8path(path.substr(7))).u8string();
         return (root.parent_path()/std::filesystem::u8path(path)).u8string();
     }

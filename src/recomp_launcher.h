@@ -2584,6 +2584,13 @@ typedef struct RecompLauncherCGameInfo {
 // Either way it writes "<record>.status" -- {"ok":true} or
 // {"ok":false,"why":"..."} -- for the process that wrote the record.
 //
+// assets_dir: where the launcher finds its artwork/fonts/etc. Either the assets
+// folder itself (any name; the long-standing contract) or the base directory
+// that CONTAINS an `assets/` folder, e.g. the exe dir. If <assets_dir>/assets
+// is a directory it is taken as the base; otherwise assets_dir is the assets
+// folder. Trailing separators are ignored. NULL/"" = next to the executable.
+// UTF-8. See src/common/launcher_assets_dir.h.
+//
 // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),
 //          1 = QUIT (caller should exit; *io still holds the edits),
 //          2 = UNAVAILABLE (assets/GL failed — caller boots as if skipped),

@@ -224,7 +224,7 @@ int recomp_launcher_run_window(const char* window_title,
 
     LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
 
-    launcher_backend_set_assets_directory(assets_dir);
+    launcher_backend_set_assets_directory(assets_dir);   /* contract: launcher_assets_dir.h */
     LngAction act = launcher_backend_run(&plat, &model, &theme);
     launcher_backend_set_assets_directory(NULL);
 

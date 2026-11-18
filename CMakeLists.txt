@@ -818,8 +818,20 @@ if(BUILD_TESTING)
     set_tests_properties(recomp-ui-launcher-rom-persistence PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-rom-persistence-test")
 
-    add_executable(recomp-ui-launcher-rom-identity-test
-        tests/launcher_rom_identity_test.c
+    add_executable(recomp-ui-launcher-assets-dir-test
+        tests/launcher_assets_dir_test.c
+        src/common/launcher_assets_dir.c)
+    target_include_directories(recomp-ui-launcher-assets-dir-test PRIVATE src/common)
+    if(MSVC)
+        target_compile_options(recomp-ui-launcher-assets-dir-test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(recomp-ui-launcher-assets-dir-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME recomp-ui-launcher-assets-dir
+        COMMAND recomp-ui-launcher-assets-dir-test
+                "${CMAKE_CURRENT_BINARY_DIR}/assets-dir-test-$<CONFIG>")
+
+    add_executable(recomp-ui-launcher-rom-identity-test        tests/launcher_rom_identity_test.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -892,6 +904,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_assets_dir.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -912,6 +925,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-netplay-handoff-test
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
+        src/common/launcher_assets_dir.c
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
