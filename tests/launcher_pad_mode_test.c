@@ -204,6 +204,66 @@ static void test_genesis_custom_mode_list(void) {
     free(m);
 }
 
+/* ---- every seat owns its pad type ---------------------------------------- */
+/* A Multitap title draws a pad type row on the card of every seat. The row of
+ * seat N must set seat N: the setter once clamped the seat to the first two,
+ * so the rows of players 3 and up changed Player 2 and their own seat could
+ * not be set at all. Genesis has two pad types on every seat, so it shows it. */
+static LauncherModel* multitap_session(int players) {
+    static RecompLauncherCGameInfo game;
+    static RecompLauncherCSettings io;
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return NULL; }
+
+    memset(&game, 0, sizeof(game));
+    launcher_profile_apply_genesis(&game);
+    game.name = "Seat Fixture";
+    game.num_players = players;
+
+    memset(&io, 0, sizeof(io));
+    io.multitap_enabled = 1;
+    for (int p = 0; p < RECOMP_LAUNCHER_MAX_PLAYERS; ++p) {
+        io.player_src[p] = SRC_GAMEPAD;
+        io.pad_mode[p] = kGenesisPadModes[0].mode;
+    }
+
+    launcher_model_init(m, &io, &game, NULL);
+    return m;
+}
+
+static void test_pad_type_row_sets_its_own_seat(void) {
+    const int six = kGenesisPadModes[1].mode, three = kGenesisPadModes[0].mode;
+    for (int seat = 0; seat < 4; ++seat) {
+        LauncherModel* m = multitap_session(4);
+        char what[96];
+        if (!m) return;
+        launcher_model_set_pad_mode(m, seat, six);
+        for (int q = 0; q < 4; ++q) {
+            snprintf(what, sizeof(what), "6-Button on Player %d's card: Player %d is %s",
+                     seat + 1, q + 1, q == seat ? "6-Button" : "still 3-Button");
+            expect_mode(m, q, q == seat ? six : three, what);
+        }
+        free(m);
+    }
+}
+
+static void test_seat_rows_follow_their_own_mode(void) {
+    /* The rows a seat's Controls page shows follow the mode of that seat. */
+    LauncherModel* m = multitap_session(4);
+    if (!m) return;
+    launcher_model_set_pad_mode(m, 2, kGenesisPadModes[1].mode);
+    expect_mode(m, 2, kGenesisPadModes[1].mode, "Player 3 takes 6-Button");
+    expect_mode(m, 1, kGenesisPadModes[0].mode, "Player 2 keeps 3-Button");
+    expect(launcher_model_active_button_count(m, 2) == kGenesisPadModes[1].button_count,
+           "Player 3's page shows the 6-Button rows");
+    expect(launcher_model_active_button_count(m, 1) == kGenesisPadModes[0].button_count,
+           "Player 2's page shows the 3-Button rows");
+    launcher_model_set_pad_mode(m, 1, kGenesisPadModes[1].mode);
+    expect(launcher_model_active_button_count(m, 3) == kGenesisPadModes[0].button_count,
+           "Player 4's page does not follow Player 2's mode");
+    free(m);
+}
+
 int main(void) {
     test_locked_analog_keyboard_seat();
     test_locked_analog_poisoned_settings();
@@ -213,6 +273,8 @@ int main(void) {
     test_unlocked_hybrid_migrates();
     test_legacy_digital_migrates_to_auto();
     test_genesis_custom_mode_list();
+    test_pad_type_row_sets_its_own_seat();
+    test_seat_rows_follow_their_own_mode();
     if (fails) { fprintf(stderr, "\n%d FAILED\n", fails); return 1; }
     printf("\nall passed\n");
     return 0;
