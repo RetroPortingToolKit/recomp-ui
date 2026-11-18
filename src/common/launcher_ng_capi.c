@@ -31,6 +31,10 @@ void recomp_launcher_set_preserve_sdl(int preserve) {
     launcher_platform_set_quit_sdl(!preserve);
 }
 
+void recomp_launcher_set_window_hidden(int hidden) {
+    launcher_platform_set_hidden_window(hidden != 0);
+}
+
 int recomp_launcher_relaunch_exe(char* out, size_t out_cap) {
     if (!out || out_cap == 0 || !g_last_relaunch_exe[0])
         return 0;
@@ -168,7 +172,6 @@ int recomp_launcher_run_window(const char* window_title,
                              const char* assets_dir,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len) {
-    (void)assets_dir;   // launcher_ng resolves assets next to the exe (SDL base path)
     g_last_relaunch_exe[0] = '\0';
 
     /* Packaging self-test (RECOMP_UI_PICKER_SELFTEST): exercise the native
@@ -221,7 +224,9 @@ int recomp_launcher_run_window(const char* window_title,
 
     LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
 
+    launcher_backend_set_assets_directory(assets_dir);
     LngAction act = launcher_backend_run(&plat, &model, &theme);
+    launcher_backend_set_assets_directory(NULL);
 
     launcher_window_size_save(window_size_path, plat.logical_w, plat.logical_h);
     launcher_platform_close(&plat);
