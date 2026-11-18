@@ -6057,10 +6057,12 @@ static void bind_row_label(const char* label, const ImVec4& colour,
     ImGui::SameLine(0.0f, pad > min_gap ? pad : min_gap);
 }
 
-/* ---- named keyboard profiles (PSX) ---------------------------------------
- * On the keyboard bindings card: a list of the profiles, and Load, Save as,
- * Rename and Delete. A profile is one player's keys under a name, kept in a
- * folder of the user that every game reads (consoles/psx/psx_kb_profiles.h).
+/* ---- named keyboard profiles ---------------------------------------------
+ * On the keyboard bindings card of every console whose keys the launcher can
+ * read and write (launcher_binds_kb_profiles_supported): a list of the
+ * profiles, and Load, Save as, Rename and Delete. A profile is one player's
+ * keys under a name, kept in a folder of the user that every game of the
+ * console reads (common/kb_profiles.h).
  * "Default" is the built-in map: it loads, and nothing else can be done to it.
  *
  * Choosing a name in the list changes nothing: Load puts its keys on the
@@ -6070,21 +6072,21 @@ static void bind_row_label(const char* label, const ImVec4& colour,
  *
  * It is drawn in the row under the grid, after Map All Bindings and Reset to
  * Defaults, so that it costs no line in a wide window. */
-struct PsxKbProfileRow {
+struct KbProfileRow {
     int      player = -1;      // the player the row was last read for
     uint32_t keys = 0;         // stamp of that player's bind labels
     bool     stale = true;     // the folder changed: read the list again
-    char     names[64][RUI_PSX_KB_PROFILE_NAME_MAX + 1] = {};
+    char     names[64][RUI_KBP_NAME_MAX + 1] = {};
     int      count = 0;
-    char     selected[RUI_PSX_KB_PROFILE_NAME_MAX + 1] = "";
-    char     in_use[RUI_PSX_KB_PROFILE_NAME_MAX + 1] = "";
-    char     edit[RUI_PSX_KB_PROFILE_NAME_MAX + 1] = "";
+    char     selected[RUI_KBP_NAME_MAX + 1] = "";
+    char     in_use[RUI_KBP_NAME_MAX + 1] = "";
+    char     edit[RUI_KBP_NAME_MAX + 1] = "";
     bool     save_open = false, rename_open = false, delete_open = false;
     char     note[200] = "";
     bool     note_bad = false;
     double   note_until = 0.0;
 };
-static PsxKbProfileRow g_kb_profiles;
+static KbProfileRow g_kb_profiles;
 
 static bool kb_profile_same_name(const char* a, const char* b) {
     for (;; ++a, ++b) {
@@ -6094,30 +6096,25 @@ static bool kb_profile_same_name(const char* a, const char* b) {
 }
 
 // The list's own spelling of a name, or nullptr when no profile has it.
-static const char* kb_profile_listed(const PsxKbProfileRow& row, const char* name) {
+static const char* kb_profile_listed(const KbProfileRow& row, const char* name) {
     for (int i = 0; i < row.count; ++i)
         if (kb_profile_same_name(row.names[i], name)) return row.names[i];
     return nullptr;
 }
 
+/* A hash of the keys in the store, not of the labels: it is cheap (a few dozen
+ * in-memory reads) and cannot miss a change the labels do not show. */
 static uint32_t kb_profile_keys_stamp(const LauncherModel* m, int p) {
-    uint32_t h = 2166136261u;
-    for (int b = 0; b < LNG_PSX_PAD_BUTTON_COUNT; ++b) {
-        for (const char* s = m->binds[p][b]; *s; ++s) h = (h ^ (unsigned char)*s) * 16777619u;
-        h = (h ^ 0xFFu) * 16777619u;
-        for (const char* s = m->binds_alt[p][b]; *s; ++s) h = (h ^ (unsigned char)*s) * 16777619u;
-        h = (h ^ 0xFEu) * 16777619u;
-    }
-    return h;
+    return launcher_binds_kb_keys_stamp(m, p + 1);
 }
 
 static void kb_profile_read(LauncherModel* m, int p) {
-    PsxKbProfileRow& row = g_kb_profiles;
-    row.count = launcher_binds_psx_kb_profile_list(m, row.names, 64);
-    launcher_binds_psx_kb_profile_in_use(m, p + 1, row.in_use, (int)sizeof(row.in_use));
+    KbProfileRow& row = g_kb_profiles;
+    row.count = launcher_binds_kb_profile_list(m, row.names, 64);
+    launcher_binds_kb_profile_in_use(m, p + 1, row.in_use, (int)sizeof(row.in_use));
     const char* kept = row.player == p ? kb_profile_listed(row, row.selected) : nullptr;
     std::snprintf(row.selected, sizeof(row.selected), "%s",
-                  kept ? kept : row.in_use[0] ? row.in_use : RUI_PSX_KB_PROFILE_DEFAULT);
+                  kept ? kept : row.in_use[0] ? row.in_use : RUI_KBP_DEFAULT);
     row.player = p;
     row.keys = kb_profile_keys_stamp(m, p);
     row.stale = false;
@@ -6125,21 +6122,21 @@ static void kb_profile_read(LauncherModel* m, int p) {
 
 // What the row says after an action, for three seconds.
 static void kb_profile_note(int result, const char* done, const char* name) {
-    PsxKbProfileRow& row = g_kb_profiles;
-    row.note_bad = result != RUI_PSX_KBP_OK;
+    KbProfileRow& row = g_kb_profiles;
+    row.note_bad = result != RUI_KBP_OK;
     switch (result) {
-    case RUI_PSX_KBP_OK:
+    case RUI_KBP_OK:
         std::snprintf(row.note, sizeof(row.note), "%s: %s", done, name); break;
-    case RUI_PSX_KBP_BAD_NAME:
+    case RUI_KBP_BAD_NAME:
         std::snprintf(row.note, sizeof(row.note), "Not a profile name."); break;
-    case RUI_PSX_KBP_PROTECTED:
+    case RUI_KBP_PROTECTED:
         std::snprintf(row.note, sizeof(row.note),
                       "Default is built in. It cannot be replaced, renamed or deleted."); break;
-    case RUI_PSX_KBP_EXISTS:
+    case RUI_KBP_EXISTS:
         std::snprintf(row.note, sizeof(row.note), "A profile of that name exists."); break;
-    case RUI_PSX_KBP_NOT_FOUND:
+    case RUI_KBP_NOT_FOUND:
         std::snprintf(row.note, sizeof(row.note), "That profile is no longer in the folder."); break;
-    case RUI_PSX_KBP_NOT_A_PROFILE:
+    case RUI_KBP_NOT_A_PROFILE:
         std::snprintf(row.note, sizeof(row.note), "That file holds no keys; keys unchanged."); break;
     default:
         std::snprintf(row.note, sizeof(row.note), "The profile could not be read or written."); break;
@@ -6152,7 +6149,7 @@ static void kb_profile_note(int result, const char* done, const char* name) {
 // and the line under the box. Returns true when the name can be used.
 static bool kb_profile_name_box(const LauncherTheme& th, const char* id, char* name,
                                 size_t name_cap, const char* taken_text, bool taken_ok) {
-    PsxKbProfileRow& row = g_kb_profiles;
+    KbProfileRow& row = g_kb_profiles;
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(px(320));
     ImGui::InputText(id, row.edit, sizeof(row.edit));
@@ -6160,14 +6157,14 @@ static bool kb_profile_name_box(const LauncherTheme& th, const char* id, char* n
     while (*first == ' ') ++first;
     std::snprintf(name, name_cap, "%s", first);
     for (size_t n = std::strlen(name); n > 0 && name[n - 1] == ' '; --n) name[n - 1] = '\0';
-    const int checked = rui_psx_kb_profile_check_name(name);
+    const int checked = rui_kbp_check_name(name);
     const char* same = kb_profile_listed(row, name);
     const bool taken = same && !kb_profile_same_name(same, taken_ok ? "" : row.selected);
     const char* line = " ";
     bool usable = false;
     if (!name[0]) line = " ";
-    else if (checked == RUI_PSX_KBP_PROTECTED) line = "Default is built in and cannot be replaced.";
-    else if (checked != RUI_PSX_KBP_OK)
+    else if (checked == RUI_KBP_PROTECTED) line = "Default is built in and cannot be replaced.";
+    else if (checked != RUI_KBP_OK)
         line = "Use letters, digits, spaces and - _ . ( ) +  (32 at most).";
     else if (taken) { line = taken_text; usable = taken_ok; }
     else usable = true;
@@ -6175,11 +6172,11 @@ static bool kb_profile_name_box(const LauncherTheme& th, const char* id, char* n
     return usable;
 }
 
-static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, int p) {
-    PsxKbProfileRow& row = g_kb_profiles;
+static void draw_kb_profile_row(LauncherModel* m, const LauncherTheme& th, int p) {
+    KbProfileRow& row = g_kb_profiles;
     if (row.stale || row.player != p || row.keys != kb_profile_keys_stamp(m, p))
         kb_profile_read(m, p);
-    const bool builtin = kb_profile_same_name(row.selected, RUI_PSX_KB_PROFILE_DEFAULT);
+    const bool builtin = kb_profile_same_name(row.selected, RUI_KBP_DEFAULT);
 
     // The list and its four buttons stay together: on the line of the buttons
     // before them when that has the room, else on a line of their own.
@@ -6196,7 +6193,10 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
     ImGui::SameLine();
     ImGui::SetNextItemWidth(px(220));
     if (ImGui::BeginCombo("##kb_profile", row.selected)) {
-        if (ImGui::IsWindowAppearing()) kb_profile_read(m, p);   // a file copied in meanwhile
+        if (ImGui::IsWindowAppearing()) {   // a file copied in meanwhile
+            rui_kbp_invalidate();
+            kb_profile_read(m, p);
+        }
         for (int i = 0; i < row.count; ++i) {
             const bool sel = std::strcmp(row.names[i], row.selected) == 0;
             if (ImGui::Selectable(row.names[i], sel))
@@ -6207,7 +6207,7 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
     }
     ImGui::SameLine();
     if (ImGui::Button("Load"))
-        kb_profile_note(launcher_binds_psx_kb_profile_load(m, p + 1, row.selected),
+        kb_profile_note(launcher_binds_kb_profile_load(m, p + 1, row.selected),
                         "Profile loaded", row.selected);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Put the keys of \"%s\" on Player %d.", row.selected, p + 1);
@@ -6218,7 +6218,7 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Save Player %d's keys under a name. Every game lists it.\n%s",
-                          p + 1, launcher_binds_psx_kb_profiles_dir());
+                          p + 1, launcher_binds_kb_profiles_dir(m));
     ImGui::SameLine();
     ImGui::BeginDisabled(builtin);
     if (ImGui::Button("Rename")) {
@@ -6241,7 +6241,7 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
     }
 
     const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    char name[RUI_PSX_KB_PROFILE_NAME_MAX + 1];
+    char name[RUI_KBP_NAME_MAX + 1];
 
     if (row.save_open) ImGui::OpenPopup("Save keyboard profile");
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -6261,8 +6261,8 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
         ImGui::BeginDisabled(!ok);
         if (ImGui::Button(same ? "Replace" : "Save", ImVec2(px(120), 0)) && ok) {
             const int result =
-                launcher_binds_psx_kb_profile_save_as(m, p + 1, name, same ? 1 : 0);
-            if (result == RUI_PSX_KBP_OK)
+                launcher_binds_kb_profile_save_as(m, p + 1, name, same ? 1 : 0);
+            if (result == RUI_KBP_OK)
                 std::snprintf(row.selected, sizeof(row.selected), "%s", same ? same : name);
             kb_profile_note(result, "Profile saved", row.selected);
             row.save_open = false;
@@ -6287,8 +6287,8 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
         ImGui::SameLine();
         ImGui::BeginDisabled(!ok);
         if (ImGui::Button("Rename", ImVec2(px(120), 0)) && ok) {
-            const int result = launcher_binds_psx_kb_profile_rename(m, row.selected, name);
-            if (result == RUI_PSX_KBP_OK)
+            const int result = launcher_binds_kb_profile_rename(m, row.selected, name);
+            if (result == RUI_KBP_OK)
                 std::snprintf(row.selected, sizeof(row.selected), "%s", name);
             kb_profile_note(result, "Profile renamed", row.selected);
             row.rename_open = false;
@@ -6312,12 +6312,49 @@ static void draw_psx_kb_profile_row(LauncherModel* m, const LauncherTheme& th, i
         ImGui::SameLine();
         if (ImGui::Button("Delete", ImVec2(px(120), 0))) {
             std::snprintf(name, sizeof(name), "%s", row.selected);
-            kb_profile_note(launcher_binds_psx_kb_profile_delete(m, name),
+            kb_profile_note(launcher_binds_kb_profile_delete(m, name),
                             "Profile deleted", name);
             row.delete_open = false;
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
+    }
+}
+
+static double s_kb_profile_loaded_until = 0.0;
+static int s_kb_profile_load_ok = 0;
+
+// Load from file: replace this player's keys from a file picked anywhere, a
+// profile or another game's bind file of the same format (its [playerN]
+// section, else [player1]). Drawn after the profile row, right-aligned.
+static void draw_kb_load_file_button(LauncherModel* m, int p) {
+    const float load_w = px(140.0f);
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    ImGui::SameLine();
+    if (ImGui::GetCursorPosX() > right - load_w) ImGui::NewLine();
+    ImGui::SetCursorPosX(right - load_w);
+    if (ImGui::Button("Load from file", ImVec2(load_w, 0))) {
+        const int player = p + 1;
+        ui_pick_file(m, "Load keyboard profile", {"*.ini"},
+                     "Keybinds profile (*.ini)",
+                     [m, player](const char* picked) {
+            s_kb_profile_load_ok = launcher_binds_load_keyboard_file(m, player, picked);
+            s_kb_profile_loaded_until = ImGui::GetTime() + 3.0;
+        });
+    }
+}
+
+// What the row and the file button last did, for a few seconds.
+static void draw_kb_profile_notes(const LauncherTheme& th) {
+    if (ImGui::GetTime() < g_kb_profiles.note_until)
+        ImGui::TextColored(col(g_kb_profiles.note_bad ? th.warn : th.accent2),
+                           "%s", g_kb_profiles.note);
+    if (ImGui::GetTime() < s_kb_profile_loaded_until) {
+        if (s_kb_profile_load_ok)
+            ImGui::TextColored(col(th.accent2), "Input Profile Loaded!");
+        else
+            ImGui::TextColored(col(th.warn),
+                "Not a keybinds profile; keys unchanged.");
     }
 }
 
@@ -6986,29 +7023,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 // Named profiles of these keys, shared by every game. Every
                 // rebind is written to keybinds.ini as it is made, so the
                 // only thing left to save is a profile, under a name.
-                draw_psx_kb_profile_row(m, th, p);
-                // Load from file -- replace this player's keys from a file
-                // picked anywhere: a profile, or another game's keybinds.ini
-                // (its [playerN] section, else [player1]).
-                static double s_kb_profile_loaded_until = 0.0;
-                static int s_kb_profile_load_ok = 0;
-                {
-                    const float load_w = px(140.0f);
-                    const float right = ImGui::GetWindowContentRegionMax().x;
-                    ImGui::SameLine();
-                    if (ImGui::GetCursorPosX() > right - load_w) ImGui::NewLine();
-                    ImGui::SetCursorPosX(right - load_w);
-                    if (ImGui::Button("Load from file", ImVec2(load_w, 0))) {
-                        const int player = p + 1;
-                        ui_pick_file(m, "Load keyboard profile", {"*.ini"},
-                                     "Keybinds profile (*.ini)",
-                                     [m, player](const char* picked) {
-                            s_kb_profile_load_ok =
-                                launcher_binds_load_psx_keyboard(m, player, picked);
-                            s_kb_profile_loaded_until = ImGui::GetTime() + 3.0;
-                        });
-                    }
-                }
+                draw_kb_profile_row(m, th, p);
+                draw_kb_load_file_button(m, p);
                 if (m->capturing && !m->capture_pad && !m->capture_assist) {
                     const char* label =
                         (m->capture_btn >= 0 &&
@@ -7021,16 +7037,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                         label,
                         m->map_all_active ? " — Map All" : "");
                 }
-                if (ImGui::GetTime() < g_kb_profiles.note_until)
-                    ImGui::TextColored(col(g_kb_profiles.note_bad ? th.warn : th.accent2),
-                                       "%s", g_kb_profiles.note);
-                if (ImGui::GetTime() < s_kb_profile_loaded_until) {
-                    if (s_kb_profile_load_ok)
-                        ImGui::TextColored(col(th.accent2), "Input Profile Loaded!");
-                    else
-                        ImGui::TextColored(col(th.warn),
-                            "Not a keybinds profile; keys unchanged.");
-                }
+                draw_kb_profile_notes(th);
             } else {
                 float label_col_w = px(90.0f);
                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
@@ -7382,6 +7389,13 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
             else
                 launcher_binds_reset_player(m, m->cfg_player + 1);
         }
+        // Named profiles of the keyboard keys, for every console whose keys
+        // the launcher can read and write (not while a controller is the source).
+        const bool kb_profiles = !pad_src && launcher_binds_kb_profiles_supported(m, p + 1);
+        if (kb_profiles) {
+            draw_kb_profile_row(m, th, p);
+            draw_kb_load_file_button(m, p);
+        }
         if (automap_running) {
             /* Name the input being waited on: a bare "Listening..." during a
              * twelve-step sequence does not say which one. */
@@ -7405,6 +7419,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         } else if (m->capturing) {
             ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
         }
+        if (kb_profiles) draw_kb_profile_notes(th);
         } // !is_psx
     } end_panel();
 

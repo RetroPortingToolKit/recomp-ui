@@ -309,6 +309,11 @@ void recompui_keybinds_set_button(int player, int button, SDL_Scancode sc) {
     *(SDL_Scancode *)((char *)player_binds(player) + s_buttons[button].offset) = sc;
 }
 
+SDL_Scancode recompui_keybinds_default_button(int player, int button) {
+    if (button < 0 || button >= recompui_keybinds_button_count()) return SDL_SCANCODE_UNKNOWN;
+    return *(const SDL_Scancode *)((const char *)default_binds(player) + s_buttons[button].offset);
+}
+
 void recompui_keybinds_reset_player(int player) {
     *player_binds(player) = *default_binds(player);
 }

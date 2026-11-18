@@ -7,7 +7,8 @@
 #include "pad_binds.h"            // shared per-GUID input.ini store (path rule)
 #include "consoles/gba/gba_pad_binds.h"
 #include "consoles/psx/psx_binds.h"   // PSX-native keybind bridge (psx_keybinds.c format)
-#include "consoles/psx/psx_kb_profiles.h" // PSX named keyboard profiles (a folder of the user)
+#include "kb_profiles.h"          // named keyboard profiles (a folder of the user)
+#include "consoles/psx/psx_kb_profiles.h" // PSX adapter of the keyboard profiles
 #include "consoles/psx/psx_pad_binds.h" // PSX gamepad input.ini per-GUID bridge
 #include "consoles/n64/n64_binds.h"   // N64-native input.cfg bridge (keyboard table)
 #include "consoles/n64/n64_pad_binds.h" // N64 gamepad input.ini per-GUID bridge
@@ -1459,62 +1460,251 @@ void launcher_binds_save_psx_keyboard(LauncherModel* m, int player) {
     reload_player_display(m, player);
 }
 
-int launcher_binds_load_psx_keyboard(LauncherModel* m, int player, const char* src) {
-    if (!m || !is_psx_profile(m)) return 0;
-    if (player < 1 || player > LNG_MAX_PLAYERS) return 0;
-    const int ok = rui_psx_binds_load_profile(keybinds_file_path(), player - 1, src);
-    reload_player_display(m, player);
-    return ok;
+/* ---- named keyboard profiles (common/kb_profiles.h) -----------------------
+ * Every console whose keyboard map lives in a store this file can read and
+ * write is given an adapter here: how to get a player's key, the key Reset
+ * puts there, and how to put a whole map back. Consoles whose keys are not
+ * in such a store have none (see kb_adapter()). */
+
+/* File ids of a console's buttons: the label lowercased, other characters
+ * as '_'. One cache serves each label-derived adapter of the running profile. */
+typedef struct {
+    const void* profile;
+    char        text[RUI_KBP_MAX_BUTTONS][24];
+    const char* ptr[RUI_KBP_MAX_BUTTONS];
+} KbLabelIds;
+
+static const char* const* kb_label_ids(KbLabelIds* c, const SystemProfile* prof) {
+    if (c->profile != prof) {
+        for (int b = 0; b < RUI_KBP_MAX_BUTTONS; ++b) {
+            const char* label = b < prof->controller.button_count
+                                    ? prof->controller.buttons[b].label : "";
+            size_t o = 0;
+            for (const char* ch = label; *ch && o + 1 < sizeof(c->text[b]); ++ch)
+                c->text[b][o++] = isalnum((unsigned char)*ch)
+                                      ? (char)tolower((unsigned char)*ch) : '_';
+            c->text[b][o] = '\0';
+            if (!o) snprintf(c->text[b], sizeof(c->text[b]), "button%d", b);
+            c->ptr[b] = c->text[b];
+        }
+        c->profile = prof;
+    }
+    return c->ptr;
 }
 
-/* Named keyboard profiles (consoles/psx/psx_kb_profiles.h). The folder is the
- * user's, shared by every game; the keys come from and go to this title's
- * keybinds.ini. */
-const char* launcher_binds_psx_kb_profiles_dir(void) {
+static const char* const kb_nes_ids[] = { "up", "down", "left", "right", "a", "b", "start", "select" };
+static const char* const kb_gen_ids[] = { "up", "down", "left", "right", "a", "b", "c", "start",
+                                          "x", "y", "z", "mode" };
+static const char* const kb_gb_ids[]  = { "up", "down", "left", "right", "a", "b", "start", "select" };
+
+/* NES */
+static int kbn_get(const RuiKbAdapter* a, const char* path, int p, int b, int s) {
+    (void)a; (void)s; return rui_nes_binds_get(path, p, b);
+}
+static int kbn_def(const RuiKbAdapter* a, int p, int b, int s) {
+    (void)a; (void)s; return rui_nes_binds_default(p, b);
+}
+static void kbn_apply(const RuiKbAdapter* a, const char* path, int p, const int* k) {
+    for (int b = 0; b < a->buttons; ++b) rui_nes_binds_set(path, p, b, k[b]);
+}
+/* Genesis */
+static int kbg_get(const RuiKbAdapter* a, const char* path, int p, int b, int s) {
+    (void)a; (void)s; return rui_genesis_binds_get_key(path, p, b);
+}
+static int kbg_def(const RuiKbAdapter* a, int p, int b, int s) {
+    (void)a; (void)s; return rui_genesis_binds_default_key(p, b);
+}
+static void kbg_apply(const RuiKbAdapter* a, const char* path, int p, const int* k) {
+    for (int b = 0; b < a->buttons; ++b) rui_genesis_binds_set_key(path, p, b, k[b]);
+}
+/* Game Boy: one player, two slots, one key one action. Every slot is freed
+ * before any is set, so a key moving between buttons is never taken back. */
+static int kbb_get(const RuiKbAdapter* a, const char* path, int p, int b, int s) {
+    (void)a; (void)p; return rui_gb_binds_get_slot(path, b, s);
+}
+static int kbb_def(const RuiKbAdapter* a, int p, int b, int s) {
+    (void)a; (void)p; return rui_gb_binds_default(b, s);
+}
+static void kbb_apply(const RuiKbAdapter* a, const char* path, int p, const int* k) {
+    (void)p;
+    for (int b = 0; b < a->buttons; ++b)
+        for (int s = 0; s < a->slots; ++s) rui_gb_binds_set_slot(path, b, s, 0);
+    for (int b = 0; b < a->buttons; ++b)
+        for (int s = 0; s < a->slots; ++s)
+            if (k[b * a->slots + s] > 0) rui_gb_binds_set_slot(path, b, s, k[b * a->slots + s]);
+}
+/* N64: the keyboard table (device 0) is one table for every port, so every
+ * player has the same map. A slot holding something other than a key reads as
+ * unbound. */
+static int kb6_get(const RuiKbAdapter* a, const char* path, int p, int b, int s) {
+    int type = 0, id = -1;
+    (void)a; (void)p;
+    rui_n64_binds_get(path, 0, b, s, &type, &id);
+    return type == RUI_N64_FIELD_KEY && id > 0 ? id : 0;
+}
+static int kb6_def(const RuiKbAdapter* a, int p, int b, int s) {
+    int type = 0, id = -1;
+    (void)a; (void)p;
+    rui_n64_binds_default(0, b, s, &type, &id);
+    return type == RUI_N64_FIELD_KEY && id > 0 ? id : 0;
+}
+static void kb6_apply(const RuiKbAdapter* a, const char* path, int p, const int* k) {
+    (void)p;
+    for (int b = 0; b < a->buttons; ++b)
+        for (int s = 0; s < a->slots; ++s) {
+            const int sc = k[b * a->slots + s];
+            rui_n64_binds_set(path, 0, b, s, sc > 0 ? RUI_N64_FIELD_KEY : RUI_N64_FIELD_NONE,
+                              sc > 0 ? sc : -1);
+        }
+}
+/* The generic keybinds.ini store (SNES and every console that has no store of
+ * its own); ctx is its kb index table. */
+static int kbk_get(const RuiKbAdapter* a, const char* path, int p, int b, int s) {
+    (void)path; (void)s;
+    return (int)recompui_keybinds_get_button(p + 1, ((const int*)a->ctx)[b]);
+}
+static int kbk_def(const RuiKbAdapter* a, int p, int b, int s) {
+    (void)s;
+    return (int)recompui_keybinds_default_button(p + 1, ((const int*)a->ctx)[b]);
+}
+static void kbk_apply(const RuiKbAdapter* a, const char* path, int p, const int* k) {
+    (void)path;
+    for (int b = 0; b < a->buttons; ++b)
+        recompui_keybinds_set_button(p + 1, ((const int*)a->ctx)[b], (SDL_Scancode)k[b]);
+    recompui_keybinds_save();
+}
+
+static const RuiKbAdapter kKbNes = {
+    "nes", NULL, NULL, NULL, 4, LNG_NES_PAD_BUTTON_COUNT, 1, kb_nes_ids,
+    kbn_get, kbn_def, kbn_apply };
+static const RuiKbAdapter kKbGenesis = {
+    "genesis", NULL, NULL, NULL, 2, LNG_GENESIS_PAD_BUTTON_COUNT, 1, kb_gen_ids,
+    kbg_get, kbg_def, kbg_apply };
+static const RuiKbAdapter kKbGb = {
+    "gb", NULL, NULL, NULL, 1, LNG_GB_PAD_BUTTON_COUNT, RUI_GB_BIND_SLOTS, kb_gb_ids,
+    kbb_get, kbb_def, kbb_apply };
+static const RuiKbAdapter kKbGbc = {
+    "gbc", NULL, NULL, NULL, 1, LNG_GB_PAD_BUTTON_COUNT, RUI_GB_BIND_SLOTS, kb_gb_ids,
+    kbb_get, kbb_def, kbb_apply };
+
+/* The adapter for the model's console and the path of the file it reads, or
+ * NULL when the console's keyboard map is not in a store the adapters reach:
+ * a host that keeps the bindings in its own settings (settings_bindings), or a
+ * model without a profile. */
+static const RuiKbAdapter* kb_adapter(const LauncherModel* m, const char** path) {
+    static KbLabelIds n64_ids, gen_ids;
+    static RuiKbAdapter n64, generic;
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    if (!prof || !prof->id || m->settings_bindings) return NULL;
+    *path = keybinds_file_path();
+    if (is_psx_profile(m)) return rui_psx_kb_adapter(prof->id);
+    if (is_nes_profile(m)) return &kKbNes;
+    if (is_genesis_profile(m)) { *path = genesis_binds_file_path(); return &kKbGenesis; }
+    if (is_gb_profile(m)) {
+        *path = gb_binds_file_path();
+        return !strcmp(prof->id, "gbc") ? &kKbGbc : &kKbGb;
+    }
+    if (is_n64_profile(m)) {
+        const RuiKbAdapter proto = {
+            "n64", NULL, NULL, NULL, 4, LNG_N64_PAD_BUTTON_COUNT, RUI_N64_BINDS_PER_INPUT, NULL,
+            kb6_get, kb6_def, kb6_apply };
+        n64 = proto;
+        n64.button_ids = kb_label_ids(&n64_ids, prof);
+        *path = n64_binds_file_path();
+        return &n64;
+    }
+    int n = 0;
+    const int* index = active_kb_index(m, &n);
+    if (prof->controller.button_count < n) n = prof->controller.button_count;
+    if (n < 1) return NULL;
+    {
+        const RuiKbAdapter proto = {
+            NULL, NULL, NULL, NULL, KEYBINDS_MAX_PLAYERS, n, 1, NULL,
+            kbk_get, kbk_def, kbk_apply };
+        generic = proto;
+        generic.id = prof->id;
+        generic.ctx = index;
+        generic.button_ids = kb_label_ids(&gen_ids, prof);
+    }
+    return &generic;
+}
+
+int launcher_binds_kb_profiles_supported(const LauncherModel* m, int player) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    return a && player >= 1 && player <= a->players && player <= LNG_MAX_PLAYERS;
+}
+
+const char* launcher_binds_kb_profiles_dir(const LauncherModel* m) {
     static char dir[1024];
-    rui_psx_kb_profiles_dir(dir, (int)sizeof(dir));
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    dir[0] = '\0';
+    if (a) rui_kbp_dir(a, dir, (int)sizeof(dir));
     return dir;
 }
 
-int launcher_binds_psx_kb_profile_list(
-        LauncherModel* m, char names[][RUI_PSX_KB_PROFILE_NAME_MAX + 1], int max) {
-    if (!m || !is_psx_profile(m)) return 0;
-    return rui_psx_kb_profiles_list(launcher_binds_psx_kb_profiles_dir(), names, max);
+int launcher_binds_kb_profile_list(
+        LauncherModel* m, char names[][RUI_KBP_NAME_MAX + 1], int max) {
+    if (!launcher_binds_kb_profiles_supported(m, 1)) return 0;
+    return rui_kbp_list(launcher_binds_kb_profiles_dir(m), names, max);
 }
 
-int launcher_binds_psx_kb_profile_in_use(LauncherModel* m, int player,
-                                         char* out, int cap) {
+int launcher_binds_kb_profile_in_use(LauncherModel* m, int player, char* out, int cap) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
     if (out && cap > 0) out[0] = '\0';
-    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS) return 0;
-    return rui_psx_kb_profile_in_use(launcher_binds_psx_kb_profiles_dir(),
-                                     keybinds_file_path(), player - 1, out, cap);
+    if (!a || player < 1 || player > a->players) return 0;
+    return rui_kbp_in_use(a, launcher_binds_kb_profiles_dir(m), path, player - 1, out, cap);
 }
 
-int launcher_binds_psx_kb_profile_save_as(LauncherModel* m, int player,
-                                          const char* name, int replace) {
-    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS)
-        return RUI_PSX_KBP_IO;
-    return rui_psx_kb_profile_save_as(launcher_binds_psx_kb_profiles_dir(), name,
-                                      keybinds_file_path(), player - 1, replace);
+uint32_t launcher_binds_kb_keys_stamp(const LauncherModel* m, int player) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    uint32_t h = 2166136261u;
+    if (!a || player < 1 || player > a->players) return 0;
+    for (int b = 0; b < a->buttons; ++b)
+        for (int s = 0; s < a->slots; ++s) {
+            const uint32_t k = (uint32_t)a->get(a, path, player - 1, b, s);
+            for (int i = 0; i < 4; ++i) h = (h ^ ((k >> (8 * i)) & 0xFFu)) * 16777619u;
+        }
+    return h;
 }
 
-int launcher_binds_psx_kb_profile_load(LauncherModel* m, int player, const char* name) {
-    if (!m || !is_psx_profile(m) || player < 1 || player > LNG_MAX_PLAYERS)
-        return RUI_PSX_KBP_IO;
-    const int result = rui_psx_kb_profile_load(launcher_binds_psx_kb_profiles_dir(), name,
-                                               keybinds_file_path(), player - 1);
-    reload_player_display(m, player);
+int launcher_binds_kb_profile_save_as(LauncherModel* m, int player, const char* name,
+                                      int replace) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    if (!a || player < 1 || player > a->players) return RUI_KBP_IO;
+    return rui_kbp_save_as(a, launcher_binds_kb_profiles_dir(m), name, path, player - 1, replace);
+}
+
+int launcher_binds_kb_profile_load(LauncherModel* m, int player, const char* name) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    if (!a || player < 1 || player > a->players) return RUI_KBP_IO;
+    const int result = rui_kbp_load(a, launcher_binds_kb_profiles_dir(m), name, path, player - 1);
+    launcher_binds_refresh(m);   /* a shared table (N64) changes every player's labels */
     return result;
 }
 
-int launcher_binds_psx_kb_profile_rename(LauncherModel* m, const char* from, const char* to) {
-    if (!m || !is_psx_profile(m)) return RUI_PSX_KBP_IO;
-    return rui_psx_kb_profile_rename(launcher_binds_psx_kb_profiles_dir(), from, to);
+int launcher_binds_kb_profile_rename(LauncherModel* m, const char* from, const char* to) {
+    if (!launcher_binds_kb_profiles_supported(m, 1)) return RUI_KBP_IO;
+    return rui_kbp_rename(launcher_binds_kb_profiles_dir(m), from, to);
 }
 
-int launcher_binds_psx_kb_profile_delete(LauncherModel* m, const char* name) {
-    if (!m || !is_psx_profile(m)) return RUI_PSX_KBP_IO;
-    return rui_psx_kb_profile_delete(launcher_binds_psx_kb_profiles_dir(), name);
+int launcher_binds_kb_profile_delete(LauncherModel* m, const char* name) {
+    if (!launcher_binds_kb_profiles_supported(m, 1)) return RUI_KBP_IO;
+    return rui_kbp_delete(launcher_binds_kb_profiles_dir(m), name);
+}
+
+int launcher_binds_load_keyboard_file(LauncherModel* m, int player, const char* src) {
+    const char* path = NULL;
+    const RuiKbAdapter* a = kb_adapter(m, &path);
+    if (!a || player < 1 || player > a->players) return 0;
+    const int ok = rui_kbp_load_file(a, path, player - 1, src);
+    launcher_binds_refresh(m);
+    return ok;
 }
 
 void launcher_binds_delete_psx_gamepad(LauncherModel* m, int player) {

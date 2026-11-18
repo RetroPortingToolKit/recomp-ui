@@ -358,11 +358,14 @@ if(BUILD_TESTING)
             "${CMAKE_CURRENT_BINARY_DIR}/hotkey-store-test.ini")
     endif()
 
-    # Named keyboard profiles: save as, load, rename, delete, the list, and
-    # the built-in Default that none of them may change. Its folder is a
-    # scratch folder of the build tree, never the user's.
+    # Named keyboard profiles (common/kb_profiles.c through the PSX adapter):
+    # save as, load, rename, delete, the list, the built-in Default that none
+    # of them may change, host-supplied defaults, atomic writes and the cache of
+    # the profile in use. Its folder is a scratch folder of the build tree,
+    # never the user's.
     add_executable(recomp-ui-psx-kb-profiles-test
         tests/psx_kb_profiles_test.c
+        src/common/kb_profiles.c
         src/consoles/psx/psx_kb_profiles.c
         src/consoles/psx/psx_binds.c)
     target_include_directories(recomp-ui-psx-kb-profiles-test PRIVATE
@@ -954,6 +957,7 @@ if(BUILD_TESTING)
         src/common/pad_binds.c
         src/consoles/nes/nes_binds.c
         src/consoles/psx/psx_binds.c
+        src/common/kb_profiles.c
         src/consoles/psx/psx_kb_profiles.c
         src/consoles/psx/psx_pad_binds.c
         src/consoles/snes/snes_pad_binds.c
@@ -975,9 +979,11 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-nes-host-bindings-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/nes-host-bindings")
 
-    # The launcher's side of the named keyboard profiles: the folder it reads,
-    # the key labels of the Controls page after a load, and no profiles for a
-    # console other than PlayStation. Links the real stores, as the test above.
+    # The launcher's side of the named keyboard profiles: the folder it reads
+    # per console, the key labels of the Controls page after a load, and the
+    # profiles of every console with a keyboard bind card (PSX, PS2, NES,
+    # Genesis, GB/GBC, N64, SNES, GBA, 3DO) but not a host-owned
+    # store. Links the real stores, as the test above.
     add_executable(recomp-ui-launcher-kb-profiles-test
         tests/launcher_kb_profiles_test.c
         src/common/launcher_model.c
@@ -986,6 +992,7 @@ if(BUILD_TESTING)
         src/common/pad_binds.c
         src/consoles/nes/nes_binds.c
         src/consoles/psx/psx_binds.c
+        src/common/kb_profiles.c
         src/consoles/psx/psx_kb_profiles.c
         src/consoles/psx/psx_pad_binds.c
         src/consoles/snes/snes_pad_binds.c

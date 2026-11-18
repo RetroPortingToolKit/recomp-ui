@@ -223,6 +223,12 @@ void rui_gb_binds_set(const char* path, int b, int scancode) {
     rui_gb_binds_set_slot(path, b, 0, scancode);
 }
 
+int rui_gb_binds_default(int b, int slot) {
+    if (b < 0 || b >= LNG_GB_PAD_BUTTON_COUNT || slot < 0 || slot >= RUI_GB_BIND_SLOTS)
+        return SDL_SCANCODE_UNKNOWN;
+    return (int)kGbDefaults[b][slot];
+}
+
 void rui_gb_binds_reset(const char* path) {
     if (!s_gb_binds_init) rui_gb_binds_init(path);
     memcpy(s_gb_binds, kGbDefaults, sizeof(kGbDefaults));
