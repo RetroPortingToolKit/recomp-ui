@@ -288,6 +288,20 @@ if(BUILD_TESTING)
     target_include_directories(recomp-runtime-ui-test PRIVATE src)
     add_test(NAME recomp-runtime-ui COMMAND $<TARGET_FILE:recomp-runtime-ui-test>)
 
+    add_executable(recomp-runtime-ui-window-scale-test
+        tests/runtime_ui_window_scale_test.c
+        src/common/recomp_runtime_ui.c
+        src/common/recomp_runtime_settings.c
+        src/common/launcher_theme_overrides.c)
+    target_include_directories(recomp-runtime-ui-window-scale-test PRIVATE src)
+    if(MSVC)
+        target_compile_options(recomp-runtime-ui-window-scale-test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(recomp-runtime-ui-window-scale-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME recomp-runtime-ui-window-scale
+             COMMAND $<TARGET_FILE:recomp-runtime-ui-window-scale-test>)
+
     add_executable(recomp-runtime-ui-view-test
         tests/runtime_ui_view_test.c
         src/common/recomp_runtime_ui.c

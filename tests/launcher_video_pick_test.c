@@ -140,6 +140,22 @@ int main(void) {
     ok(m.s.renderer == 0 && m.s.vsync == 0,
        "neither setter writes when the console does not have the control");
 
+    /* Window scale is a windowed preference, never a fullscreen resize. */
+    memset(&m, 0, sizeof(m));
+    launcher_model_set_scale(&m, 2);
+    ok(m.s.window_scale == 2, "windowed scale remains editable");
+    for (int mode = 1; mode <= 2; ++mode) {
+        m.s.fullscreen = mode;
+        launcher_model_set_scale(&m, 4);
+        launcher_model_cycle_scale(&m);
+        ok(m.s.window_scale == 2,
+           "fullscreen set and cycle preserve the windowed scale");
+    }
+    m.s.fullscreen = 0;
+    launcher_model_set_scale(&m, 3);
+    launcher_model_cycle_scale(&m);
+    ok(m.s.window_scale == 4, "returning to windowed enables set and cycle");
+
     printf(fails ? "FAILED\n" : "PASSED\n");
     return fails;
 }
