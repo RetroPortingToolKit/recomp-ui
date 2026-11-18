@@ -4334,8 +4334,8 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
 
 // ---- "Start from" (PSX) ------------------------------------------------------
 // The block beside the controller card and the memory cards: what the next
-// PLAY starts with. Power on or one of the title's save states
-// (launcher_model_select_start; the lister is psx_start_from.h).
+// PLAY starts with. Power on, one of the title's save states or one of its
+// replays (launcher_model_select_start; the lister is psx_start_from.h).
 
 // The pictures of the entries, made when a row first shows them.
 struct StartThumb {
@@ -4441,10 +4441,17 @@ static void draw_start_from(LauncherModel* m, const LauncherTheme& th, float w, 
         return;
     }
     eyebrow("START FROM");
+    launcher_model_start_sync(m);   // a tick of Record replay is Power on
     const float rw = ImGui::GetContentRegionAvail().x;
     const int count = launcher_model_start_count(m);
     const int sel = launcher_model_start_selected(m);
     const float gap = px(4.0f);
+    int states = 0, replays = 0;
+    for (int i = 0; i < count; ++i) {
+        const LauncherStartEntry* e = launcher_model_start_entry(m, i);
+        if (e && e->kind == LNG_START_REPLAY) ++replays;
+        else if (e) ++states;
+    }
 
     if (start_row("##power_on", sel < 0, false, nullptr, ui_text("Power on"),
                   ui_text("The game starts as the console does."), nullptr, th, rw))
@@ -4454,7 +4461,7 @@ static void draw_start_from(LauncherModel* m, const LauncherTheme& th, float w, 
     ImGui::TextColored(col(th.text_muted), "%s", ui_text("Save states"));
     for (int i = 0; i < count; ++i) {
         const LauncherStartEntry* e = launcher_model_start_entry(m, i);
-        if (!e) continue;
+        if (!e || e->kind != LNG_START_STATE) continue;
         char title[160], when[32] = "";
         const time_t t = (time_t)e->when;
         if (const struct tm* lt = localtime(&t)) strftime(when, sizeof(when), "%Y-%m-%d %H:%M", lt);
@@ -4470,7 +4477,7 @@ static void draw_start_from(LauncherModel* m, const LauncherTheme& th, float w, 
                       th, rw))
             launcher_model_select_start(m, i);
     }
-    if (count == 0)
+    if (states == 0)
         start_note(th, ui_text("No save state yet. Make one in the game with the save-state menu."));
     if (m->start_notes.states_unlisted > 0) {
         char line[96];
@@ -4485,13 +4492,41 @@ static void draw_start_from(LauncherModel* m, const LauncherTheme& th, float w, 
         start_note(th, line);
     }
 
+    ImGui::Dummy(ImVec2(0, px(6.0f)));
+    ImGui::TextColored(col(th.text_muted), "%s", ui_text("Replays"));
+    for (int i = 0; i < count; ++i) {
+        const LauncherStartEntry* e = launcher_model_start_entry(m, i);
+        if (!e || e->kind != LNG_START_REPLAY) continue;
+        char detail[96], when[32] = "";
+        const time_t t = (time_t)e->when;
+        if (const struct tm* lt = localtime(&t)) strftime(when, sizeof(when), "%Y-%m-%d %H:%M", lt);
+        snprintf(detail, sizeof(detail), "%s \xC2\xB7 %u %s", when, (unsigned)e->frames, ui_text("frames"));
+        char id[32];
+        snprintf(id, sizeof(id), "##start%d", i);
+        ImGui::Dummy(ImVec2(0, gap));
+        if (start_row(id, sel == i, true, start_thumb(*e), e->label, detail,
+                      e->build == LNG_START_BUILD_OTHER ? ui_text("other build") : nullptr,
+                      th, rw))
+            launcher_model_select_start(m, i);
+    }
+    if (replays == 0)
+        start_note(th, ui_text("No replay yet."));
+    if (m->start_notes.replays_unlisted > 0) {
+        char line[96];
+        snprintf(line, sizeof(line), "%d %s", m->start_notes.replays_unlisted,
+                 ui_text("older ones are not listed."));
+        start_note(th, line);
+    }
+
     // What the choice means when it is not plain.
     if (const LauncherStartEntry* e = launcher_model_start_entry(m, sel)) {
         if (e->build == LNG_START_BUILD_OTHER) {
             ImGui::Dummy(ImVec2(0, px(6.0f)));
             ImGui::PushTextWrapPos(0.0f);
             ImGui::TextColored(col(th.warn), "%s",
-                ui_text("Another build made this save state. This build will refuse to load it."));
+                e->kind == LNG_START_REPLAY
+                    ? ui_text("Another build made this replay. It plays, but may not stay in sync.")
+                    : ui_text("Another build made this save state. This build will refuse to load it."));
             ImGui::PopTextWrapPos();
         }
     }

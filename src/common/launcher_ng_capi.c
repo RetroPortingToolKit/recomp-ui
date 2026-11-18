@@ -221,8 +221,8 @@ int recomp_launcher_run_window(const char* window_title,
     launcher_binds_load(&model, game ? game->config_path : NULL,
                                 game ? game->keybinds_path : NULL);
     const RecompLauncherCSettings before = model.s;
-    /* The dashboard's "Start from" block: the title's save states, read
-     * from the product's own folder. */
+    /* The dashboard's "Start from" block: the title's save states and
+     * replays, read from the product's own folder. */
     if (launcher_model_start_from_available(&model)) {
 #if defined(LNG_SDL3)
         psx_start_from_load(&model, SDL_GetBasePath(), NULL);
@@ -269,11 +269,14 @@ int recomp_launcher_run_window(const char* window_title,
     }
 
     /* "Start from": PLAY hands the chosen save state to the host through
-     * PSX_LOAD_SLOT, which it reads next. Any other way out, and a netplay
-     * launch, leave no such variable of ours behind. */
-    if (launcher_model_start_from_available(&model))
+     * PSX_LOAD_SLOT, or the chosen replay through PSX_REPLAY_FILE, which it
+     * reads next. Any other way out, and a netplay launch, leave no such
+     * variable of ours behind. A tick of Record replay goes back to Power on. */
+    if (launcher_model_start_from_available(&model)) {
+        launcher_model_start_sync(&model);
         psx_start_from_apply(&model, act != LNG_ACTION_LAUNCH ||
                                          (io && io->netplay_launch.enabled));
+    }
 
     if (act == LNG_ACTION_LAUNCH || act == LNG_ACTION_RELAUNCH) {
         const char* rom = launcher_model_effective_rom_path(&model);

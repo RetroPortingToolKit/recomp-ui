@@ -110,19 +110,22 @@ typedef enum {
 // ---- "Start from" entries ----------------------------------------------------
 // Most entries the dashboard lists; a lister keeps the newest.
 #define LNG_START_MAX 48
-enum { LNG_START_POWER_ON = 0, LNG_START_STATE = 1 };
+enum { LNG_START_POWER_ON = 0, LNG_START_STATE = 1, LNG_START_REPLAY = 2 };
 // Whether an entry was made by the build that runs: not known, yes, or no. A
-// save state of another build is refused by the host.
+// save state of another build is refused by the host; a replay of another
+// build plays, with a warning, and may not stay in sync.
 enum { LNG_START_BUILD_UNKNOWN = 0, LNG_START_BUILD_SAME = 1, LNG_START_BUILD_OTHER = 2 };
 typedef struct {
-    int      kind;        // LNG_START_STATE
-    int      slot;        // the slot the host loads, 0-based
+    int      kind;        // LNG_START_STATE or LNG_START_REPLAY
+    int      slot;        // state: the slot the host loads, 0-based. Replay: -1
     int      disc;        // the disc of the set it was made on, 1-based; 0 = one
-                          // disc, or the entry names none
+                          // disc, or the entry names none (a replay names none)
     int      build;       // LNG_START_BUILD_*
+    int      power_on;    // replay: it starts at power-on (else at the save state it carries)
+    uint32_t frames;      // replay: frames recorded
     int64_t  when;        // file time, seconds since the Unix epoch
-    char     label[96];   // "Slot 3"
-    char     path[512];   // the file
+    char     label[96];   // "Slot 3", or the replay's name
+    char     path[512];   // the file; a replay's is handed to the host as it is
     // The entry's picture, when it has one: thumb_w x thumb_h pixels of four
     // bytes each (blue, green, red, alpha) at thumb_offset of thumb_path.
     char     thumb_path[512];
@@ -134,6 +137,7 @@ typedef struct {
     int build_known;       // the running build's identity was found, so entries carry a mark
     int states_elsewhere;  // save states of the other BIOS or of another program: not listed
     int states_unlisted;   // older save states than the list holds
+    int replays_unlisted;  // older replays than the list holds
 } LauncherStartNotes;
 
 // Upper bound on a multi-image title's disc roster (GameInfo.num_discs).
@@ -948,9 +952,9 @@ void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_bl
 // control alongside every other choice list.
 void launcher_model_set_run_ahead(LauncherModel* m, int frames);  // clamped, gated has_run_ahead
 // ---- "Start from": what the next PLAY starts with ---------------------------
-// Power on (the default) or one of the title's save states. A per-launch
-// choice: it is no setting and is not kept. The entries come from outside the
-// model (the console's lister), newest first.
+// Power on (the default), one of the title's save states or one of its
+// replays. A per-launch choice: it is no setting and is not kept. The entries
+// come from outside the model (the console's lister), newest first.
 //
 // 1 when the console's profile has the block (SystemProfile.start_from).
 int  launcher_model_start_from_available(const LauncherModel* m);
@@ -965,11 +969,17 @@ const LauncherStartEntry* launcher_model_start_entry(const LauncherModel* m, int
 int  launcher_model_start_selected(const LauncherModel* m);
 // Chooses entry idx; anything out of range is Power on. A save state made on
 // another disc of the set also selects that disc, because the host loads the
-// slot of the disc it boots.
+// slot of the disc it boots. With "Record replay" (RECOMP_LAUNCHER_HAS_RECORD_REPLAY)
+// choosing a save state or a replay unticks it: a recording starts at power-on.
 void launcher_model_select_start(LauncherModel* m, int idx);
-// What PLAY hands to the host: LNG_START_POWER_ON, or LNG_START_STATE with
-// *slot (0-based). slot may be NULL.
-int  launcher_model_start_handover(const LauncherModel* m, int* slot);
+// With "Record replay" ticked, goes back to Power on; without that field, does
+// nothing. Called before the list is drawn and before the hand-over, so a tick
+// made after a choice wins.
+void launcher_model_start_sync(LauncherModel* m);
+// What PLAY hands to the host: LNG_START_POWER_ON, LNG_START_STATE with
+// *slot (0-based), or LNG_START_REPLAY with *path (the replay file). slot and
+// path may be NULL.
+int  launcher_model_start_handover(const LauncherModel* m, int* slot, const char** path);
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields
