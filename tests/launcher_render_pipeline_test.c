@@ -76,6 +76,30 @@ int main(void) {
         ok(!launcher_model_render_pipeline_offered(&lm), "older host (flag 0) => rows hidden");
     }
 
+    {
+        static RecompLauncherCSettings io, out;
+        static RecompLauncherCGameInfo gi;
+        static LauncherModel lm;
+        io.automatic_quality = 1;
+        io.internal_resolution = 4;
+        io.supersampling = 3;
+        gi.has_automatic_quality = 1;
+        launcher_model_init(&lm, &io, &gi, NULL);
+        ok(lm.has_automatic_quality, "host quality capability reaches Graphics model");
+        launcher_model_toggle_automatic_quality(&lm);
+        launcher_model_commit(&lm, &out);
+        ok(out.automatic_quality == 0, "explicit Off commits to host settings");
+        ok(out.internal_resolution == 4 && out.supersampling == 3,
+           "quality policy preserves selected resolution and SSAA targets");
+        launcher_model_init(&lm, &out, &gi, NULL);
+        ok(lm.s.automatic_quality == 0, "explicit Off survives model restart");
+        gi.has_automatic_quality = 0;
+        launcher_model_init(&lm, &io, &gi, NULL);
+        launcher_model_toggle_automatic_quality(&lm);
+        ok(!lm.has_automatic_quality && lm.s.automatic_quality == 1,
+           "host without capability has no quality control or mutation");
+        launcher_model_toggle_automatic_quality(NULL);
+    }
     printf("%s (%d failure%s)\n", fails ? "FAILED" : "passed", fails, fails == 1 ? "" : "s");
     return fails ? 1 : 0;
 }

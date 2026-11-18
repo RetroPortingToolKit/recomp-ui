@@ -1722,11 +1722,15 @@ bool neon_cta(const char* id, const char* label, ImVec2 size, bool enabled = tru
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float r = px(th.radius_sm);
 
-    glow_rect(dl, mn, mx, r, th.accent, hov ? 1.6f : 1.0f, 6);
-    LngColor top = hov ? th.accent : th.accent;
-    LngColor bot = act ? th.accent_dim : th.accent_dim;
+    // A button that is off is drawn off: the panel's own fill, no glow, a
+    // muted label. With the accent fill and only its label faded, a PLAY that
+    // refused the disc read as active at a glance.
+    if (enabled) glow_rect(dl, mn, mx, r, th.accent, hov ? 1.6f : 1.0f, 6);
+    LngColor top = enabled ? th.accent : th.panel_hovered;
+    LngColor bot = enabled ? th.accent_dim : th.panel;
     grad_rect(dl, mn, mx, r, top, bot);
-    dl->AddRect(mn, mx, imcol(th.accent, hov ? 0.9f : 0.5f), r, 0, px(1.0f));  // crisp edge
+    dl->AddRect(mn, mx, enabled ? imcol(th.accent, hov ? 0.9f : 0.5f) : imcol(th.border),
+                r, 0, px(1.0f));  // crisp edge
     // InvisibleButton draws no nav highlight itself — paint the cyan focus ring
     // when nav-focused so the CTA reads as selectable via controller/keyboard.
     if (foc) {
@@ -1740,7 +1744,7 @@ bool neon_cta(const char* id, const char* label, ImVec2 size, bool enabled = tru
     float tri = arrow ? px(11.0f) : 0.0f, gap = arrow ? px(10.0f) : 0.0f;
     float total = tri + gap + tw;
     float cx = p.x + (size.x - total) * 0.5f, cy = p.y + size.y * 0.5f;
-    ImU32 fg = imcol(th.accent_text);
+    ImU32 fg = imcol(enabled ? th.accent_text : th.text_muted);
     if (arrow)
         dl->AddTriangleFilled(ImVec2(cx, cy - tri*0.55f), ImVec2(cx, cy + tri*0.55f),
                               ImVec2(cx + tri, cy), fg);
@@ -1831,14 +1835,14 @@ bool begin_container(const char* id, ImVec2 size, ImGuiChildFlags flags = ImGuiC
 }
 void end_container() { ImGui::EndChild(); }
 
-void state_mark(bool ok, const LauncherTheme& th);   // fwd
+void state_mark(bool ok, const LauncherTheme& th, const LngColor* cross = nullptr);   // fwd
 void draw_save_row(LauncherModel* m, const LauncherTheme& th);   // fwd (Save module row-drawer)
 
 // One metadata row inside a 3-column table: label | value | optional check.
 // `show_mark` puts a mint check / amber cross in its own column instead of a
 // text badge, so it can never crowd the panel edge.
 void kv_row(const char* k, const char* v, const LauncherTheme& th,
-            bool show_mark, bool ok) {
+            bool show_mark, bool ok, const LngColor* cross = nullptr) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
@@ -1847,7 +1851,7 @@ void kv_row(const char* k, const char* v, const LauncherTheme& th,
     ImGui::TableNextColumn();
     ImGui::TextUnformatted(v);
     ImGui::TableNextColumn();
-    if (show_mark) state_mark(ok, th);
+    if (show_mark) state_mark(ok, th, cross);
 }
 
 // Key/value row, drawn full width: muted label column, value, and an optional
@@ -2204,11 +2208,13 @@ void hero_boxart_centered(const LauncherTexture& t, float box_h, float avail_w) 
 
 // A verified/failed state marker: mint check or amber cross. Replaces the
 // [MATCH] badge that crowded the panel edge.
-void state_mark(bool ok, const LauncherTheme& th) {
+// `cross`: the colour of the cross, for a row that is the reason of a refusal.
+// Every other cross is the theme's amber.
+void state_mark(bool ok, const LauncherTheme& th, const LngColor* cross) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 p = ImGui::GetCursorScreenPos();
     float s = ImGui::GetTextLineHeight();
-    ImU32 c = imcol(ok ? th.good : th.warn);
+    ImU32 c = imcol(ok ? th.good : (cross ? *cross : th.warn));
     float y = p.y + s * 0.5f;
     if (ok) {
         dl->AddLine(ImVec2(p.x + s*0.16f, y), ImVec2(p.x + s*0.40f, y + s*0.26f), c, px(2.0f));
@@ -2263,7 +2269,24 @@ void draw_disc_selector(LauncherModel* m, const LauncherTheme& th, float availw)
 // m->verify, populated by launcher_model_set_rom()/run_verify() in
 // launcher_model.c (real probe when the SystemProfile has one, a synthesized
 // placeholder verdict otherwise).
-void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw) {
+// The wrong-disc sentence the disc card drew this frame and that has to be
+// in view (draw_verdict_block notes it; the body, which scrolls, acts on it).
+static bool  g_disc_note_reveal = false;
+static float g_disc_note_top = 0.0f, g_disc_note_bottom = 0.0f;
+
+// Called inside the dashboard's scrolling body, after its content is drawn.
+static void reveal_disc_note_in_body() {
+    if (!g_disc_note_reveal) return;
+    g_disc_note_reveal = false;
+    const float view_top = ImGui::GetWindowPos().y;
+    const float move = launcher_model_scroll_into_view(
+        g_disc_note_top, g_disc_note_bottom, view_top,
+        view_top + ImGui::GetWindowHeight(), px(10.0f));
+    if (move != 0.0f) ImGui::SetScrollY(ImGui::GetScrollY() + move);
+}
+
+void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw,
+                        bool reveal_note = false) {
     const VerifyResult& v = m->verify;
     // Keep the Serial/Region/ISO checklist mounted even before a disc is
     // picked (setup wizard) so AutoResize modals don't jump when verify runs.
@@ -2323,12 +2346,36 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
             kv_row("Disc image", pending ? dash : (v.iso_ok ? "Matches" : "Mismatch"),
                    th, !pending, v.iso_ok);
         } else {
+        // A tick only for a serial the build lists: a disc of another release
+        // has a serial too, and a tick beside it told the player it was right.
+        // Its cross is the headline's red when the serial is why the disc is
+        // refused; the Tracks cross and every other one stay amber.
+        const LngColor refused_red = lng_rgba(0.945f, 0.322f, 0.322f, 1.0f);
         kv_row("Serial",     pending ? dash : (v.serial[0] ? v.serial : dash),
-               th, !pending, v.serial[0] != '\0');
+               th, !pending, launcher_model_disc_serial_ok(m),
+               launcher_model_disc_serial_refused(m) ? &refused_red : nullptr);
         kv_row("Region",     pending ? dash : (v.region[0] ? v.region : dash),
                th, !pending, v.region[0] != '\0');
         kv_row("ISO header", pending ? dash : (v.iso_ok ? "OK" : "Mismatch"),
                th, !pending, v.iso_ok);
+        // Setup refused this file: the three rows above are true
+        // of it and keep their ticks, so the headline said "failed" over
+        // nothing but ticks. This row carries the cross.
+        // It shows only while the refusal stands. The value wraps: the
+        // dashboard's card is narrower than the setup window.
+        if (launcher_model_disc_refused_by_setup(m)) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
+            ImGui::TextUnformatted(ui_text("Disc image"));
+            ImGui::PopStyleColor();
+            ImGui::TableNextColumn();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(ui_text("Not the image this build was made from"));
+            ImGui::PopTextWrapPos();
+            ImGui::TableNextColumn();
+            state_mark(false, th, &refused_red);
+        }
         const char* sbi_text = v.sbi_status == RECOMP_SBI_OK ? "OK" :
                               v.sbi_status == RECOMP_SBI_MISSING ? "Missing" : "N/A";
         kv_row("SBI File", pending ? dash : sbi_text,
@@ -2349,12 +2396,34 @@ void draw_verdict_block(LauncherModel* m, const LauncherTheme& th, float availw)
         }
         ImGui::EndTable();
     }
-    if (m->netplay_supported && !pending &&
-        v.netplay_detail[0] && !v.netplay_ok) {
+    // One line of reason under the checklist: the serial mismatch in the
+    // headline's red when that is why the disc is refused, otherwise the
+    // host's online-play note in amber (launcher_model_disc_note).
+    char note_buf[256];
+    bool wrong_disc = false;
+    const char* note = launcher_model_disc_note(m, note_buf, sizeof(note_buf), &wrong_disc);
+    // Asked once per frame the dashboard's card is drawn, also when there is
+    // no sentence: that is how a sentence that went away is forgotten.
+    const bool reveal = reveal_note && launcher_model_disc_note_reveal(m);
+    if (note[0]) {
         ImGui::Dummy(ImVec2(0, px(4)));
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
-        ImGui::TextColored(col(th.warn), "%s", v.netplay_detail);
+        ImGui::TextColored(col(wrong_disc ? lng_rgba(0.945f, 0.322f, 0.322f, 1.0f) : th.warn),
+                           "%s", note);
         ImGui::PopTextWrapPos();
+        // The card hugs its content and the dashboard's body scrolls, so on a
+        // window made smaller than the launcher's own size the sentence that
+        // says why the disc is refused ended below the window's edge, under a
+        // red headline with no reason in view. A new sentence is scrolled
+        // into view; nothing moves when it is in view already. The window
+        // that scrolls is the body, two levels above this card, and a child
+        // cannot set its parent's scroll: the sentence's place is noted here
+        // and the body moves itself (reveal_disc_note_in_body).
+        if (reveal) {
+            g_disc_note_reveal = true;
+            g_disc_note_top = ImGui::GetItemRectMin().y;
+            g_disc_note_bottom = ImGui::GetItemRectMax().y;
+        }
     }
 }
 
@@ -2521,7 +2590,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
     // Region + verification state, centered under the art.
     const char* noun = (m->rom_noun && m->rom_noun[0]) ? m->rom_noun : "ROM";
     if (disc_verdict) {
-        draw_verdict_block(m, th, availw);
+        draw_verdict_block(m, th, availw, /*reveal_note=*/true);
     } else {
         const bool verified = launcher_model_rom_verified(m);
         char line[64];
@@ -4153,7 +4222,7 @@ static void draw_aspect_row(LauncherModel* m, const LauncherTheme& th) {
 // has_fullscreen_toggle no longer gates anything — see recomp_launcher.h).
 bool any_deep_display(const LauncherModel* m) {
     return m->has_window_size || launcher_model_renderer_offered(m) ||
-           m->has_supersampling ||
+           m->has_supersampling || m->has_automatic_quality ||
            m->has_antialiasing || m->has_texture_filter || m->has_screen_kind ||
            m->has_scanlines ||
            m->has_fmv_filter ||
@@ -4509,6 +4578,17 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     }
 
     draw_render_pipeline_controls(m, th);
+    if (m->has_automatic_quality) {
+        row_label_right("Automatic quality", th, cb);
+        bool automatic = m->s.automatic_quality != 0;
+        if (ImGui::Checkbox("##automatic_quality", &automatic))
+            launcher_model_toggle_automatic_quality(m);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text(
+            "When enabled, resolution and SSAA are targets. The game may lower "
+            "them to keep up. Gameplay Graphics settings show the current quality."));
+        ImGui::PopTextWrapPos();
+    }
 
     if (launcher_model_internal_resolution_offered(m)) {
         /* The host's own resolution vocabulary (PSX: Native / 720p / 1080p /
@@ -11888,6 +11968,32 @@ static void request_mod_commit_launch(LauncherModel* m) {
     }
 }
 
+/* The launch work of the PLAY button: prepare the effective image, commit the
+ * mod plan, ask the host to launch. It blocks until done; the mod commit of a
+ * host can read a whole disc image. Returns true when the launch was asked. */
+static bool launch_play_now(LauncherModel* m) {
+    if (!launcher_model_prepare_rom_patch(m)) {
+        /* The effective image could not be prepared. Send the user to
+         * the page that owns the patch selection instead of launching
+         * an image the runtime's identity gate would reject. */
+        if (m->rom_patch_supported && m->s.rom_patch_enabled)
+            launcher_model_set_view(m, LNG_VIEW_MODS);
+        return false;
+    }
+    request_mod_commit_launch(m);
+    return m->action == LNG_ACTION_LAUNCH || launch_commit_pending();
+}
+
+/* Once per frame, before the frame is drawn. A PLAY click is answered two
+ * frames later: the frame between them has drawn the button greyed as
+ * "Launching...", and that picture is on screen while the work runs. Done in
+ * the frame of the click, the window stood still showing PLAY for the whole
+ * wait and Windows could mark it "Not responding". */
+static void launch_play_if_due(LauncherModel* m) {
+    if (!launcher_model_launch_due(m)) return;
+    launcher_model_launch_finish(m, launch_play_now(m));
+}
+
 struct ModIntegerEditState {
     int64_t value = 0;
     std::string provider_value;
@@ -12175,8 +12281,8 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                   "%s %s", ui_text("Install"), archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (!is_ps2_host(m)) {
-    if (ImGui::Button(install_label)) {
+    const bool can_install = !is_ps2_host(m) && mods->install_archive;
+    if (can_install && ImGui::Button(install_label)) {
         ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -12187,8 +12293,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                               "Package installed. Changes apply when you press PLAY.");
         });
     }
-    ImGui::SameLine();
-    }
+    if (can_install) ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", "Search mods and options...",
                              m->mod_search, sizeof(m->mod_search));
@@ -12725,8 +12830,8 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                   "Install %s", archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (!is_ps2_host(m)) {
-    if (ImGui::Button(install_label)) {
+    const bool can_install = !is_ps2_host(m) && mods->install_archive;
+    if (can_install && ImGui::Button(install_label)) {
         ui_pick_file(m, "Install Mod Package", {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -12739,10 +12844,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             }
         });
     }
-    }
     /* No "Enable all": in a title with many mods it turns on features that
      * need owner files or conflict with each other, all at once. */
-    ImGui::SameLine();
+    if (can_install) ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
         disable_all_mod_features(m);
     if (ImGui::IsItemHovered())
@@ -13524,21 +13628,27 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
-    const bool play_enabled = can_play || bios_block;
-    if (neon_cta("##play", ui_text(m->in_session ? "RESUME" : "PLAY"),
+    /* From the click until the window closes the button is greyed and reads
+     * "Launching...": the launch work runs two frames later, in the frame
+     * loop (launch_play_if_due), and can take seconds. A greyed button takes
+     * no second click. */
+    const bool launching = launcher_model_launch_announced(m);
+    const bool play_enabled = (can_play || bios_block) && !launching;
+    const char* play_label = launching ? "Launching..."
+                           : m->in_session ? "RESUME" : "PLAY";
+    if (neon_cta("##play", ui_text(play_label),
                  ImVec2(play_w, play_h), play_enabled)) {
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
             launcher_model_bios_play_prompt(m);
-        else if (!launcher_model_prepare_rom_patch(m)) {
-            /* The effective image could not be prepared. Send the user to
-             * the page that owns the patch selection instead of launching
-             * an image the runtime's identity gate would reject. */
-            if (m->rom_patch_supported && m->s.rom_patch_enabled)
-                launcher_model_set_view(m, LNG_VIEW_MODS);
-        } else {
-            request_mod_commit_launch(m);
-        }
+        else if (m->in_session)
+            /* RESUME returns to a game that is already running: nothing is
+             * prepared that could take long, so it stays in this frame. */
+            launch_play_now(m);
+        else
+            launcher_model_launch_request(m);
+    } else if (launching) {
+        /* No tooltip and no setup wizard while the launch is under way. */
     } else if (!play_enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const char* noun = m->rom_noun ? m->rom_noun : "ROM";
         if (m->bios_name && launcher_model_bios_missing(m)) {
@@ -13567,7 +13677,8 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
             ImGui::SetTooltip("Select a valid %s first", noun);
         }
     }
-    if (!play_enabled && ImGui::IsItemClicked() && m->setup_wizard_supported)
+    if (!play_enabled && !launching && ImGui::IsItemClicked() &&
+        m->setup_wizard_supported)
         m->setup_wizard_open = true;
     ImGui::SetItemDefaultFocus();   // gamepad/keyboard start on the primary action
     (void)win;
@@ -14493,6 +14604,14 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
     if (ImGui::Button("Quit", ImVec2(px(100), px(34))))
         m->action = LNG_ACTION_QUIT;
 
+    // The error text sits under the last step, just above these buttons, and
+    // the wizard is taller than its window at the launcher's own size: a
+    // player saw step 1 and 2 and had to scroll to learn why Generate
+    // refused the disc. When a new error appears, bring the end of the
+    // wizard into view: the Generate button, the error and the buttons.
+    if (launcher_model_setup_error_reveal(m))
+        ImGui::SetScrollHereY(1.0f);
+
     if (m->setup_wizard_open && !ImGui::IsPopupOpen("First-run setup"))
         ImGui::OpenPopup("First-run setup");
     ImGui::EndPopup();
@@ -14971,6 +15090,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
         case LNG_VIEW_CREDITS:      draw_credits(m, th);             break;
         case LNG_VIEW_LOBBY:        draw_lobby(m, th);               break;
     }
+    reveal_disc_note_in_body();
     end_container();
 
     draw_footer(m, th, footer_h);
@@ -15586,6 +15706,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             } else {
                 std::snprintf(m->mod_status, sizeof m->mod_status, "%s",
                               launch_commit.error());
+                launcher_model_launch_finish(m, false);
                 launcher_model_set_view(m, LNG_VIEW_MODS);
             }
             if (p->should_quit || m->action != LNG_ACTION_NONE) break;
@@ -15749,6 +15870,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             else
                 nav_io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
+        launch_play_if_due(m);
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
         ImGui::NewFrame();

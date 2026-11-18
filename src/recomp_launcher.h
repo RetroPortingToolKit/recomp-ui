@@ -95,6 +95,8 @@ extern "C" {
  * so a full room can still be watched. */
 #define RECOMP_LAUNCHER_NETPLAY_MAX_SPECTATORS 4
 
+#define RECOMP_LAUNCHER_HAS_AUTOMATIC_QUALITY 1
+
 typedef struct RecompLauncherCSettings RecompLauncherCSettings;
 
 typedef struct RecompLauncherCNetplayLobby {
@@ -1636,6 +1638,8 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+    /* Host-owned policy: resolution/SSAA may be reduced to keep up. */
+    int  automatic_quality;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -1674,6 +1678,11 @@ struct RecompLauncherCSettings {
 // internal types. Mirror what the legacy launcher computed inline.
 #define RECOMP_LAUNCHER_HAS_SBI_STATUS 1
 enum { RECOMP_SBI_NA = 0, RECOMP_SBI_MISSING = 1, RECOMP_SBI_OK = 2 };
+/* Whether the disc's serial is one this build lists. Hosts #ifdef on this to
+ * stay source-compatible with older recomp-ui that lacks the fields. A host
+ * that does not say (0) gets the old Serial row: a tick for any serial read. */
+#define RECOMP_LAUNCHER_HAS_SERIAL_STATUS 1
+enum { RECOMP_SERIAL_UNSAID = 0, RECOMP_SERIAL_LISTED = 1, RECOMP_SERIAL_NOT_LISTED = 2 };
 typedef struct RecompLauncherCDiscVerify {
     char serial[16];   // e.g. "SCUS-94423"; "" = unknown/unread
     char region[8];    // e.g. "NTSC-U"; "" = unknown
@@ -1686,6 +1695,11 @@ typedef struct RecompLauncherCDiscVerify {
     char netplay_detail[160];
     int sbi_status; // RECOMP_SBI_*; zero means no requirement recorded by host.
     int profile_handoff; // host verified another shipped backend; close without committing edits
+    /* Appended for ABI (memset 0 = a host that does not say). With
+     * RECOMP_SERIAL_NOT_LISTED, `serial` holds what was read from the disc
+     * ("" when nothing was read), never the serial the build expects. */
+    int  serial_status;         // RECOMP_SERIAL_*
+    char expected_serials[96];  // what this build lists, e.g. "SLES-03396"; "" if unknown
 } RecompLauncherCDiscVerify;
 
 /* Host BIOS check for the first-run setup wizard (has_bios games). */
@@ -2518,6 +2532,8 @@ typedef struct RecompLauncherCGameInfo {
     int has_native_mouse;
     int has_native_guncon;
     int has_native_negcon;
+    /* Opt-in Graphics control; hosts own persistence and live quality. */
+    int                has_automatic_quality;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1

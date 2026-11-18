@@ -1,11 +1,11 @@
 /* Genesis controller/lobby seat ceiling in launcher_model_init().
  *
- * The Genesis SystemProfile ceiling is the engine's four logical players
+ * The Genesis SystemProfile ceiling is the engine's six logical players
  * (RUI_GEN_MAX_PLAYERS; segagenesisrecomp GameSpec.logical_players), while
  * GameInfo.num_players stays the per-game capability. Sonic 2's party mod
- * declares four players and must get four controller cards and four lobby
+ * declares six players and must get six controller cards and six lobby
  * seats; every two-port Genesis title must keep exactly two, and nothing may
- * exceed the four the engine and bind store can route.
+ * exceed the six the engine and bind store can route.
  *
  * Includes the model translation unit (as launcher_pad_mode_test.c does). */
 #include "launcher_model.c"
@@ -59,8 +59,10 @@ int main(void) {
                "profile ceiling equals the Genesis bind store width");
     expect_int(genesis_player_count(4), 4, "four-player title gets four seats");
     expect_int(genesis_player_count(2), 2, "two-port title keeps two seats");
-    expect_int(genesis_player_count(8), 4, "request above the ceiling clamps to four");
-    expect_int(g_last_host_max, 4, "lobby seat ceiling follows the profile clamp (8 -> 4)");
+    expect_int(genesis_player_count(6), 6, "six-player title gets six controller seats");
+    expect_int(g_last_host_max, 6, "six-player title hosts six lobby seats");
+    expect_int(genesis_player_count(8), 6, "request above the ceiling clamps to six");
+    expect_int(g_last_host_max, 6, "lobby seat ceiling follows the profile clamp (8 -> 6)");
     genesis_player_count(4);
     expect_int(g_last_host_max, 4, "four-player title hosts four lobby seats");
     genesis_player_count(2);

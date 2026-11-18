@@ -97,6 +97,15 @@ if(BUILD_TESTING)
     else()
         add_compile_options(-UNDEBUG)
     endif()
+    if(SNESRECOMP_SDL_BACKEND STREQUAL "SDL2")
+        add_executable(recomp-ui-launcher-android-metrics-test
+            tests/launcher_android_metrics_test.c)
+        target_include_directories(recomp-ui-launcher-android-metrics-test PRIVATE src/common)
+        target_compile_definitions(recomp-ui-launcher-android-metrics-test PRIVATE ${RUI_SDL_DEFS})
+        target_link_libraries(recomp-ui-launcher-android-metrics-test PRIVATE ${RUI_SDL_TARGET})
+        add_test(NAME recomp-ui-launcher-android-metrics
+            COMMAND recomp-ui-launcher-android-metrics-test)
+    endif()
     add_executable(recomp-ui-launcher-audio-buffer-test tests/launcher_audio_buffer_test.c)
     target_include_directories(recomp-ui-launcher-audio-buffer-test PRIVATE src/common)
     add_test(NAME recomp-ui-launcher-audio-buffer COMMAND recomp-ui-launcher-audio-buffer-test)
@@ -203,6 +212,13 @@ if(BUILD_TESTING)
             NAME recomp-ui-no-raw-pickers
             COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_no_raw_pickers.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+        # The disc panel's "Disc image" row: only for a file setup refused,
+        # with the accepted words and a red cross.
+        add_test(
+            NAME recomp-ui-disc-image-row
+            COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_disc_image_row.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(WARNING
@@ -412,6 +428,22 @@ if(BUILD_TESTING)
     add_test(NAME recomp-ui-launcher-artwork-folder
         COMMAND recomp-ui-launcher-artwork-folder-test
                 "${CMAKE_CURRENT_BINARY_DIR}/artwork-folder-test-$<CONFIG>")
+    # The disc panel's Serial row and the reason line under it: a tick only
+    # for a serial the build lists. Same include-the-TU shape as the discs
+    # test above.
+    add_executable(recomp-ui-launcher-disc-serial-test
+        tests/launcher_disc_serial_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-disc-serial-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-disc-serial-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-disc-serial
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-disc-serial-test>)
 
     # Renderer / VSync as enumerable lists rather than cycle buttons. Same
     # include-the-TU shape as the discs test above.
@@ -528,6 +560,25 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-confirm-test>
                 "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-confirm-test")
+
+    # Setup window: the disc panel follows a file that setup refused. After a
+    # failed prepare the disc check runs again, so "Disc verified" does not
+    # stand above setup's refusal of the same file. Same include-the-TU shape.
+    add_executable(recomp-ui-launcher-setup-refusal-verdict-test
+        tests/launcher_setup_refusal_verdict_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-refusal-verdict-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-setup-refusal-verdict
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-refusal-verdict-test>
+                "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-refusal-verdict-test")
 
     # Per-seat pad_mode resolution: a locked mode (game.toml lock_mode) must
     # survive the keyboard-has-no-sticks presentation default, because the
@@ -669,6 +720,11 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-gb-profile-test PRIVATE src src/common)
     add_test(NAME recomp-ui-gb-profile COMMAND $<TARGET_FILE:recomp-ui-gb-profile-test>)
 
+    add_executable(recomp-ui-3do-profile-test tests/3do_profile_test.c)
+    target_include_directories(recomp-ui-3do-profile-test PRIVATE src src/common)
+    add_test(NAME recomp-ui-3do-profile COMMAND $<TARGET_FILE:recomp-ui-3do-profile-test>)
+    set_tests_properties(recomp-ui-3do-profile PROPERTIES TIMEOUT 0)
+
     add_executable(recomp-ui-assist-pad-capture-test
         tests/launcher_assist_pad_capture_test.c
         src/common/launcher_model.c
@@ -796,6 +852,42 @@ if(BUILD_TESTING)
              COMMAND $<TARGET_FILE:recomp-ui-launcher-in-session-test>)
     set_tests_properties(recomp-ui-launcher-in-session PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-in-session-test")
+
+    # The setup wizard's error text holds a host's whole sentence. Includes
+    # launcher_model.c (not links it) to run the prepare job's own code.
+    add_executable(recomp-ui-launcher-setup-error-room-test
+        tests/launcher_setup_error_room_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-setup-error-room-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-setup-error-room-test PRIVATE ${RUI_SDL_TARGET})
+    add_test(NAME recomp-ui-launcher-setup-error-room
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-setup-error-room-test>
+                     "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/setup-error-room-test")
+
+    # The PLAY press: asked in one frame, shown as "Launching..." in the next,
+    # done in the one after that.
+    add_executable(recomp-ui-launcher-play-launching-test
+        tests/launcher_play_launching_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-play-launching-test PRIVATE
+        src src/common src/consoles/psx)
+    set_target_properties(recomp-ui-launcher-play-launching-test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-play-launching-test")
+    add_test(NAME recomp-ui-launcher-play-launching
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-play-launching-test>)
+    set_tests_properties(recomp-ui-launcher-play-launching PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-play-launching-test")
 
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
