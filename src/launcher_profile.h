@@ -36,6 +36,7 @@
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
 #include "consoles/cdi/cdi_profile.h"
+#include "consoles/3do/3do_profile.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -76,6 +77,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
     if (launcher_console_is_gbc(name))  { launcher_profile_apply_gbc(gi);  return 1; }
     if (launcher_console_is_gb(name))   { launcher_profile_apply_gb(gi);   return 1; }
     if (launcher_console_is_nds(name))  { launcher_profile_apply_nds(gi);  return 1; }
+    if (launcher_console_is_3do(name))  { launcher_profile_apply_3do(gi);  return 1; }
 
     // --- other systems: identity now, capabilities refined as each is built --
     if (lpr_is(name, "smsgg") || lpr_is(name, "sms") || lpr_is(name, "gg")) {
