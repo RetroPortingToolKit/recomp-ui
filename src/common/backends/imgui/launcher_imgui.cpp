@@ -96,6 +96,7 @@ extern "C" void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hoo
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <ctime>
 #include <string>
@@ -4351,9 +4352,12 @@ static const LauncherTexture* start_thumb(const LauncherStartEntry& e) {
     StartThumb made = { key, { 0, 0, 0 } };
     const size_t bytes = (size_t)e.thumb_w * (size_t)e.thumb_h * 4;
     std::vector<unsigned char> px_buf(bytes);
-    if (FILE* f = fopen(e.thumb_path, "rb")) {
-        if (fseek(f, (long)e.thumb_offset, SEEK_SET) == 0 &&
-            fread(px_buf.data(), 1, bytes, f) == bytes) {
+    // thumb_path is UTF-8; a narrow fopen would not find it on Windows.
+    std::ifstream f(std::filesystem::u8path(e.thumb_path), std::ios::binary);
+    if (f) {
+        f.seekg((std::streamoff)e.thumb_offset);
+        f.read(reinterpret_cast<char*>(px_buf.data()), (std::streamsize)bytes);
+        if (f && (size_t)f.gcount() == bytes) {
             // The file has blue, green, red, alpha; the texture wants red first.
             for (size_t i = 0; i < bytes; i += 4) {
                 std::swap(px_buf[i], px_buf[i + 2]);
@@ -4361,7 +4365,6 @@ static const LauncherTexture* start_thumb(const LauncherStartEntry& e) {
             }
             made.tex = launcher_texture_from_rgba(px_buf.data(), e.thumb_w, e.thumb_h);
         }
-        fclose(f);
     }
     g_start_thumbs.push_back(made);
     return g_start_thumbs.back().tex.id ? &g_start_thumbs.back().tex : nullptr;
