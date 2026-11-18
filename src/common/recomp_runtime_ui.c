@@ -204,6 +204,7 @@ static void reset_page(RecompRuntimeUi *ui) {
 
 static void visibility(RecompRuntimeUi *ui, int open) {
     if (!ui || ui->open == open) return;
+    ui->pointer_down = 0;
     ui->open = open;
     if (!open) { ui->in_section = 0; reset_page(ui); }
     if (ui->config.callbacks.visibility_changed)
@@ -467,6 +468,7 @@ int recomp_runtime_ui_handle_input(RecompRuntimeUi *ui,
                                    RecompRuntimeUiInput input,
                                    int pressed, int repeat) {
     if (!ui) return 0;
+    ui->pointer_down = 0;
     if (!ui->open) {
         if (pressed && !repeat && input == RECOMP_RUNTIME_UI_INPUT_TOGGLE) {
             recomp_runtime_ui_open(ui);
@@ -722,6 +724,121 @@ int recomp_runtime_ui_view_row(RecompRuntimeUi *ui, size_t row,
     return 1;
 }
 
+/* Drawing and pointer input share these exact software-presentation rectangles.
+ * The host maps its letterboxed/scaled output into this frame once. */
+typedef struct RuntimeRect { int x, y, w, h; } RuntimeRect;
+typedef struct RuntimeLayout {
+    int scale, pad, touch, header_extra, list_y, footer_y, row_h, visible;
+    RuntimeRect panel, footer[4];
+    size_t count, first;
+} RuntimeLayout;
+
+static RuntimeLayout runtime_layout(const RecompRuntimeUi *ui, int width, int height) {
+    RuntimeLayout l = {0};
+    l.scale = height / 224; if (l.scale < 1) l.scale = 1;
+    const int s = l.scale, margin = 6*s;
+    l.pad = 8*s;
+    l.touch = !!(ui->config.presentation_flags & RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY);
+    l.panel.w = 244*s;
+    if (l.panel.w > width-2*margin) l.panel.w = width-2*margin;
+    if (l.panel.w < 1) l.panel.w = 1;
+    l.panel.x = (width-l.panel.w)/2; l.panel.y = margin;
+    l.panel.h = height-2*margin;
+    const char *title = ui->config.title ? ui->config.title : "Settings";
+    const char *subtitle = ui->config.subtitle;
+    char breadcrumb[256];
+    if (ui->in_section && ui->page[0]) {
+        recomp_runtime_ui_page_title(ui,breadcrumb,sizeof breadcrumb); subtitle=breadcrumb;
+    }
+    if (subtitle && subtitle[0] && text_width(title,s)+text_width(subtitle,s)+4*s > l.panel.w-2*l.pad)
+        l.header_extra = 10*s;
+    l.list_y = l.panel.y+32*s+l.header_extra;
+    l.footer_y = l.panel.y+l.panel.h-(l.touch ? 32 : 28)*s;
+    l.row_h = (l.touch ? 26 : 15)*s;
+    l.visible = (l.footer_y-l.list_y)/l.row_h;
+    if (l.visible < 1) l.visible = 1;
+    l.count = ui->in_section ? recomp_runtime_ui_page_entry_count(ui) : ui->section_count;
+    const size_t selection = ui->in_section ? ui->row_index : ui->section_index;
+    if (selection >= (size_t)l.visible) l.first = selection-(size_t)l.visible+1;
+    const int gap=4*s, bw=(l.panel.w-2*l.pad-3*gap)/4;
+    for(int i=0;i<4;++i)l.footer[i]=(RuntimeRect){l.panel.x+l.pad+i*(bw+gap),l.footer_y+s,bw,22*s};
+    return l;
+}
+
+static RuntimeRect runtime_row_rect(RuntimeLayout l, int line) {
+    return (RuntimeRect){l.panel.x+l.pad/2,l.list_y+line*l.row_h-3*l.scale,l.panel.w-l.pad,l.row_h};
+}
+
+static void runtime_value_buttons(RecompRuntimeUi *ui, const RecompRuntimeUiItem *item,
+                                  RuntimeLayout l, int line, RuntimeRect *minus, RuntimeRect *plus) {
+    char value[96]; item_value(ui,item,value,sizeof value);
+    const int s=l.scale, size=22*s;
+    *plus=(RuntimeRect){l.panel.x+l.panel.w-l.pad-size,l.list_y+line*l.row_h-s,size,size};
+    *minus=(RuntimeRect){plus->x-8*s-text_width(value,s)-size,plus->y,size,size};
+}
+
+static int inside(RuntimeRect r,int x,int y) {
+    return r.w>0 && r.h>0 && x>=r.x && y>=r.y && x-r.x<r.w && y-r.y<r.h;
+}
+
+enum { POINTER_NONE, POINTER_ROW, POINTER_MINUS, POINTER_PLUS,
+       POINTER_BACK, POINTER_UP, POINTER_DOWN, POINTER_CLOSE };
+
+static int runtime_pointer_hit(RecompRuntimeUi *ui,RuntimeLayout l,int x,int y,size_t *row) {
+    if(!inside(l.panel,x,y))return POINTER_NONE;
+    if(l.touch)for(int i=0;i<4;++i)if(inside(l.footer[i],x,y))return POINTER_BACK+i;
+    for(int line=0;line<l.visible && l.first+(size_t)line<l.count;++line) {
+        if(!inside(runtime_row_rect(l,line),x,y))continue;
+        *row=l.first+(size_t)line;
+        if(ui->in_section && !row_selectable(ui,*row))return POINTER_NONE;
+        const RecompRuntimeUiItem *item=ui->in_section?recomp_runtime_ui_page_entry(ui,*row,NULL,0):NULL;
+        if(l.touch && item && item->type<=RECOMP_RUNTIME_UI_CHOICE) {
+            RuntimeRect minus,plus;runtime_value_buttons(ui,item,l,line,&minus,&plus);
+            if(inside(minus,x,y))return POINTER_MINUS;
+            if(inside(plus,x,y))return POINTER_PLUS;
+        }
+        return POINTER_ROW;
+    }
+    return POINTER_NONE;
+}
+
+int recomp_runtime_ui_handle_pointer(RecompRuntimeUi *ui,int width,int height,int x,int y,int pressed) {
+    if(!ui)return 0;
+    if(pressed<0 || !ui->open) {ui->pointer_down=0;return ui->open;}
+    if(width<=0 || height<=0) {ui->pointer_down=0;return 1;}
+    RuntimeLayout l=runtime_layout(ui,width,height);size_t row=0;
+    const int target=runtime_pointer_hit(ui,l,x,y,&row);
+    if(pressed) {
+        if(!ui->pointer_down) {ui->pointer_down=1;ui->pointer_target=target;ui->pointer_row=row;}
+        return 1;
+    }
+    const int activate=ui->pointer_down && target!=POINTER_NONE && target==ui->pointer_target && row==ui->pointer_row;
+    ui->pointer_down=0;
+    if(!activate)return 1;
+    if(target>=POINTER_BACK) {
+        if(target==POINTER_CLOSE)recomp_runtime_ui_close(ui);
+        else recomp_runtime_ui_handle_input(ui,target==POINTER_BACK?RECOMP_RUNTIME_UI_INPUT_BACK:
+            target==POINTER_UP?RECOMP_RUNTIME_UI_INPUT_UP:RECOMP_RUNTIME_UI_INPUT_DOWN,1,0);
+    } else if(!ui->in_section)recomp_runtime_ui_enter_section(ui,row);
+    else {
+        ui->row_index=row;
+        const RecompRuntimeUiItem *item=recomp_runtime_ui_page_entry(ui,row,NULL,0);
+        if(!item)recomp_runtime_ui_enter_folder(ui,row);
+        else if(target==POINTER_MINUS || target==POINTER_PLUS)
+            recomp_runtime_ui_adjust_current(ui,target==POINTER_MINUS?-1:1,0,0);
+        else if(item->type==RECOMP_RUNTIME_UI_BOOL || item->type==RECOMP_RUNTIME_UI_ACTION)
+            recomp_runtime_ui_adjust_current(ui,1,1,0);
+    }
+    return 1;
+}
+
+static void runtime_button(void *pixels,int width,int height,int pitch,RuntimeRect r,
+                           int scale,uint32_t border,uint32_t color,const char *label) {
+    outline(pixels,width,height,pitch,r.x,r.y,r.w,r.h,scale,border);
+    draw_text(pixels,width,height,pitch,r.x+(r.w-text_width(label,scale))/2,
+              r.y+(r.h-7*scale)/2,scale,color,label,r.x+r.w);
+}
+
 /* The toast in the frame's top rows: a panel sized to its longest line. */
 static void render_toast_argb(RecompRuntimeUi *ui, void *pixels, int width,
                               int height, int pitch, int scale) {
@@ -771,15 +888,10 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
     }
     if (!ui->open) return;
     LauncherTheme theme = launcher_theme_by_name(ui->config.theme);
-    int scale = height / 224;
-    if (scale < 1) scale = 1;
-    int margin = 6 * scale;
-    int panel_w = 244 * scale;
-    if (panel_w > width - margin * 2) panel_w = width - margin * 2;
-    int panel_h = height - margin * 2;
-    int panel_x = (width - panel_w) / 2;
-    int panel_y = margin;
-    int pad = 8 * scale;
+    const RuntimeLayout layout=runtime_layout(ui,width,height);
+    const int scale=layout.scale,pad=layout.pad;
+    const int panel_w=layout.panel.w,panel_h=layout.panel.h;
+    const int panel_x=layout.panel.x,panel_y=layout.panel.y;
     #define RGB8(c) (((uint32_t)((c).r * 255.0f) << 16) | \
                      ((uint32_t)((c).g * 255.0f) << 8) | \
                      (uint32_t)((c).b * 255.0f))
@@ -805,11 +917,8 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
         recomp_runtime_ui_page_title(ui, breadcrumb, sizeof(breadcrumb));
         subtitle = breadcrumb;
     }
-    const int title_w = text_width(title, scale);
     const int subtitle_w = text_width(subtitle, scale);
-    const int header_inner_w = panel_w - pad * 2;
-    const int stacked_header = subtitle && subtitle[0] &&
-        title_w + subtitle_w + 4 * scale > header_inner_w;
+    const int stacked_header = layout.header_extra != 0;
     draw_text(pixels,width,height,pitch,panel_x+pad,panel_y+pad,scale,accent,
               title,panel_x+panel_w-pad);
     if (subtitle && subtitle[0]) {
@@ -820,27 +929,23 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
         draw_text(pixels,width,height,pitch,subtitle_x,
                   subtitle_y,scale,muted,subtitle,panel_x+panel_w-pad);
     }
-    const int header_extra = stacked_header ? 10 * scale : 0;
+    const int header_extra = layout.header_extra;
     rect(pixels,width,height,pitch,panel_x+pad,
          panel_y+24*scale+header_extra,
          panel_w-pad*2,scale,border,255);
 
-    int list_y = panel_y + 32 * scale + header_extra;
-    int footer_y = panel_y + panel_h - 28 * scale;
-    int row_h = 15 * scale;
-    int visible = (footer_y - list_y) / row_h;
-    if (visible < 1) visible = 1;
-    size_t count = ui->in_section ? recomp_runtime_ui_page_entry_count(ui)
-                                  : ui->section_count;
+    const int list_y=layout.list_y,footer_y=layout.footer_y,row_h=layout.row_h;
+    const int visible=layout.visible;
+    const size_t count=layout.count;
     size_t selection = ui->in_section ? ui->row_index : ui->section_index;
-    size_t first = 0;
-    if (selection >= (size_t)visible) first = selection - (size_t)visible + 1;
+    const size_t first=layout.first;
     for (int line = 0; line < visible && first + (size_t)line < count; ++line) {
         size_t index = first + (size_t)line;
         int y = list_y + line * row_h;
-        if (index == selection)
-            rect(pixels,width,height,pitch,panel_x+pad/2,y-3*scale,
-                 panel_w-pad,row_h,selected,255);
+        if (index == selection) {
+            RuntimeRect r=runtime_row_rect(layout,line);
+            rect(pixels,width,height,pitch,r.x,r.y,r.w,r.h,selected,255);
+        }
         char folder[96] = "";
         const RecompRuntimeUiItem *item = ui->in_section
             ? recomp_runtime_ui_page_entry(ui, index, folder, sizeof(folder))
@@ -861,6 +966,14 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
             char value[96];
             item_value(ui, item, value, sizeof(value));
             int value_w = text_width(value, scale);
+            if(layout.touch && item->type<=RECOMP_RUNTIME_UI_CHOICE) {
+                RuntimeRect minus,plus;runtime_value_buttons(ui,item,layout,line,&minus,&plus);
+                draw_text(pixels,width,height,pitch,panel_x+pad,y,scale,color,item->label,minus.x-4*scale);
+                draw_text(pixels,width,height,pitch,minus.x+minus.w+4*scale,y,scale,color,value,plus.x-4*scale);
+                runtime_button(pixels,width,height,pitch,minus,scale,border,color,"-");
+                runtime_button(pixels,width,height,pitch,plus,scale,border,color,"+");
+                continue;
+            }
             draw_text(pixels,width,height,pitch,panel_x+pad,y,scale,color,
                       item->label,panel_x+panel_w-pad-value_w-8*scale);
             draw_text(pixels,width,height,pitch,panel_x+panel_w-pad-value_w,y,
@@ -879,12 +992,15 @@ void recomp_runtime_ui_render_argb8888(RecompRuntimeUi *ui, void *pixels,
     }
     rect(pixels,width,height,pitch,panel_x+pad,footer_y-4*scale,
          panel_w-pad*2,scale,border,255);
-    draw_text(pixels,width,height,pitch,panel_x+pad,footer_y+3*scale,scale,
-              muted,help,panel_x+panel_w-pad);
+    if(layout.touch) {
+        static const char *labels[]={"Back","Up","Down","Close"};
+        for(int i=0;i<4;++i)runtime_button(pixels,width,height,pitch,layout.footer[i],scale,border,white,labels[i]);
+    } else draw_text(pixels,width,height,pitch,panel_x+pad,footer_y+3*scale,scale,
+                     muted,help,panel_x+panel_w-pad);
     if (ui->status_frames) {
         int status_w = text_width(ui->status, scale);
         draw_text(pixels,width,height,pitch,panel_x+panel_w-pad-status_w,
-                  panel_y+panel_h-12*scale,scale,accent,ui->status,
+                  layout.touch?footer_y+24*scale:panel_y+panel_h-12*scale,scale,accent,ui->status,
                   panel_x+panel_w-pad);
         --ui->status_frames;
     }
