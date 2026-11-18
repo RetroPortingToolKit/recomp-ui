@@ -667,6 +667,44 @@ if(BUILD_TESTING)
     target_compile_definitions(recomp-ui-launcher-negcon-mode-test PRIVATE ${RUI_SDL_DEFS})
     add_test(NAME recomp-ui-launcher-negcon-mode COMMAND recomp-ui-launcher-negcon-mode-test)
 
+    # "Start from" on the dashboard: the list the model holds, the choice,
+    # what it does to the disc to boot, and what PLAY hands to the host.
+    add_executable(recomp-ui-launcher-start-from-test
+        tests/launcher_start_from_test.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-start-from-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-start-from-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-launcher-start-from
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-start-from-test>)
+
+    # The PlayStation lister of "Start from": the save states it finds in a
+    # product folder the test builds itself, their build marks, and the
+    # start-up variable that carries the choice to the host.
+    add_executable(recomp-ui-psx-start-from-test
+        tests/psx_start_from_test.cpp
+        src/consoles/psx/psx_start_from.cpp
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-psx-start-from-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-psx-start-from-test PRIVATE
+        ${RUI_SDL_TARGET})
+    add_test(
+        NAME recomp-ui-psx-start-from
+        COMMAND $<TARGET_FILE:recomp-ui-psx-start-from-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
     # pattern) and the tri-state enabled flag. Includes launcher_model.c like
@@ -908,6 +946,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-settings-test
         tests/launcher_settings_test.c
         src/common/launcher_ng_capi.c
+        src/consoles/psx/psx_start_from.cpp
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c
@@ -928,6 +967,7 @@ if(BUILD_TESTING)
     add_executable(recomp-ui-launcher-netplay-handoff-test
         tests/launcher_netplay_handoff_test.c
         src/common/launcher_ng_capi.c
+        src/consoles/psx/psx_start_from.cpp
         src/common/launcher_model.c
         src/common/crc32.c
         src/common/sha1.c

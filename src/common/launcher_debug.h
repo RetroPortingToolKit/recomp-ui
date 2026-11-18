@@ -12,6 +12,8 @@
 //   player:0|1                           which player the controller view edits
 //   tab:N                                open player N's tab on the dashboard (0-based)
 //   cardtab:N                            open memory card N's tab on the dashboard (0-based)
+//   start:N                              choose entry N of "Start from" (0-based; -1 = Power on)
+//   disc:N                               choose the disc to boot of a multi-disc title (0-based)
 //   size:WxH                             resize the window (tests live reflow)
 //   click:X,Y                            synthetic click at logical coords
 //   key:escape                           synthetic key press

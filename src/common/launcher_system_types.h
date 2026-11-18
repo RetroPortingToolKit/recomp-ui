@@ -185,6 +185,12 @@ typedef struct SystemProfile {
     // wordmark may be a third-party trademark); an absent file falls back to
     // the text, so this is inert unless a host drops the asset in.
     const char* wordmark_image;
+    // 1 when the dashboard has the "Start from" block: Power on, or one of the
+    // title's save states, for the next PLAY (PSX). Whoever opens
+    // the launcher for that console lists the entries
+    // (launcher_model_set_start_entries) and carries the choice to the host;
+    // see consoles/psx/psx_start_from.h. Appended, so the other rows have 0.
+    int start_from;
 } SystemProfile;                                    // ONE ROW PER CONSOLE
 
 // ---- shared panel composition arrays (NULL-terminated) --------------------------
