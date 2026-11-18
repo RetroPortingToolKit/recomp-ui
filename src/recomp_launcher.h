@@ -36,6 +36,18 @@ extern "C" {
 #define RECOMP_LAUNCHER_MAX_PLAYERS 8
 /* Host may #ifdef this when reading player_gamepad_guid[] from settings. */
 #define RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_GUID 1
+/* player_src value 3: the port holds a mouse device driven by the host
+ * pointer (PSX: the Sony PS1 Mouse). Offered only by profiles that support it
+ * (launcher_model_mouse_source_available); hosts #ifdef the macro so an older
+ * launcher is never handed a value it would clamp to Gamepad. */
+#define RECOMP_LAUNCHER_HAS_MOUSE_SOURCE 1
+#define RECOMP_LAUNCHER_HAS_NATIVE_MOUSE_CAP 1
+#define RECOMP_LAUNCHER_HAS_NEGCON_MODE 1
+#define RECOMP_LAUNCHER_PAD_MODE_NEGCON 3
+#define RECOMP_LAUNCHER_HAS_GUNCON_SOURCE 1
+#define RECOMP_LAUNCHER_SRC_GUNCON 4
+#define RECOMP_LAUNCHER_HAS_NATIVE_PERIPHERAL_CAPS 1
+#define RECOMP_LAUNCHER_SRC_MOUSE 3
 /* Host may #ifdef this when reading multitap_enabled from settings. */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ENABLED 1
 /* Host may #ifdef this when reading multitap_analog (DualShock-on-tap hack). */
@@ -85,6 +97,8 @@ extern "C" {
 /* Spectator seats a host may open, a separate pool on top of the players --
  * so a full room can still be watched. */
 #define RECOMP_LAUNCHER_NETPLAY_MAX_SPECTATORS 4
+
+#define RECOMP_LAUNCHER_HAS_AUTOMATIC_QUALITY 1
 
 typedef struct RecompLauncherCSettings RecompLauncherCSettings;
 
@@ -1283,7 +1297,7 @@ struct RecompLauncherCSettings {
     int  skip_launcher;     // bool: boot straight to the game next time
     int  msu1_enabled;      // bool
     char msu1_dir[512];
-    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital)
+    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital), 3=neGcon (PSX, RECOMP_LAUNCHER_PAD_MODE_NEGCON)
     int  aspect_index;      // 0 = 4:3, 1 = 16:9, 2 = 21:9
 
     // ---- deeper PSX-style settings (capability-gated; see RecompLauncherCGameInfo
@@ -1627,6 +1641,8 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+    /* Host-owned policy: resolution/SSAA may be reduced to keep up. */
+    int  automatic_quality;
 
     /* "Record replay" (GameInfo.has_record_replay consoles): 1 = the host
      * records the next session as a replay from power-on, for automated
@@ -1673,6 +1689,11 @@ struct RecompLauncherCSettings {
 // internal types. Mirror what the legacy launcher computed inline.
 #define RECOMP_LAUNCHER_HAS_SBI_STATUS 1
 enum { RECOMP_SBI_NA = 0, RECOMP_SBI_MISSING = 1, RECOMP_SBI_OK = 2 };
+/* Whether the disc's serial is one this build lists. Hosts #ifdef on this to
+ * stay source-compatible with older recomp-ui that lacks the fields. A host
+ * that does not say (0) gets the old Serial row: a tick for any serial read. */
+#define RECOMP_LAUNCHER_HAS_SERIAL_STATUS 1
+enum { RECOMP_SERIAL_UNSAID = 0, RECOMP_SERIAL_LISTED = 1, RECOMP_SERIAL_NOT_LISTED = 2 };
 typedef struct RecompLauncherCDiscVerify {
     char serial[16];   // e.g. "SCUS-94423"; "" = unknown/unread
     char region[8];    // e.g. "NTSC-U"; "" = unknown
@@ -1685,6 +1706,11 @@ typedef struct RecompLauncherCDiscVerify {
     char netplay_detail[160];
     int sbi_status; // RECOMP_SBI_*; zero means no requirement recorded by host.
     int profile_handoff; // host verified another shipped backend; close without committing edits
+    /* Appended for ABI (memset 0 = a host that does not say). With
+     * RECOMP_SERIAL_NOT_LISTED, `serial` holds what was read from the disc
+     * ("" when nothing was read), never the serial the build expects. */
+    int  serial_status;         // RECOMP_SERIAL_*
+    char expected_serials[96];  // what this build lists, e.g. "SLES-03396"; "" if unknown
 } RecompLauncherCDiscVerify;
 
 /* Host BIOS check for the first-run setup wizard (has_bios games). */
@@ -2513,10 +2539,20 @@ typedef struct RecompLauncherCGameInfo {
                     char* error, size_t error_size);
     void (*rom_read_free)(void* ctx, uint8_t* bytes);
     void* rom_read_ctx;
+    /* Native port device implemented by the host; independent of mouse-to-stick. */
+    int has_native_mouse;
+    int has_native_guncon;
+    int has_native_negcon;
+    /* Opt-in Graphics control; hosts own persistence and live quality. */
+    int                has_automatic_quality;
     /* Dashboard footer checkbox for Settings.record_replay. 0 => no checkbox,
      * so a console without a replay recorder keeps today's footer. Appended
      * for ABI stability. */
     int has_record_replay;
+    /* Optional hover text for the "Record replay" checkbox, UTF-8, host-owned
+     * and localised by the host; must outlive the launcher. Null or empty
+     * shows a neutral built-in default. Appended for ABI stability. */
+    const char* record_replay_tooltip;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
@@ -2619,6 +2655,13 @@ int recomp_launcher_get_mod_text_path_v1(
     RecompLauncherCModTextPathV1* out);
 void recomp_launcher_unregister_mod_text_paths(
     const RecompLauncherCModProvider* provider);
+/* Owner-thread integration: phase0 before draw services model actions while
+ * no preparation worker owns the provider;
+ * phase1 after GL rendering/before swap permits requested capture only.
+ * Opaque model/platform pointers are borrowed during callback only. */
+typedef void (*RecompLauncherCHostFrame)(void*,void*,void*,unsigned);
+void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context);
+void recomp_launcher_set_window_hidden(int hidden);
 
 /* Valid after run_window returns RECOMP_LAUNCHER_RESULT_RELAUNCH. Copies the
  * executable path produced by rebuild_with_progress. Returns 1 on success. */

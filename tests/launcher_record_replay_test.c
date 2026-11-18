@@ -102,7 +102,78 @@ static void test_restore_defaults_keeps_tick(void) {
     free(m);
 }
 
+static void test_tooltip_default_and_host(void) {
+    RecompLauncherCSettings io;
+    LauncherModel* m = session(1, 0, &io);
+    if (!m) return;
+    expect(launcher_model_record_replay_tooltip(m) == NULL,
+           "no host tooltip: the model reports none (UI shows the default)");
+    expect(strstr(LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT, "replay") != NULL,
+           "the built-in default is a neutral replay sentence");
+    expect(strstr(LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT, "F11") == NULL &&
+           strstr(LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT, "GunCon") == NULL,
+           "the default carries no console-specific wording");
+    free(m);
+
+    LauncherModel* h = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!h) { ++fails; return; }
+    memset(&game, 0, sizeof(game));
+    launcher_profile_apply_psx(&game);
+    game.name = "Record Replay Fixture";
+    game.num_players = 2;
+    game.has_record_replay = 1;
+    game.record_replay_tooltip = "Host says hello.";
+    memset(&defaults, 0, sizeof(defaults));
+    game.default_settings = &defaults;
+    memset(&io, 0, sizeof(io));
+    launcher_model_init(h, &io, &game, NULL);
+    expect(launcher_model_record_replay_tooltip(h) &&
+           strcmp(launcher_model_record_replay_tooltip(h), "Host says hello.") == 0,
+           "a host-supplied tooltip is passed through");
+    free(h);
+
+    game.record_replay_tooltip = "";
+    h = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!h) { ++fails; return; }
+    launcher_model_init(h, &io, &game, NULL);
+    expect(launcher_model_record_replay_tooltip(h) == NULL,
+           "an empty host tooltip falls back to the default");
+    free(h);
+}
+
+static void test_in_session_hides_checkbox(void) {
+    RecompLauncherCSettings io;
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!m) { ++fails; return; }
+    memset(&game, 0, sizeof(game));
+    launcher_profile_apply_psx(&game);
+    game.name = "Record Replay Fixture";
+    game.num_players = 2;
+    game.has_record_replay = 1;
+    game.in_session = 1;
+    memset(&defaults, 0, sizeof(defaults));
+    game.default_settings = &defaults;
+    memset(&io, 0, sizeof(io));
+    io.record_replay = 1;
+    launcher_model_init(m, &io, &game, NULL);
+    expect(m->in_session, "resuming a running session");
+    expect(!launcher_model_record_replay_available(m),
+           "the checkbox is not offered while resuming");
+    expect(m->s.record_replay == 0, "a seeded tick is dropped while resuming");
+    launcher_model_toggle_record_replay(m);
+    expect(m->s.record_replay == 0, "the toggle is inert while resuming");
+    free(m);
+
+    LauncherModel* n = session(1, 0, &io);
+    if (!n) return;
+    expect(launcher_model_record_replay_available(n),
+           "offered before a session starts");
+    free(n);
+}
+
 int main(void) {
+    test_tooltip_default_and_host();
+    test_in_session_hides_checkbox();
     test_offered_round_trip();
     test_not_offered();
     test_restore_defaults_keeps_tick();

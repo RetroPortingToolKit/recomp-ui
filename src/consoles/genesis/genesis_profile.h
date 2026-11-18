@@ -81,7 +81,7 @@ static const SystemProfile kSystemProfileGenesis = {
     /* controller */ {
         kGenesisPadButtons, LNG_GENESIS_PAD_BUTTON_COUNT,
         "pad_genesis.tga", NULL, NULL,   // single pad art; no analog/digital swap pair
-        /* max_players */ 4, /* has_pad_mode */ 1,   // 4 logical players (RUI_GEN_MAX_PLAYERS); game num_players may be lower
+        /* max_players */ 6, /* has_pad_mode */ 1,   // 6 logical players (RUI_GEN_MAX_PLAYERS); game num_players may be lower
         /* binds_per_input */ 1,       // one key bind per input (the GAMEPAD chip is a separate pad bind)
         kGenesisPadModes, LNG_GENESIS_PAD_MODE_COUNT,
         /* has_pad_binds */ 1,

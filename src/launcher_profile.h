@@ -28,6 +28,7 @@
 #include "recomp_launcher.h"
 #include "consoles/snes/snes_profile.h"
 #include "consoles/psx/psx_profile.h"
+#include "consoles/ps2/ps2_profile.h"
 #include "consoles/gba/gba_profile.h"
 #include "consoles/n64/n64_profile.h"
 #include "consoles/nes/nes_profile.h"
@@ -35,6 +36,7 @@
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
 #include "consoles/cdi/cdi_profile.h"
+#include "consoles/3do/3do_profile.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -65,6 +67,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
     if (launcher_console_is_cdi(name)) { launcher_profile_apply_cdi(gi); return 1; }
 
     // --- built-out consoles (rows live in src/consoles/<id>/) ----------------
+    if (launcher_console_is_ps2(name)) { launcher_profile_apply_ps2(gi); return 1; }
     if (launcher_console_is_psx(name))  { launcher_profile_apply_psx(gi);  return 1; }
     if (launcher_console_is_snes(name)) { launcher_profile_apply_snes(gi); return 1; }
     if (launcher_console_is_gba(name))  { launcher_profile_apply_gba(gi);  return 1; }
@@ -74,6 +77,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
     if (launcher_console_is_gbc(name))  { launcher_profile_apply_gbc(gi);  return 1; }
     if (launcher_console_is_gb(name))   { launcher_profile_apply_gb(gi);   return 1; }
     if (launcher_console_is_nds(name))  { launcher_profile_apply_nds(gi);  return 1; }
+    if (launcher_console_is_3do(name))  { launcher_profile_apply_3do(gi);  return 1; }
 
     // --- other systems: identity now, capabilities refined as each is built --
     if (lpr_is(name, "smsgg") || lpr_is(name, "sms") || lpr_is(name, "gg")) {
