@@ -696,6 +696,53 @@ if(BUILD_TESTING)
     add_test(
         NAME recomp-ui-launcher-record-replay
         COMMAND $<TARGET_FILE:recomp-ui-launcher-record-replay-test>)
+
+    # The cover button's model side: serial and address, the check of what
+    # came back, the replace rule and the worker job, with fake fetchers. No
+    # network.
+    add_executable(recomp-ui-launcher-cover-test
+        tests/launcher_cover_test.c
+        src/common/launcher_cover.c)
+    target_include_directories(recomp-ui-launcher-cover-test PRIVATE src src/common)
+    if(UNIX)
+        find_package(Threads REQUIRED)
+        target_link_libraries(recomp-ui-launcher-cover-test PRIVATE Threads::Threads)
+    endif()
+    add_test(
+        NAME recomp-ui-launcher-cover
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
+    # The title's own folder and the cover template as the model holds them.
+    add_executable(recomp-ui-launcher-user-dir-test
+        tests/launcher_user_dir_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-user-dir-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-user-dir-test PRIVATE ${RUI_SDL_TARGET})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/user-dir-test")
+    add_test(NAME recomp-ui-launcher-user-dir
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-user-dir-test>
+                     "${CMAKE_CURRENT_BINARY_DIR}/user-dir-test")
+
+    # The desktop icon file: the square picture, the .ico and the .png as
+    # written, and the save icon read from a memory-card image the test
+    # builds itself.
+    add_executable(recomp-ui-launcher-icon-test
+        tests/launcher_icon_test.c
+        src/common/launcher_icon.c
+        src/common/crc32.c)
+    target_include_directories(recomp-ui-launcher-icon-test PRIVATE src src/common)
+    add_test(
+        NAME recomp-ui-launcher-icon
+        COMMAND $<TARGET_FILE:recomp-ui-launcher-icon-test>
+                ${CMAKE_CURRENT_BINARY_DIR})
+
     add_executable(recomp-ui-launcher-mouse-source-test
         tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
         src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)
