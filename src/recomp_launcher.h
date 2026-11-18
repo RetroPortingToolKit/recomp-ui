@@ -2534,7 +2534,17 @@ typedef struct RecompLauncherCGameInfo {
     int has_native_negcon;
     /* Opt-in Graphics control; hosts own persistence and live quality. */
     int                has_automatic_quality;
+    /* PlayStation only. Where the launcher's Fetch cover button gets a cover
+     * from: an https address template with the disc serial as "{serial}",
+     * e.g. "https://example.org/covers/{serial}.jpg" (serial as "SLUS-04321").
+     * Letters, digits and / . - _ only, apart from the placeholder. Borrowed
+     * for the life of the launcher. NULL/""/unusable: the host names no
+     * source, there is NO built-in one, and the button is not shown. The
+     * button is also not shown once the title has box art (its own, or a
+     * fetched launcher-cover.jpg). Appended for source compatibility. */
+    const char*        cover_url_template;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
 #define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1

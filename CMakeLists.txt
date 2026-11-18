@@ -651,6 +651,23 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-test>
                 ${CMAKE_CURRENT_BINARY_DIR})
 
+    # The title's own folder and the cover template as the model holds them.
+    add_executable(recomp-ui-launcher-user-dir-test
+        tests/launcher_user_dir_test.c
+        src/common/launcher_model.c
+        src/common/crc32.c
+        src/common/sha1.c
+        src/common/sha256.c
+        src/common/ips_patch.c
+        src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-user-dir-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-user-dir-test PRIVATE ${RUI_SDL_TARGET})
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/user-dir-test")
+    add_test(NAME recomp-ui-launcher-user-dir
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-user-dir-test>
+                     "${CMAKE_CURRENT_BINARY_DIR}/user-dir-test")
+
     # The desktop icon file: the square picture, the .ico and the .png as
     # written, and the save icon read from a memory-card image the test
     # builds itself.

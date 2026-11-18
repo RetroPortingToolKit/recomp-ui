@@ -37,8 +37,9 @@ typedef char cover_tool_char;
 #define COVER_TOOL_CAP 1024
 #endif
 
-#define COVER_URL_BASE "https://raw.githubusercontent.com/xlenore/psx-covers/main/covers/default/"
-#define COVER_URL_CAP 160
+#define COVER_URL_CAP 448
+#define COVER_TEMPLATE_CAP 400                /* the longest address template */
+#define COVER_PLACEHOLDER "{serial}"
 #define COVER_DEST_MAX 1024                   /* the longest `dest` of a fetch */
 #define COVER_PATH_CAP (COVER_DEST_MAX + 16)  /* room for ".part" and ".code" */
 #define COVER_MIN_BYTES 1024L
@@ -82,19 +83,62 @@ int launcher_cover_serial(const char* in, char out[16]) {
     return 1;
 }
 
-int launcher_cover_url(const char* serial, char* out, size_t cap) {
+static int cover_plain_char(char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+           c == '/' || c == '.' || c == '-' || c == '_';
+}
+
+int launcher_cover_template_ok(const char* tmpl) {
+    const size_t ph = sizeof(COVER_PLACEHOLDER) - 1;
+    size_t i = 8;
+    int placeholders = 0;
+
+    if (!tmpl || strncmp(tmpl, "https://", 8) != 0 || strlen(tmpl) >= COVER_TEMPLATE_CAP)
+        return 0;
+    /* A host name follows: it starts with a letter or digit, and the serial is
+     * never part of it. */
+    if (!((tmpl[i] >= 'A' && tmpl[i] <= 'Z') || (tmpl[i] >= 'a' && tmpl[i] <= 'z') ||
+          (tmpl[i] >= '0' && tmpl[i] <= '9')))
+        return 0;
+    while (tmpl[i]) {
+        if (strncmp(tmpl + i, COVER_PLACEHOLDER, ph) == 0) {
+            ++placeholders;
+            i += ph;
+        } else if (cover_plain_char(tmpl[i])) {
+            ++i;
+        } else {
+            return 0;
+        }
+    }
+    return placeholders > 0;
+}
+
+int launcher_cover_url(const char* tmpl, const char* serial, char* out, size_t cap) {
+    const size_t ph = sizeof(COVER_PLACEHOLDER) - 1;
     char clean[16];
-    int n;
+    size_t o = 0;
 
     if (!out || !cap) return 0;
     out[0] = '\0';
-    if (!launcher_cover_serial(serial, clean)) return 0;
-    n = snprintf(out, cap, COVER_URL_BASE "%s.jpg", clean);
-    if (n <= 0 || (size_t)n >= cap) {
-        out[0] = '\0';
-        return 0;
+    if (!launcher_cover_template_ok(tmpl) || !launcher_cover_serial(serial, clean)) return 0;
+    while (*tmpl) {
+        if (strncmp(tmpl, COVER_PLACEHOLDER, ph) == 0) {
+            const size_t n = strlen(clean);
+            if (o + n >= cap) { out[0] = '\0'; return 0; }
+            memcpy(out + o, clean, n);
+            o += n;
+            tmpl += ph;
+        } else {
+            if (o + 1 >= cap) { out[0] = '\0'; return 0; }
+            out[o++] = *tmpl++;
+        }
     }
+    out[o] = '\0';
     return 1;
+}
+
+int launcher_cover_fetch_offered(const char* tmpl, int have_boxart) {
+    return !have_boxart && launcher_cover_template_ok(tmpl);
 }
 
 /* ---- the picture check ---- */
@@ -527,8 +571,9 @@ static int cover_replace(const char* part, const char* dest) {
     return rename(part, dest) == 0;
 }
 
-int launcher_cover_fetch_sync(const char* const* serials, int n, const char* dest,
-                              LauncherCoverFetchFn fetch, void* ctx, char* used) {
+int launcher_cover_fetch_sync(const char* tmpl, const char* const* serials, int n,
+                              const char* dest, LauncherCoverFetchFn fetch, void* ctx,
+                              char* used) {
     char part[COVER_PATH_CAP];
     char url[COVER_URL_CAP];
     char serial[16];
@@ -537,6 +582,7 @@ int launcher_cover_fetch_sync(const char* const* serials, int n, const char* des
 
     if (used) used[0] = '\0';
     if (!dest || !dest[0] || strlen(dest) > COVER_DEST_MAX) return LNG_COVER_WRITE_FAILED;
+    if (!launcher_cover_template_ok(tmpl)) return LNG_COVER_NO_SOURCE;
     if (!fetch) fetch = launcher_cover_fetch_curl;
     snprintf(part, sizeof(part), "%s.part", dest);
 
@@ -550,7 +596,7 @@ int launcher_cover_fetch_sync(const char* const* serials, int n, const char* des
             if (serials[j] && launcher_cover_serial(serials[j], earlier) && !strcmp(earlier, serial))
                 seen = 1;
         }
-        if (seen || !launcher_cover_url(serial, url, sizeof(url))) continue;
+        if (seen || !launcher_cover_url(tmpl, serial, url, sizeof(url))) continue;
         ++asked;
         remove(part);
         r = fetch(ctx, url, part);
@@ -581,6 +627,7 @@ int launcher_cover_fetch_sync(const char* const* serials, int n, const char* des
 /* ---- the same on a worker thread (one job at a time) ---- */
 
 typedef struct {
+    char tmpl[COVER_TEMPLATE_CAP];
     char serials[COVER_JOB_SERIALS][16];
     int n;
     char dest[COVER_DEST_MAX + 1];
@@ -628,7 +675,7 @@ static void* cover_thread_main(void* arg) {
 
     memset(used, 0, sizeof(used));
     for (i = 0; i < j->n; ++i) list[i] = j->serials[i];
-    result = launcher_cover_fetch_sync(list, j->n, j->dest, j->fetch, j->ctx, used);
+    result = launcher_cover_fetch_sync(j->tmpl, list, j->n, j->dest, j->fetch, j->ctx, used);
     cover_lock();
     j->result = result;
     memcpy(j->used, used, sizeof(j->used));
@@ -655,8 +702,8 @@ static int cover_spawn_thread(void) {
     return 1;
 }
 
-int launcher_cover_job_start(const char* const* serials, int n, const char* dest,
-                             LauncherCoverFetchFn fetch, void* ctx) {
+int launcher_cover_job_start(const char* tmpl, const char* const* serials, int n,
+                             const char* dest, LauncherCoverFetchFn fetch, void* ctx) {
     CoverJob* j = &g_cover_job;
     char serial[16];
     int i, k;
@@ -676,6 +723,8 @@ int launcher_cover_job_start(const char* const* serials, int n, const char* dest
         }
         if (!seen) memcpy(j->serials[j->n++], serial, sizeof(serial));
     }
+    /* An unusable template still starts a job; its result is NO_SOURCE. */
+    snprintf(j->tmpl, sizeof(j->tmpl), "%s", tmpl && strlen(tmpl) < COVER_TEMPLATE_CAP ? tmpl : "");
     memcpy(j->dest, dest, strlen(dest) + 1);
     j->fetch = fetch ? fetch : launcher_cover_fetch_curl;
     j->ctx = ctx;
@@ -727,6 +776,7 @@ const char* launcher_cover_state_text(int state) {
     case LNG_COVER_NOT_FOUND:    return "No cover for this disc at the source.";
     case LNG_COVER_FAILED:       return "The cover could not be fetched (no network?).";
     case LNG_COVER_BAD_IMAGE:    return "The file that came back is not a picture.";
+    case LNG_COVER_NO_SOURCE:    return "This game does not name a place to fetch covers from.";
     case LNG_COVER_NO_SERIAL:    return "This disc has no serial to look up.";
     case LNG_COVER_NO_TOOL:      return "This system has no curl to fetch the cover with.";
     case LNG_COVER_WRITE_FAILED: return "The cover could not be saved in the game folder.";

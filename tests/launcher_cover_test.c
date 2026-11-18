@@ -40,8 +40,9 @@ static void sleep_ms(int ms) {
 static void make_dir(const char* path) { mkdir(path, 0700); }
 #endif
 
-#define URL_SLUS "https://raw.githubusercontent.com/xlenore/psx-covers/main/covers/default/SLUS-04321.jpg"
-#define URL_SLES "https://raw.githubusercontent.com/xlenore/psx-covers/main/covers/default/SLES-01234.jpg"
+#define TMPL "https://covers.example.org/psx/{serial}.jpg"
+#define URL_SLUS "https://covers.example.org/psx/SLUS-04321.jpg"
+#define URL_SLES "https://covers.example.org/psx/SLES-01234.jpg"
 
 static int fails;
 
@@ -224,7 +225,7 @@ static void test_url(void) {
     size_t i;
     int plain = 1;
 
-    expect(launcher_cover_url("SLUS-04321", url, sizeof(url)) == 1 && !strcmp(url, URL_SLUS),
+    expect(launcher_cover_url(TMPL, "SLUS-04321", url, sizeof(url)) == 1 && !strcmp(url, URL_SLUS),
            "url: the exact address for SLUS-04321");
     for (i = 8; url[i]; ++i) {
         const char c = url[i];
@@ -234,17 +235,17 @@ static void test_url(void) {
     }
     expect(plain, "url: only letters, digits and / . - after https://");
     url[0] = 'x';
-    expect(launcher_cover_url("slus_043.21", url, sizeof(url)) == 1 && !strcmp(url, URL_SLUS),
+    expect(launcher_cover_url(TMPL, "slus_043.21", url, sizeof(url)) == 1 && !strcmp(url, URL_SLUS),
            "url: the boot file name gives the same address");
     url[0] = 'x';
-    expect(launcher_cover_url("SLUS-04321\" -o \"x", url, sizeof(url)) == 0 && url[0] == '\0',
+    expect(launcher_cover_url(TMPL, "SLUS-04321\" -o \"x", url, sizeof(url)) == 0 && url[0] == '\0',
            "url: a serial that does not normalise gives no address");
-    expect(launcher_cover_url("../../etc/passwd", url, sizeof(url)) == 0 && url[0] == '\0',
+    expect(launcher_cover_url(TMPL, "../../etc/passwd", url, sizeof(url)) == 0 && url[0] == '\0',
            "url: a path gives no address");
-    expect(launcher_cover_url("SLUS-04321", tiny, sizeof(tiny)) == 0 && tiny[0] == '\0',
+    expect(launcher_cover_url(TMPL, "SLUS-04321", tiny, sizeof(tiny)) == 0 && tiny[0] == '\0',
            "url: a buffer that is too small gives no cut-off address");
-    expect(launcher_cover_url(NULL, url, sizeof(url)) == 0 &&
-           launcher_cover_url("SLUS-04321", NULL, 0) == 0,
+    expect(launcher_cover_url(TMPL, NULL, url, sizeof(url)) == 0 &&
+           launcher_cover_url(TMPL, "SLUS-04321", NULL, 0) == 0,
            "url: NULL serial or buffer gives no address");
 }
 
@@ -447,7 +448,7 @@ static void test_fetch_sync(void) {
         remove(dest);
         fake_reset(&f, ANS_JPEG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
         strcpy(used, "x");
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_SAVED && f.calls == 1, "sync: saved on the first serial with one request");
         expect(!strcmp(f.urls[0], URL_SLUS), "sync: the request is the exact address of the serial");
         expect(!strcmp(f.dests[0], part_of(dest)), "sync: the download goes to <dest>.part");
@@ -463,7 +464,7 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-second.jpg");
         remove(dest);
         fake_reset(&f, ANS_404, ANS_JPEG, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 2, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 2, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_SAVED && f.calls == 2 && !strcmp(f.urls[0], URL_SLES) &&
                !strcmp(f.urls[1], URL_SLUS),
                "sync: 404 on the first serial, then the second is asked and saved");
@@ -478,7 +479,7 @@ static void test_fetch_sync(void) {
         remove(dest);
         fake_reset(&f, ANS_404, ANS_404, ANS_404, ANS_FAIL);
         strcpy(used, "x");
-        r = launcher_cover_fetch_sync(serials, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NOT_FOUND && f.calls == 3, "sync: 404 on all three serials is NOT_FOUND");
         expect(!file_exists(dest) && !file_exists(part_of(dest)),
                "sync: NOT_FOUND leaves no cover and no .part");
@@ -491,7 +492,7 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-failed.jpg");
         write_file(dest, g_old, sizeof(g_old));
         fake_reset(&f, ANS_FAIL, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_FAILED && f.calls == 1, "sync: a failed transfer is FAILED");
         expect(file_is(dest, g_old, sizeof(g_old)), "sync: FAILED leaves the old cover byte for byte");
         expect(!file_exists(part_of(dest)), "sync: the piece of a broken transfer is removed");
@@ -503,13 +504,13 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-html.jpg");
         write_file(dest, g_old, sizeof(g_old));
         fake_reset(&f, ANS_HTML, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_BAD_IMAGE, "sync: a page that came back as the file is BAD_IMAGE");
         expect(file_is(dest, g_old, sizeof(g_old)), "sync: BAD_IMAGE leaves the old cover byte for byte");
         expect(!file_exists(part_of(dest)), "sync: the page is removed");
 
         fake_reset(&f, ANS_NOTHING, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_BAD_IMAGE && file_is(dest, g_old, sizeof(g_old)),
                "sync: a fetcher that says saved and writes nothing is BAD_IMAGE, old cover kept");
     }
@@ -520,11 +521,11 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-replace.jpg");
         remove(dest);
         fake_reset(&f, ANS_JPEG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_SAVED && file_is(dest, g_jpeg, sizeof(g_jpeg)),
                "sync: the first cover is in place");
         fake_reset(&f, ANS_PNG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_SAVED && file_is(dest, g_png, sizeof(g_png)),
                "sync: a second good fetch replaces the cover");
         expect(!file_exists(part_of(dest)), "sync: no .part is left after the replace");
@@ -536,12 +537,12 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-noserial.jpg");
         remove(dest);
         fake_reset(&f, ANS_JPEG, ANS_JPEG, ANS_JPEG, ANS_JPEG);
-        r = launcher_cover_fetch_sync(serials, 4, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 4, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NO_SERIAL && f.calls == 0,
                "sync: no usable serial is NO_SERIAL, fetcher never called");
-        r = launcher_cover_fetch_sync(serials, 0, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 0, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NO_SERIAL && f.calls == 0, "sync: an empty list is NO_SERIAL");
-        r = launcher_cover_fetch_sync(NULL, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, NULL, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NO_SERIAL && f.calls == 0 && !file_exists(dest),
                "sync: a NULL list is NO_SERIAL");
     }
@@ -552,7 +553,7 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-notool.jpg");
         write_file(dest, g_old, sizeof(g_old));
         fake_reset(&f, ANS_NO_TOOL, ANS_JPEG, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 2, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 2, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NO_TOOL, "sync: a fetcher with no tool is NO_TOOL");
         expect(f.calls == 1, "sync: a missing tool is asked once, not once per serial");
         expect(file_is(dest, g_old, sizeof(g_old)), "sync: NO_TOOL leaves the old cover");
@@ -565,7 +566,7 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-duplicates.jpg");
         remove(dest);
         fake_reset(&f, ANS_404, ANS_404, ANS_JPEG, ANS_JPEG);
-        r = launcher_cover_fetch_sync(serials, 6, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 6, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_NOT_FOUND && f.calls == 2,
                "sync: six spellings of two serials make two requests");
         expect(!strcmp(f.urls[0], URL_SLUS) && !strcmp(f.urls[1], URL_SLES),
@@ -578,16 +579,16 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-order.jpg");
         remove(dest);
         fake_reset(&f, ANS_FAIL, ANS_HTML, ANS_404, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_BAD_IMAGE && f.calls == 3, "sync: BAD_IMAGE wins over FAILED and NOT_FOUND");
         fake_reset(&f, ANS_404, ANS_FAIL, ANS_404, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_FAILED && f.calls == 3, "sync: FAILED wins over NOT_FOUND");
         fake_reset(&f, ANS_FAIL, ANS_NO_TOOL, ANS_404, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_FAILED, "sync: FAILED wins over NO_TOOL");
         fake_reset(&f, ANS_HTML, ANS_JPEG, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 3, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 3, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_SAVED && f.calls == 2 && !strcmp(used, "SLES-01234"),
                "sync: a bad answer for one serial does not stop a good one for the next");
         expect(!file_exists(part_of(dest)), "sync: no .part is left");
@@ -605,20 +606,20 @@ static void test_fetch_sync(void) {
         write_file(inside, "keep", 4);
         fake_reset(&f, ANS_JPEG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
         strcpy(used, "x");
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_WRITE_FAILED && used[0] == '\0',
                "sync: a cover that cannot be replaced is WRITE_FAILED");
         expect(!file_exists(part_of(dest)) && file_is(inside, "keep", 4),
                "sync: WRITE_FAILED removes the .part and leaves what is in the way");
 
         fake_reset(&f, ANS_JPEG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        expect(launcher_cover_fetch_sync(serials, 1, NULL, fake_fetch, &f, used) == LNG_COVER_WRITE_FAILED &&
-               launcher_cover_fetch_sync(serials, 1, "", fake_fetch, &f, used) == LNG_COVER_WRITE_FAILED &&
+        expect(launcher_cover_fetch_sync(TMPL, serials, 1, NULL, fake_fetch, &f, used) == LNG_COVER_WRITE_FAILED &&
+               launcher_cover_fetch_sync(TMPL, serials, 1, "", fake_fetch, &f, used) == LNG_COVER_WRITE_FAILED &&
                f.calls == 0,
                "sync: no dest is WRITE_FAILED, nothing is asked");
         memset(long_dest, 'a', 1025);
         long_dest[1025] = '\0';
-        r = launcher_cover_fetch_sync(serials, 1, long_dest, fake_fetch, &f, used);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, long_dest, fake_fetch, &f, used);
         expect(r == LNG_COVER_WRITE_FAILED && f.calls == 0,
                "sync: a dest of 1025 characters is WRITE_FAILED, nothing is asked");
     }
@@ -629,7 +630,7 @@ static void test_fetch_sync(void) {
         dest = in_dir("sync-nullused.jpg");
         remove(dest);
         fake_reset(&f, ANS_JPEG, ANS_FAIL, ANS_FAIL, ANS_FAIL);
-        r = launcher_cover_fetch_sync(serials, 1, dest, fake_fetch, &f, NULL);
+        r = launcher_cover_fetch_sync(TMPL, serials, 1, dest, fake_fetch, &f, NULL);
         expect(r == LNG_COVER_SAVED && file_exists(dest), "sync: used may be NULL");
     }
 }
@@ -662,12 +663,12 @@ static void test_job(void) {
            "job: IDLE before the first start");
     expect(launcher_cover_job_take_finished() == 0, "job: nothing has finished before the first start");
 
-    expect(launcher_cover_job_start(serials, 6, NULL, fake_fetch, &g_job_fake) == 0 &&
-           launcher_cover_job_start(serials, 6, "", fake_fetch, &g_job_fake) == 0,
+    expect(launcher_cover_job_start(TMPL, serials, 6, NULL, fake_fetch, &g_job_fake) == 0 &&
+           launcher_cover_job_start(TMPL, serials, 6, "", fake_fetch, &g_job_fake) == 0,
            "job: no dest does not start a job");
     memset(long_dest, 'a', 1025);
     long_dest[1025] = '\0';
-    expect(launcher_cover_job_start(serials, 6, long_dest, fake_fetch, &g_job_fake) == 0 &&
+    expect(launcher_cover_job_start(TMPL, serials, 6, long_dest, fake_fetch, &g_job_fake) == 0 &&
            launcher_cover_job_poll(NULL) == LNG_COVER_IDLE,
            "job: a dest of 1025 characters does not start a job");
 
@@ -675,9 +676,9 @@ static void test_job(void) {
     remove(other);
     fake_reset(&g_job_fake, ANS_404, ANS_JPEG, ANS_FAIL, ANS_FAIL);
     g_job_fake.delay_ms = 200;
-    started = launcher_cover_job_start(serials, 6, dest, fake_fetch, &g_job_fake);
+    started = launcher_cover_job_start(TMPL, serials, 6, dest, fake_fetch, &g_job_fake);
     busy = launcher_cover_job_poll(used);
-    second = launcher_cover_job_start(serials, 6, other, fake_fetch, &g_job_fake);
+    second = launcher_cover_job_start(TMPL, serials, 6, other, fake_fetch, &g_job_fake);
     expect(started == 1, "job: start returns 1");
     expect(busy == LNG_COVER_BUSY && used[0] == '\0', "job: poll says BUSY while the fetch runs");
     expect(second == 0, "job: a second start while one runs returns 0");
@@ -701,7 +702,7 @@ static void test_job(void) {
     fake_reset(&g_job_fake, ANS_404, ANS_404, ANS_404, ANS_404);
     g_job_fake.answers[4] = ANS_JPEG;
     remove(other);
-    started = launcher_cover_job_start(serials, 6, other, fake_fetch, &g_job_fake);
+    started = launcher_cover_job_start(TMPL, serials, 6, other, fake_fetch, &g_job_fake);
     state = wait_for_job(used);
     expect(started == 1 && state == LNG_COVER_NOT_FOUND && g_job_fake.calls == 4,
            "job: a new start works after the end, and asks for four serials at most");
@@ -710,11 +711,11 @@ static void test_job(void) {
 
     /* No serial is a result, not a refused start. */
     fake_reset(&g_job_fake, ANS_JPEG, ANS_JPEG, ANS_JPEG, ANS_JPEG);
-    started = launcher_cover_job_start(none, 1, other, fake_fetch, &g_job_fake);
+    started = launcher_cover_job_start(TMPL, none, 1, other, fake_fetch, &g_job_fake);
     state = wait_for_job(used);
     expect(started == 1 && state == LNG_COVER_NO_SERIAL && g_job_fake.calls == 0,
            "job: a list with no usable serial ends as NO_SERIAL, fetcher never called");
-    started = launcher_cover_job_start(NULL, 0, other, fake_fetch, &g_job_fake);
+    started = launcher_cover_job_start(TMPL, NULL, 0, other, fake_fetch, &g_job_fake);
     state = wait_for_job(used);
     expect(started == 1 && state == LNG_COVER_NO_SERIAL && launcher_cover_job_take_finished() == 1,
            "job: a NULL list ends as NO_SERIAL");
@@ -723,7 +724,8 @@ static void test_job(void) {
 static void test_state_text(void) {
     static const int states[] = {LNG_COVER_BUSY,      LNG_COVER_SAVED,     LNG_COVER_NOT_FOUND,
                                  LNG_COVER_FAILED,    LNG_COVER_BAD_IMAGE, LNG_COVER_NO_SERIAL,
-                                 LNG_COVER_NO_TOOL,   LNG_COVER_WRITE_FAILED};
+                                 LNG_COVER_NO_TOOL,   LNG_COVER_WRITE_FAILED,
+                                 LNG_COVER_NO_SOURCE};
     size_t i, k;
     int all = 1;
 
@@ -743,12 +745,77 @@ static void test_state_text(void) {
            "text: the lines for SAVED and NOT_FOUND");
 }
 
+/* The host names the source. No template, no cover source and no button. */
+static void test_template(void) {
+    static const char* const serials[] = {"SLUS-04321"};
+    static const char* const bad[] = {
+        NULL, "",
+        "http://covers.example.org/{serial}.jpg",            /* not https */
+        "https://covers.example.org/psx/SLUS-04321.jpg",     /* no placeholder */
+        "https://covers.example.org/{serial",                /* broken placeholder */
+        "https://covers.example.org/{id}/{serial}.jpg",      /* another placeholder */
+        "https://covers.example.org/{serial}.jpg?x=1",       /* a query */
+        "https://covers.example.org:8443/{serial}.jpg",      /* a port */
+        "https://user@covers.example.org/{serial}.jpg",      /* credentials */
+        "https://covers.example.org/{serial}.jpg ",          /* a space */
+        "https://covers.example.org/{serial}.jpg\"",         /* a quote */
+        "https://covers.example.org/%2e%2e/{serial}.jpg",     /* an escape */
+        "https:///{serial}.jpg",                             /* no host */
+        "https://",
+        "{serial}",
+    };
+    char url[200] = "x";
+    char long_tmpl[500];
+    Fake f;
+    char used[16];
+    const char* dest = in_dir("template.jpg");
+    size_t i;
+    int all_bad = 1;
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i)
+        if (launcher_cover_template_ok(bad[i])) {
+            fprintf(stderr, "  accepted: %s\n", bad[i] ? bad[i] : "(null)");
+            all_bad = 0;
+        }
+    expect(all_bad, "template: NULL, empty, non-https, no placeholder, query, port, credentials, escapes refused");
+    memset(long_tmpl, 'a', sizeof(long_tmpl));
+    memcpy(long_tmpl, "https://", 8);
+    memcpy(long_tmpl + 440, "{serial}", 9);
+    expect(!launcher_cover_template_ok(long_tmpl), "template: an over-long template is refused");
+    expect(launcher_cover_template_ok(TMPL) &&
+           launcher_cover_template_ok("https://a.example/{serial}/{serial}.png"),
+           "template: a plain https template with {serial} is accepted");
+    expect(launcher_cover_url(NULL, "SLUS-04321", url, sizeof(url)) == 0 && url[0] == '\0' &&
+           launcher_cover_url("https://a.example/x.jpg", "SLUS-04321", url, sizeof(url)) == 0,
+           "template: no usable template gives no address");
+    expect(launcher_cover_url("https://a.example/{serial}/{serial}.png", "SLES-01234", url, sizeof(url)) == 1 &&
+           !strcmp(url, "https://a.example/SLES-01234/SLES-01234.png"),
+           "template: every placeholder is replaced");
+
+    /* Nothing is requested without a usable template. */
+    remove(dest);
+    fake_reset(&f, ANS_JPEG, ANS_JPEG, ANS_JPEG, ANS_JPEG);
+    expect(launcher_cover_fetch_sync(NULL, serials, 1, dest, fake_fetch, &f, used) == LNG_COVER_NO_SOURCE &&
+           launcher_cover_fetch_sync("https://a.example/x.jpg", serials, 1, dest, fake_fetch, &f, used) ==
+               LNG_COVER_NO_SOURCE && f.calls == 0 && !file_exists(dest),
+           "template: no template means NO_SOURCE and no request");
+
+    /* The button: only with a template, and only without box art. */
+    expect(!launcher_cover_fetch_offered(NULL, 0) && !launcher_cover_fetch_offered("", 0) &&
+           !launcher_cover_fetch_offered("https://a.example/x.jpg", 0),
+           "button: no template, no button");
+    expect(launcher_cover_fetch_offered(TMPL, 0) == 1, "button: template and no box art, the button");
+    expect(!launcher_cover_fetch_offered(TMPL, 1), "button: box art present, no button");
+    expect(!launcher_cover_fetch_offered(NULL, 1), "button: no template and box art, no button");
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && argv[1][0]) snprintf(g_dir, sizeof(g_dir), "%s", argv[1]);
     make_fixtures();
 
     test_serial();
     test_url();
+    test_template();
     test_check_file();
     test_fetch_sync();
     test_job();

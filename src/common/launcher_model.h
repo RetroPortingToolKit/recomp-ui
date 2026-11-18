@@ -336,9 +336,11 @@ typedef struct {
     // NULL => the default "assets/img/boxart.tga".
     const char* boxart_path;
     // The title's own writable folder, with its last separator: the folder of
-    // the host's settings file (GameInfo.config_path), where the launcher
-    // keeps launcher-window.ini. "" is the current folder.
+    // the host's settings file (GameInfo.config_path). See
+    // launcher_model_user_dir(); "" = unknown.
     char        user_dir[512];
+    // GameInfo.cover_url_template (borrowed; NULL = no cover source, no button).
+    const char* cover_url_template;
 
     // ---- N64 Transfer Pak --------------------------------------------------
     // Per-slot facts refreshed via tpak_inspect_cb (the HOST's cartridge
@@ -914,8 +916,11 @@ void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_bl
 // UI draws it as a dropdown, and the labels for each depth live with that
 // control alongside every other choice list.
 void launcher_model_set_run_ahead(LauncherModel* m, int frames);  // clamped, gated has_run_ahead
-// The title's own writable folder, ending in its separator, or "" for the
-// current folder: where the launcher saves a fetched cover and a made icon.
+// The title's own writable folder, ending in its separator: where the launcher
+// saves a fetched cover and a made icon. It is the folder of the host's
+// settings file; a bare file name resolves to the current folder as it was when
+// the model was built, as an absolute path. "" when there is no settings file
+// or its folder cannot be resolved: the cover and icon buttons are then off.
 const char* launcher_model_user_dir(const LauncherModel* m);
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained

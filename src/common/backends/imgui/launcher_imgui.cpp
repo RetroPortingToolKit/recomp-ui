@@ -2499,11 +2499,13 @@ void draw_artwork_gallery(LauncherModel* m,float height,float width) {
 
 // ---- cover and desktop icon -------------------------------------------------
 // Two small buttons at the top right of the disc panel. The first fetches the
-// cover of the mounted disc from github.com/xlenore/psx-covers and saves it in
-// the title's own folder; the cover slot shows it from then on. Nothing is
-// fetched without the click, and no cover is shipped. The second makes a
-// desktop icon file from that cover, or from the icon of the game's own save
-// on a memory card (launcher_cover.h, launcher_icon.h).
+// cover of the mounted disc from the address the host names
+// (GameInfo.cover_url_template; no template, no button) and saves it in the
+// title's own folder; the cover slot shows it from then on, and the button is
+// gone once the title has box art. Nothing is fetched without the click, and
+// no cover is shipped. The second makes a desktop icon file from that cover,
+// or from the icon of the game's own save on a memory card (launcher_cover.h,
+// launcher_icon.h). Both need a known game folder (launcher_model_user_dir).
 static std::string g_cover_path;        // <title's folder>/launcher-cover.jpg
 static char        g_cover_line[200];   // what the last click did
 static double      g_cover_line_until;  // ImGui time until which the line shows
@@ -2529,7 +2531,9 @@ static bool cover_applies(const LauncherModel* m) {
 }
 
 static void cover_show(const LauncherModel* m) {
-    g_cover_path = user_file(m, LAUNCHER_COVER_FILE);
+    // No known game folder: nothing is read from, or written to, the current one.
+    g_cover_path = launcher_model_user_dir(m)[0] ? user_file(m, LAUNCHER_COVER_FILE) : std::string();
+    if (g_cover_path.empty()) return;
     if (!launcher_cover_check_file(g_cover_path.c_str(), nullptr, nullptr)) return;
     LauncherTexture t = launcher_texture_load(g_cover_path.c_str());
     if (!t.id) return;
@@ -2607,29 +2611,41 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
         cover_say(ui_text(launcher_cover_state_text(state)));
     }
     const bool busy = state == LNG_COVER_BUSY;
+    const bool have_dir = launcher_model_user_dir(m)[0] != 0;
+    if (have_dir && g_cover_path.empty()) g_cover_path = user_file(m, LAUNCHER_COVER_FILE);
 
-    ImGui::SetCursorPos(ImVec2(corner.x + availw - side, corner.y));
-    if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy, 0, th)) {
-        char serials[2][16];
-        const int n = cover_serials(m, serials);
-        const char* list[2] = { serials[0], serials[1] };
-        if (n == 0)
-            cover_say(ui_text(launcher_cover_state_text(LNG_COVER_NO_SERIAL)));
-        else if (launcher_cover_job_start(list, n, g_cover_path.c_str(), nullptr, nullptr))
-            cover_say(ui_text(launcher_cover_state_text(LNG_COVER_BUSY)));
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort)) {
-        if (g_cover_tool == 1)
-            ImGui::SetTooltip("%s", ui_text(
-                "Downloads this game's cover from " LAUNCHER_COVER_SOURCE "\n"
-                "and saves it in the game folder (" LAUNCHER_COVER_FILE ").\n"
-                "A second click fetches it again."));
-        else
-            ImGui::SetTooltip("%s", ui_text(launcher_cover_state_text(LNG_COVER_NO_TOOL)));
+    // Offered only while the host names a source and the title has no box art:
+    // its own, a fetched cover, or a gallery of the player's pictures.
+    const bool have_art = g_boxart.id != 0 || !g_artwork.textures.empty();
+    const bool offer_fetch = launcher_cover_fetch_offered(m->cover_url_template, have_art) != 0;
+    float y = corner.y;
+    if (offer_fetch) {
+        ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
+        y += side + px(6.0f);
+        if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy && have_dir, 0, th)) {
+            char serials[2][16];
+            const int n = cover_serials(m, serials);
+            const char* list[2] = { serials[0], serials[1] };
+            if (n == 0)
+                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_NO_SERIAL)));
+            else if (launcher_cover_job_start(m->cover_url_template, list, n, g_cover_path.c_str(),
+                                              nullptr, nullptr))
+                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_BUSY)));
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort)) {
+            if (!have_dir)
+                ImGui::SetTooltip("%s", ui_text("The game folder is not known, so a cover cannot be saved."));
+            else if (g_cover_tool == 1)
+                ImGui::SetTooltip("%s", ui_text(
+                    "Downloads this game's cover and saves it in the\n"
+                    "game folder (" LAUNCHER_COVER_FILE ")."));
+            else
+                ImGui::SetTooltip("%s", ui_text(launcher_cover_state_text(LNG_COVER_NO_TOOL)));
+        }
     }
 
-    ImGui::SetCursorPos(ImVec2(corner.x + availw - side, corner.y + side + px(6.0f)));
-    if (corner_button("##desk_icon", side, true, 1, th)) {
+    ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
+    if (corner_button("##desk_icon", side, have_dir, 1, th)) {
         // What the menu can offer is looked up once, as it opens.
         char serials[2][16];
         const int n = cover_serials(m, serials);
@@ -2641,10 +2657,11 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
                 g_icon_save_card = slot + 1;
         ImGui::OpenPopup("##desk_icon_menu");
     }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-        ImGui::SetTooltip("%s", ui_text(
-            "Makes a desktop icon file for this game, from its cover\n"
-            "or from the icon of its save on a memory card."));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("%s", ui_text(have_dir
+            ? "Makes a desktop icon file for this game, from its cover\n"
+              "or from the icon of its save on a memory card."
+            : "The game folder is not known, so an icon cannot be saved."));
     if (ImGui::BeginPopup("##desk_icon_menu")) {
         const bool has_cover = launcher_cover_check_file(g_cover_path.c_str(), nullptr, nullptr) != 0;
         if (!has_cover) ImGui::BeginDisabled();
@@ -2668,8 +2685,8 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
         ImGui::TextColored(col(th.text_muted), "%s",
                            ui_text(has_cover ? "The file is " LAUNCHER_ICON_ICO " in the game folder.\n"
                                                "Use it in your shortcut: Properties, Change Icon."
-                                             : "Fetch the cover first, or save in the game\n"
-                                               "to have its save icon here."));
+                                             : "No cover file in the game folder yet. A save of this\n"
+                                               "game on a memory card gives its save icon."));
         ImGui::EndPopup();
     }
     ImGui::SetCursorPos(back);
