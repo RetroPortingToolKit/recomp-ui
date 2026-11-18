@@ -715,6 +715,15 @@ int main(int argc, char** argv) {
         if (multitap && multitap[0] == '1') s.multitap_enabled = 1;
     }
     launcher_model_init(&model, &s, &gi, rom);
+    /* Harness-only: LNG_DEMO_SETUP_ERROR=<text> (with LNG_DEMO_SETUP) opens
+     * the setup wizard with that text as its error line, so a host's sentence
+     * can be looked at -- how it wraps, whether all of it shows -- with no
+     * game build, no disc and no file picker. */
+    {
+        const char* demo_error = SDL_getenv("LNG_DEMO_SETUP_ERROR");
+        if (demo_error && demo_error[0])
+            snprintf(model.setup_error, sizeof(model.setup_error), "%s", demo_error);
+    }
     launcher_binds_load(&model, NULL, NULL);   // keybinds.ini + config.ini [KeyMap]
     fprintf(stderr, "[proto] rom=%s present=%d crc_match=%d sha_match=%d verified=%d size=%s\n",
             rom, model.rom_present, model.crc_match, model.sha_match,
