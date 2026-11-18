@@ -13935,6 +13935,18 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
         if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
+        if (launcher_model_record_replay_available(m)) {
+            ImGui::SameLine(0, px(18.0f));
+            bool rec = m->s.record_replay != 0;
+            if (ImGui::Checkbox(ui_text("Record replay"), &rec))
+                launcher_model_toggle_record_replay(m);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                // Host text is already localised by the host; the default is ours.
+                const char* host = launcher_model_record_replay_tooltip(m);
+                ImGui::SetTooltip("%s", host ? host
+                                             : ui_text(LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT));
+            }
+        }
     } else if (m->view == LNG_VIEW_SETTINGS &&
                launcher_model_can_restore_defaults(m)) {
         ImGui::SetCursorScreenPos(

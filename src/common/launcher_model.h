@@ -429,6 +429,8 @@ typedef struct {
     bool has_frame_blend;
     bool has_run_ahead;
     bool has_start_from;      /* SystemProfile.start_from: the dashboard's "Start from" block */
+    bool has_record_replay;   /* GameInfo.has_record_replay: footer checkbox */
+    const char* record_replay_tooltip;   /* GameInfo.record_replay_tooltip, borrowed; NULL/empty = default */
     bool has_shader;
     bool netplay_supported;
     bool netplay_policy_active;
@@ -980,6 +982,19 @@ void launcher_model_start_sync(LauncherModel* m);
 // *slot (0-based), or LNG_START_REPLAY with *path (the replay file). slot and
 // path may be NULL.
 int  launcher_model_start_handover(const LauncherModel* m, int* slot, const char** path);
+// "Record replay" for the next session (Settings.record_replay). Gated on
+// has_record_replay; a host that does not offer it always gets 0 back, and
+// Restore Defaults leaves the tick alone because it is not a preference.
+void launcher_model_toggle_record_replay(LauncherModel* m);
+// The checkbox is only meaningful before a session starts: while resuming an
+// in-progress session (in_session / RESUME) the host cannot start recording,
+// so it is hidden and the toggle is inert.
+bool launcher_model_record_replay_available(const LauncherModel* m);
+// Host-supplied tooltip, or NULL when the host left it empty (the UI then
+// shows LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT through ui_text).
+const char* launcher_model_record_replay_tooltip(const LauncherModel* m);
+#define LAUNCHER_RECORD_REPLAY_TOOLTIP_DEFAULT \
+    "Record this session's inputs to a replay file."
 void launcher_model_toggle_widescreen(LauncherModel* m);  // gated
 void launcher_model_toggle_adaptive_view(LauncherModel* m);  // gated; fixed aspect is retained
 /* Unified Native / fixed widescreen / Adaptive control. Compatibility fields
