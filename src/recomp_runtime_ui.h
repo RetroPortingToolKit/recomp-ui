@@ -24,6 +24,7 @@ extern "C" {
 #define RECOMP_RUNTIME_UI_HAS_TOAST 1
 #define RECOMP_RUNTIME_UI_HAS_CONFIRM 1
 #define RECOMP_RUNTIME_UI_HAS_VIEW 1
+#define RECOMP_RUNTIME_UI_HAS_POINTER 1
 
 typedef struct RecompRuntimeUi RecompRuntimeUi;
 
@@ -250,6 +251,14 @@ void recomp_runtime_ui_close(RecompRuntimeUi *ui);
 int recomp_runtime_ui_handle_input(RecompRuntimeUi *ui,
                                    RecompRuntimeUiInput input,
                                    int pressed, int repeat);
+
+/* Software ARGB presentation, in the same pixel coordinates as render_argb8888.
+ * pressed: 1 begins a pointer press, 0 releases it, -1 cancels it. An action
+ * runs only when press and release hit the same visible control. The host owns
+ * the primary pointer and must suppress duplicate synthetic mouse events.
+ * All pointer events belong to an open menu, including those outside it. */
+int recomp_runtime_ui_handle_pointer(RecompRuntimeUi *ui, int width, int height,
+                                     int x, int y, int pressed);
 
 /*
  * Non-zero while a RECOMP_RUNTIME_UI_TEXT row has keyboard focus. The host must
