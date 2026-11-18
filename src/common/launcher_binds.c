@@ -58,6 +58,10 @@ static const int kKbIndexSnes[LNG_SNES_PAD_BUTTON_COUNT] = {
 // consoles/gba/gba_profile.h); everything else is SNES-shaped (12 buttons).
 static const int* active_kb_index(const LauncherModel* m, int* out_n) {
     const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    if (prof && prof->id && !strcmp(prof->id, "3do")) {
+        *out_n = LNG_3DO_PAD_BUTTON_COUNT;
+        return k3doKbIndex;
+    }
     if (prof && prof->id && !strcmp(prof->id, "gba")) {
         *out_n = LNG_GBA_PAD_BUTTON_COUNT;
         return kGbaKbIndex;

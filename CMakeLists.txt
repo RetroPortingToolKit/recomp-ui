@@ -669,6 +669,11 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-gb-profile-test PRIVATE src src/common)
     add_test(NAME recomp-ui-gb-profile COMMAND $<TARGET_FILE:recomp-ui-gb-profile-test>)
 
+    add_executable(recomp-ui-3do-profile-test tests/3do_profile_test.c)
+    target_include_directories(recomp-ui-3do-profile-test PRIVATE src src/common)
+    add_test(NAME recomp-ui-3do-profile COMMAND $<TARGET_FILE:recomp-ui-3do-profile-test>)
+    set_tests_properties(recomp-ui-3do-profile PROPERTIES TIMEOUT 0)
+
     add_executable(recomp-ui-assist-pad-capture-test
         tests/launcher_assist_pad_capture_test.c
         src/common/launcher_model.c
