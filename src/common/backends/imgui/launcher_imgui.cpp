@@ -15357,6 +15357,9 @@ std::string asset(const char* rel) {
     if (is_absolute_path(path)) return path;
     if (!s_assets_directory.empty()) {
         std::filesystem::path root=std::filesystem::u8path(s_assets_directory);
+        if (!root.has_filename()) root=root.parent_path();   // tolerate a trailing slash
+        // Hosts pass either the assets folder itself or the exe dir that holds it (psxrecomp).
+        if (root.filename()!="assets") return (root/std::filesystem::u8path(path)).u8string();
         if (path.rfind("assets/",0)==0) return (root/std::filesystem::u8path(path.substr(7))).u8string();
         return (root.parent_path()/std::filesystem::u8path(path)).u8string();
     }
