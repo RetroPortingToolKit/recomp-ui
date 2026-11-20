@@ -55,6 +55,10 @@ static int genesis_player_count(int num_players) {
 
 int main(void) {
     const SystemProfile* p = launcher_system_by_id("genesis");
+    const RecompLauncherCGameInfo x32 = {
+        .platform = "SEGA 32X", .has_bios = 1, .pad_mode_supported = 1,
+    };
+    expect_int(launcher_system_infer(&x32) == p, 1, "32X uses Genesis controls and saves");
     expect_int(p ? p->controller.max_players : -1, RUI_GEN_MAX_PLAYERS,
                "profile ceiling equals the Genesis bind store width");
     expect_int(genesis_player_count(4), 4, "four-player title gets four seats");

@@ -105,6 +105,8 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
         // "GENESIS" was the pre-buildout stub label (kept for host compat).
         if (lps_streq_ci(gi->platform, "SEGA GENESIS"))      return &kSystemProfileGenesis;
         if (lps_streq_ci(gi->platform, "GENESIS"))           return &kSystemProfileGenesis;
+        // A 32X cartridge uses the same Genesis controllers and SRAM.
+        if (lps_streq_ci(gi->platform, "SEGA 32X"))          return &kSystemProfileGenesis;
         if (lps_streq_ci(gi->platform, "GAME BOY ADVANCE"))  return &kSystemProfileGba;
         // Both the built-out label and the old stub's "NINTENDO" resolve to
         // the NES row, so hosts built against the stub-era string keep working.
