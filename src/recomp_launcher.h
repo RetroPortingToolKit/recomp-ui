@@ -2356,6 +2356,11 @@ typedef struct RecompLauncherCGameInfo {
     const char* const* texture_filter_labels;
     const int*         texture_filter_values;
     int                num_texture_filters;
+    /* Show named host shortcuts as controller-only rows when keyboard
+     * shortcuts already have their own editor. Capture, clear, defaults and
+     * persistence still use assist_pad_bind; zero preserves existing hosts.
+     * Appended for source/ABI stability. */
+    int assist_pad_only;
 } RecompLauncherCGameInfo;
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
@@ -2373,6 +2378,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
 /* Host may #ifdef this when setting assist_direct_pad_bind_action. */
 #define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
+#define RECOMP_LAUNCHER_HAS_PAD_ONLY_SHORTCUTS 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0

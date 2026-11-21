@@ -530,6 +530,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_virtual_stylus   = game->has_virtual_stylus != 0;
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
+        m->assist_pad_only = game->assist_pad_only != 0;
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
@@ -4265,7 +4266,8 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
     if (m->capture_assist) {
         if (m->capture_btn >= 0 &&
             m->capture_btn < m->assist_binding_count)
-            m->s.assist_pad_bind[m->capture_btn] = encoded_binding;
+            m->s.assist_pad_bind[m->capture_btn] =
+                m->assist_pad_only && encoded_binding == 0 ? -1 : encoded_binding;
     } else {
         int buttons = launcher_model_active_button_count(m, m->cfg_player);
         if (m->capture_btn >= 0 && m->capture_btn < buttons)
@@ -4293,8 +4295,9 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
 }
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
     if (!m) return;
-    memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
-           sizeof m->s.assist_key_bind);
+    if (!m->assist_pad_only)
+        memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
+               sizeof m->s.assist_key_bind);
     memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }

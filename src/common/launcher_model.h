@@ -387,6 +387,7 @@ typedef struct {
     bool settings_bindings;
     const char* const* assist_binding_labels;
     int assist_binding_count;
+    bool assist_pad_only;
     int assist_direct_pad_bind_action;
     const char* credits_text;
     int assist_fast_forward_min;
