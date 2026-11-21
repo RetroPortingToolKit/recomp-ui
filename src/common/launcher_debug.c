@@ -1,0 +1,323 @@
+// launcher_debug.c — LNG_SCRIPT interpreter + framebuffer capture.
+
+#include "launcher_debug.h"
+#include "launcher_sdlcompat.h"   // SDL2/SDL3 event-symbol shim + GL header
+
+// A host that already compiles the stb_image_write implementation (e.g.
+// gb-recompiled's gb_printer.c) defines RECOMP_UI_HOST_STB_WRITE so this TU
+// pulls in the DECLARATIONS only and links against the host's single copy —
+// otherwise two implementations collide at link time. Standalone recomp-ui
+// (no host stb) leaves it undefined and provides the implementation here.
+#ifndef RECOMP_UI_HOST_STB_WRITE
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#endif
+#include "third_party/stb_image_write.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define LNG_MAX_CMDS 64
+
+static char  g_script[2048];
+static char* g_cmds[LNG_MAX_CMDS];
+static int   g_cmd_count = 0;
+static int   g_cmd_index = 0;
+static int   g_wait_frames = 0;
+static bool  g_active = false;
+
+bool launcher_debug_active(void) { return g_active; }
+
+void launcher_debug_init(void) {
+    const char* s = SDL_getenv("LNG_SCRIPT");
+    if (!s || !s[0]) return;
+
+    snprintf(g_script, sizeof(g_script), "%s", s);
+    g_cmd_count = 0;
+    char* tok = strtok(g_script, ";");
+    while (tok && g_cmd_count < LNG_MAX_CMDS) {
+        while (*tok == ' ') ++tok;          // trim leading spaces
+        if (*tok) g_cmds[g_cmd_count++] = tok;
+        tok = strtok(NULL, ";");
+    }
+    g_active = g_cmd_count > 0;
+    if (g_active) fprintf(stderr, "[dbg] script: %d commands\n", g_cmd_count);
+}
+
+bool launcher_capture_png(const char* path, int w, int h) {
+    if (w <= 0 || h <= 0) return false;
+    unsigned char* px = (unsigned char*)malloc((size_t)w * h * 4);
+    if (!px) return false;
+
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    // RGBA/UNSIGNED_BYTE is portable to GLES default framebuffers; RGB reads
+    // can fail with GL_INVALID_OPERATION on ANGLE. Keep the saved PNG RGB.
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    for (size_t i = 0; i < (size_t)w * h; ++i) {
+        px[i * 3] = px[i * 4];
+        px[i * 3 + 1] = px[i * 4 + 1];
+        px[i * 3 + 2] = px[i * 4 + 2];
+    }
+
+    // GL origin is bottom-left; PNG wants top-down. Flip rows in place.
+    const size_t stride = (size_t)w * 3;
+    unsigned char* row = (unsigned char*)malloc(stride);
+    if (row) {
+        for (int y = 0; y < h / 2; ++y) {
+            unsigned char* a = px + (size_t)y * stride;
+            unsigned char* b = px + (size_t)(h - 1 - y) * stride;
+            memcpy(row, a, stride); memcpy(a, b, stride); memcpy(b, row, stride);
+        }
+        free(row);
+    }
+
+    int ok = stbi_write_png(path, w, h, 3, px, (int)stride);
+    free(px);
+    if (ok) fprintf(stderr, "[dbg] shot -> %s (%dx%d)\n", path, w, h);
+    else    fprintf(stderr, "[dbg] shot FAILED -> %s\n", path);
+    return ok != 0;
+}
+
+// Synthesize a click at logical window coords: warp the cursor (so backends
+// that sample SDL_GetMouseState see it) and push button events (so backends
+// that consume the event queue see it). Covers both ImGui and Clay.
+static void synth_click(LauncherPlatform* p, float x, float y) {
+#if defined(LNG_SDL3)
+    SDL_WarpMouseInWindow(p->window, x, y);
+#else
+    // SDL2 stores mouse coordinates as integers. Make its existing truncation
+    // behavior explicit while preserving SDL3's subpixel coordinates.
+    const int event_x = (int)x;
+    const int event_y = (int)y;
+    SDL_WarpMouseInWindow(p->window, event_x, event_y);
+#endif
+
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_MOUSE_MOTION;
+    e.motion.windowID = SDL_GetWindowID(p->window);
+#if defined(LNG_SDL3)
+    e.motion.x = x; e.motion.y = y;
+#else
+    e.motion.x = event_x; e.motion.y = event_y;
+#endif
+    SDL_PushEvent(&e);
+
+    SDL_zero(e);
+    e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    e.button.windowID = SDL_GetWindowID(p->window);
+    e.button.button = SDL_BUTTON_LEFT;
+    e.button.clicks = 1;
+#if defined(LNG_SDL3)
+    e.button.x = x; e.button.y = y;
+    e.button.down = true;
+#else
+    e.button.x = event_x; e.button.y = event_y;
+    e.button.state = SDL_PRESSED;
+#endif
+    SDL_PushEvent(&e);
+
+    e.type = SDL_EVENT_MOUSE_BUTTON_UP;
+#if defined(LNG_SDL3)
+    e.button.down = false;
+#else
+    e.button.state = SDL_RELEASED;
+#endif
+    SDL_PushEvent(&e);
+}
+
+static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
+    SDL_Scancode sc = SDL_GetScancodeFromKey(key
+#if defined(LNG_SDL3)
+        , NULL
+#endif
+        );
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_KEY_DOWN;
+#if defined(LNG_SDL3)
+    /* ImGui's SDL3 backend drops key events for no known window. */
+    e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
+    e.key.key = key;
+    e.key.scancode = sc;
+    e.key.down = true;
+#else
+    e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
+    e.key.keysym.sym = key;
+    e.key.keysym.scancode = sc;
+    e.key.state = SDL_PRESSED;
+#endif
+    SDL_PushEvent(&e);
+    e.type = SDL_EVENT_KEY_UP;
+#if defined(LNG_SDL3)
+    e.key.down = false;
+#else
+    e.key.state = SDL_RELEASED;
+#endif
+    SDL_PushEvent(&e);
+}
+
+static void synth_pad_button(int button) {
+    if (button < 0 || button >= 32) return;
+    SDL_Event e; SDL_zero(e);
+    e.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+    LNG_EVGBTNWHICH(e) = 42; LNG_EVGBTN(e) = (Uint8)button;
+    SDL_PushEvent(&e);
+    e.type = SDL_EVENT_GAMEPAD_BUTTON_UP; SDL_PushEvent(&e);
+}
+static void synth_pad_axis(int axis, int value) {
+    if (axis < 0 || axis > 5 || value < -32768 || value > 32767) return;
+    SDL_Event e; SDL_zero(e);
+    e.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+    LNG_EVGAXISWHICH(e) = 42; LNG_EVGAXIS(e) = (Uint8)axis;
+    LNG_EVGAXISVAL(e) = (Sint16)value; SDL_PushEvent(&e);
+}
+
+static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
+    if (!g_active) return false;
+
+    // Never clobber an action the UI already set this frame (e.g. PLAY -> LAUNCH);
+    // otherwise a script that clicks PLAY and then ends would overwrite LAUNCH
+    // with the script-exhausted QUIT below.
+    if (m && m->action != LNG_ACTION_NONE) return false;
+
+    if (g_wait_frames > 0) { --g_wait_frames; return false; }
+
+    if (g_cmd_index >= g_cmd_count) {   // script exhausted -> exit
+        return true;
+    }
+
+    const char* c = g_cmds[g_cmd_index];
+    /* No model pointer is available on this path. Defer model operations,
+     * including unknown future commands, until exclusive provider work ends. */
+    if (!m && strncmp(c, "size:", 5) && strncmp(c, "click:", 6) &&
+        strncmp(c, "key:", 4) && strncmp(c, "text:", 5) &&
+        strncmp(c, "wait:", 5) && strncmp(c, "shot:", 5) && strcmp(c, "quit"))
+        return false;
+    g_cmd_index++;
+
+    if (strncmp(c, "view:", 5) == 0) {
+        const char* v = c + 5;
+        if      (strcmp(v, "dashboard")  == 0) launcher_model_set_view(m, LNG_VIEW_DASHBOARD);
+        else if (strcmp(v, "settings")   == 0) launcher_model_set_view(m, LNG_VIEW_SETTINGS);
+        else if (strcmp(v, "controller") == 0) launcher_model_set_view(m, LNG_VIEW_CONTROLLER);
+        else if (strcmp(v, "assist_tools") == 0) launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);
+        else if (strcmp(v, "credits") == 0) launcher_model_set_view(m, LNG_VIEW_CREDITS);
+        else if (strcmp(v, "mods") == 0) launcher_model_set_view(m, LNG_VIEW_MODS);
+        /* The LAN-vs-online fork. Reachable only by clicking NETPLAY on the
+         * dashboard, which made it the one netplay page a screenshot script
+         * could not open. */
+        else if (strcmp(v, "netplay_mode") == 0)
+            launcher_model_set_view(m, LNG_VIEW_NETPLAY_MODE);
+        else if (strcmp(v, "netplay") == 0) {
+            m->netplay_list_fresh = false;
+            launcher_model_set_view(m, LNG_VIEW_NETPLAY);
+        }
+        else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "mod-select:", 11) == 0) {
+        m->mod_selected = atoi(c + 11);
+    } else if (strncmp(c, "resource-import:", 16) == 0) {
+        char resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+        const char* path = strchr(c + 16, ':');
+        RecompLauncherCModFeature feature;
+        if (path && (size_t)(path - (c + 16)) < sizeof resource && m->mods &&
+            m->mods->feature_get && m->mods->feature_get(m->mods->ctx, m->mod_selected, &feature)) {
+            memcpy(resource, c + 16, (size_t)(path - (c + 16)));
+            resource[path - (c + 16)] = 0;
+            launcher_model_import_mod_resource(m, feature.package_id, feature.id, resource, path + 1);
+        }
+    } else if (strcmp(c, "wait-ready") == 0) {
+        if (m->setup_preparing) --g_cmd_index;
+    } else if (strncmp(c, "player:", 7) == 0) {
+        // Select which player the Controller view configures. Clamp to the
+        // launcher's real player range (N64 profiles run up to 4) instead of
+        // the old 0/1-only test hook, so scripted screenshots can reach P3/P4.
+        int pl = atoi(c + 7);
+        if (pl < 0) pl = 0;
+        if (pl > LNG_MAX_PLAYERS - 1) pl = LNG_MAX_PLAYERS - 1;
+        m->cfg_player = pl;
+    } else if (strncmp(c, "capbtn:", 7) == 0) {
+        launcher_model_begin_capture(m, atoi(c + 7));   // rebind a player button (generic spec index)
+    } else if (strncmp(c, "cappad:", 7) == 0) {
+        launcher_model_begin_pad_capture(m, atoi(c + 7));
+    } else if (strncmp(c, "padbutton:", 10) == 0) {
+        synth_pad_button(atoi(c + 10));
+    } else if (strncmp(c, "padaxis:", 8) == 0) {
+        int axis, value;
+        if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) synth_pad_axis(axis, value);
+    } else if (strncmp(c, "caphk:", 6) == 0) {
+        launcher_model_begin_hk_capture(m, (LngHotkey)atoi(c + 6)); // rebind a hotkey
+    } else if (strncmp(c, "capassist:", 10) == 0) {
+        int action = 0, pad = 0;
+        if (sscanf(c + 10, "%d,%d", &action, &pad) == 2)
+            launcher_model_begin_assist_capture(m, action, pad != 0);
+    } else if (strncmp(c, "padbutton:", 10) == 0) {
+        SDL_Event event;
+        SDL_zero(event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        LNG_EVGBTN(event) = (Uint8)atoi(c + 10);
+        LNG_EVGBTNWHICH(event) = 1;
+        SDL_PushEvent(&event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+        SDL_PushEvent(&event);
+    } else if (strncmp(c, "padaxis:", 8) == 0) {
+        int axis = 0, value = 0;
+        if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) {
+            SDL_Event event;
+            SDL_zero(event);
+            event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+            LNG_EVGAXIS(event) = (Uint8)axis;
+            LNG_EVGAXISVAL(event) = (Sint16)value;
+            LNG_EVGAXISWHICH(event) = 1;
+            SDL_PushEvent(&event);
+        }
+    } else if (strncmp(c, "size:", 5) == 0) {
+        int w = 0, h = 0;
+        if (sscanf(c + 5, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
+            SDL_SetWindowSize(p->window, w, h);
+            launcher_platform_refresh_metrics(p);
+        }
+    } else if (strncmp(c, "click:", 6) == 0) {
+        float x = 0, y = 0;
+        if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);
+    } else if (strncmp(c, "key:", 4) == 0) {
+        if (strcmp(c + 4, "escape") == 0) synth_key(p, SDLK_ESCAPE);
+        else {
+            SDL_Keycode k = SDL_GetKeyFromName(c + 4);
+            if (k != SDLK_UNKNOWN) synth_key(p, k);
+            else fprintf(stderr, "[dbg] unknown key: %s\n", c + 4);
+        }
+    } else if (strncmp(c, "text:", 5) == 0) {
+        /* Type UTF-8 into the focused widget, as an OS text-input event. */
+        static char s_text[256];
+        SDL_Event e;
+        snprintf(s_text, sizeof(s_text), "%s", c + 5);
+        SDL_zero(e);
+        e.type = SDL_EVENT_TEXT_INPUT;
+#if defined(LNG_SDL3)
+        e.text.text = s_text;
+        e.text.windowID = SDL_GetWindowID(p->window);
+#else
+        e.text.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
+        snprintf(e.text.text, sizeof(e.text.text), "%s", s_text);
+#endif
+        SDL_PushEvent(&e);
+    } else if (strncmp(c, "wait:", 5) == 0) {
+        g_wait_frames = atoi(c + 5);
+    } else if (strncmp(c, "shot:", 5) == 0) {
+        launcher_capture_png(c + 5, p->pixel_w, p->pixel_h);
+    } else if (strcmp(c, "quit") == 0) {
+        return true;
+    } else {
+        fprintf(stderr, "[dbg] unknown command: %s\n", c);
+    }
+    return false;
+}
+
+void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
+    if (launcher_debug_step_impl(p, m)) m->action = LNG_ACTION_QUIT;
+}
+
+bool launcher_debug_step_pending(LauncherPlatform* p) {
+    return launcher_debug_step_impl(p, NULL);
+}
