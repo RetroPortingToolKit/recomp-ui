@@ -12500,6 +12500,15 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             pick_mod_feature_resource(m, feature.package_id,
                                                       feature.id, resource);
                         }
+                        if (std::strcmp(resource.format, "file-or-directory") == 0) {
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui_text("Select folder"))) {
+                                RecompLauncherCModResource folder = resource;
+                                std::snprintf(folder.format, sizeof(folder.format), "directory");
+                                pick_mod_feature_resource(m, feature.package_id,
+                                                          feature.id, folder);
+                            }
+                        }
                         if (!resource.required && resource.path[0]) {
                             ImGui::SameLine();
                             if (ImGui::Button(ui_text("Clear selection"))) {
