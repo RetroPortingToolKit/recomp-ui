@@ -1131,7 +1131,8 @@ typedef struct RecompLauncherCModResource {
     char file_description[128];
     int required;
     int verified;
-    /* "file" (default) or "directory". Appended for source compatibility. */
+    /* "file" (default), "directory", or "file-or-directory" (both pickers).
+     * Appended for source compatibility. */
     char format[64];
     /* Import this file through feature_resource_import on a background job.
      * Ordinary path selections leave this zero. */
