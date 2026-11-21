@@ -978,8 +978,8 @@ void launcher_binds_load(LauncherModel* m, const char* config_path_in, const cha
     g_launcher_config_path = config_path_in;
     g_launcher_keybinds_path = keybinds_path_in;
     const SystemProfile* profile = (const SystemProfile*)m->profile;
-    if (profile && launcher_console_is_saturn(profile->id) && m->lock_device)
-        return; /* This runtime owns its fixed pad mappings. */
+    if (profile && launcher_console_is_saturn(profile->id) && (m->settings_bindings || m->lock_device))
+        return; /* The Saturn runtime owns its input settings. */
     if (is_psx_profile(m)) {
         rui_psx_binds_init(keybinds_file_path());   // load/generate psx_keybinds.c-format keybinds.ini
         rui_psx_pad_binds_init(psx_input_ini_path()); // gamepad maps (input.ini)

@@ -4363,8 +4363,10 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         const float btnh = px(32);
         if (ImGui::Button(ui_text("Configure"), ImVec2(half, btnh))) launcher_model_open_config(m, p);
         ImGui::SameLine(0, gap);
-        const bool on = m->s.player_src[p] != 0;
-        const char* st = ui_text(on ? "connected" : "not assigned");
+        const bool missing_pad = launcher_console_is_saturn(m->profile->id) &&
+                                 m->s.player_src[p] == 2 && !m->player_pad_id[p];
+        const bool on = m->s.player_src[p] != 0 && !missing_pad;
+        const char* st = ui_text(on ? "connected" : missing_pad ? "disconnected" : "not assigned");
         const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
         // center the dot+label within the right half, vertically on the button
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (half - sw) * 0.5f);
@@ -4832,17 +4834,6 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
     // right column (double opt-in — see avail_identity).
     const LauncherPanel* ident_p =
         find_composed(prof->panels_dashboard, "identity", m);
-
-    if (game_p && !ctrl_p && !save_p && !tpak_p && !ident_p) {
-        const float available = ImGui::GetContentRegionAvail().x;
-        const float width = std::min(available, px(550));
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (available - width) * 0.5f);
-        g_game_fill_h = true;
-        begin_container("dash_game", ImVec2(width, 0), ImGuiChildFlags_None);
-        game_p->draw(m, &th);
-        end_container();
-        return;
-    }
 
     if (logical_w >= 820) {
         const float gap = px(th.spacing_md);
@@ -13378,9 +13369,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->package_count || !mods->package_get) return;
     const bool feature_provider =
-        mods->feature_count && mods->feature_get &&
-        mods->feature_option_get && mods->feature_enable &&
-        mods->feature_set_option;
+        mods->feature_count && mods->feature_get && mods->feature_enable;
 
     const char* archive_extension =
         mods->archive_extension && mods->archive_extension[0]
@@ -13922,13 +13911,8 @@ static void draw_mod_catalog_diagnostics(LauncherModel* m,
 }
 
 static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
-    if (!m || m->setup_preparing) return;
-    const auto* mods = m ? m->mods : nullptr;
-    if (!mods || !mods->feature_count || !mods->feature_get ||
-        !mods->feature_option_get || !mods->feature_enable ||
-        !mods->feature_set_option) {
-        return;
-    }
+    if (m->setup_preparing) return;
+    const auto* mods = m->mods;
 
     const int feature_count = mods->feature_count(mods->ctx);
     const char* archive_extension =
@@ -14164,12 +14148,14 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
 
             // The list-row checkbox is the single enable/disable control.
             // The detail pane owns configuration values only.
-            if (feature.option_count > 0) {
+            const int option_count = mods->feature_option_get && mods->feature_set_option
+                ? feature.option_count : 0;
+            if (option_count > 0) {
                 ImGui::Spacing();
                 ImGui::Separator();
             }
             std::string last_group;
-            for (int index = 0; index < feature.option_count; ++index) {
+            for (int index = 0; index < option_count; ++index) {
                 RecompLauncherCModOption option{};
                 if (!mods->feature_option_get(
                         mods->ctx, feature.package_id, feature.id,
@@ -14381,9 +14367,7 @@ void draw_mods(LauncherModel* m, const LauncherTheme& th) {
     draw_mod_catalog_diagnostics(m, th);
 
     const bool feature_provider =
-        mods->feature_count && mods->feature_get &&
-        mods->feature_option_get && mods->feature_enable &&
-        mods->feature_set_option;
+        mods->feature_count && mods->feature_get && mods->feature_enable;
     if (!feature_provider) m->mod_show_packages = true;
 
     if (feature_provider && is_ps2_host(m)) m->mod_show_packages=false;
@@ -17027,6 +17011,21 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             // SNES: same purpose, from this console's own profile store. Run every
             // frame so a pad plugged in after start-up picks up its label too.
             launcher_binds_hydrate_snes_pad_names(m, g_pads, g_pad_count);
+
+            if (launcher_console_is_saturn(m->profile->id)) {
+                for (int seat = 0; seat < m->player_count; ++seat) {
+                    if (m->s.player_src[seat] != 2) continue;
+                    const uint32_t instance = m->s.player_gamepad_instance[seat];
+                    const LauncherPad* begin = g_pads;
+                    const LauncherPad* end = begin + g_pad_count;
+                    const LauncherPad* pad = std::find_if(begin, end, [instance](const LauncherPad& device) {
+                        return device.id + 1 == instance;
+                    });
+                    m->player_pad_id[seat] = pad == end ? 0 : pad->id;
+                    std::snprintf(m->player_pad_name[seat], sizeof(m->player_pad_name[seat]),
+                                  "%s", pad == end ? ui_text("Gamepad disconnected") : pad->name);
+                }
+            }
 
             // Pad capture release-gate: clear once the selected pad is fully at
             // rest (covers the case where SDL stops sending AXIS_MOTION at rest).

@@ -78,7 +78,8 @@ set(_RUI_CONSOLE_ASSETS_cdi "")
 set(_RUI_CONSOLE_ASSETS_ps2
     "${RUI_ASSETS}/consoles/ps2/img/pad_ps2.png")
 set(_RUI_CONSOLE_ASSETS_3do "")
-set(_RUI_CONSOLE_ASSETS_saturn "")
+set(_RUI_CONSOLE_ASSETS_saturn
+    "${RUI_ASSETS}/consoles/saturn/img/pad_saturn.jpg")
 set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds vb cdi ps2 3do saturn)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
