@@ -37,6 +37,7 @@
 #include "consoles/nds/nds_profile.h"
 #include "consoles/cdi/cdi_profile.h"
 #include "consoles/3do/3do_profile.h"
+#include "consoles/saturn/saturn_profile.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -64,6 +65,7 @@ static inline int lpr_is(const char* a, const char* b) {
 // capability overrides such as which aspects the game actually offers).
 static inline int launcher_profile_apply(const char* name, RecompLauncherCGameInfo* gi) {
     if (!gi) return 0;
+    if (launcher_console_is_saturn(name)) { launcher_profile_apply_saturn(gi); return 1; }
     if (launcher_console_is_cdi(name)) { launcher_profile_apply_cdi(gi); return 1; }
 
     // --- built-out consoles (rows live in src/consoles/<id>/) ----------------

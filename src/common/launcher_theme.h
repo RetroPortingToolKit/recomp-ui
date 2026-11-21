@@ -9,6 +9,8 @@
 #ifndef LAUNCHER_NG_THEME_H
 #define LAUNCHER_NG_THEME_H
 
+#include <string.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -315,7 +317,29 @@ static inline LauncherTheme launcher_theme_ps2(void) {
  t.border=lng_rgba(.16f,.3f,.49f,.72f);t.scanlines=0;t.background_style=1;return t;
 }
 
+static inline LauncherTheme launcher_theme_saturn(void) {
+    LauncherTheme t = launcher_theme_default();
+    t.background = lng_rgba(.031f, .051f, .106f, 1.f);
+    t.background2 = lng_rgba(.077f, .111f, .218f, 1.f);
+    t.panel = lng_rgba(.068f, .092f, .166f, 1.f);
+    t.panel_hovered = lng_rgba(.116f, .151f, .254f, 1.f);
+    t.control = lng_rgba(.095f, .126f, .208f, 1.f);
+    t.control_hovered = lng_rgba(.145f, .191f, .306f, 1.f);
+    t.border = lng_rgba(.202f, .262f, .407f, 1.f);
+    t.accent = lng_rgba(.396f, .702f, 1.f, 1.f);
+    t.accent_dim = lng_rgba(.220f, .482f, .871f, 1.f);
+    t.accent_text = lng_rgba(.020f, .070f, .145f, 1.f);
+    t.accent2 = lng_rgba(.745f, .663f, 1.f, 1.f);
+    t.text = lng_rgba(.925f, .949f, .984f, 1.f);
+    t.text_muted = lng_rgba(.612f, .670f, .788f, 1.f);
+    t.focus_ring = t.accent2;
+    t.scanlines = 0;
+    return t;
+}
+
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if (name && strcmp(name, "saturn") == 0)
+        return launcher_theme_saturn();
     if (name && (name[0]=='c' || name[0]=='C') &&
         (name[1]=='d' || name[1]=='D') && (name[2]=='i' || name[2]=='I') && !name[3])
         return launcher_theme_cdi();
