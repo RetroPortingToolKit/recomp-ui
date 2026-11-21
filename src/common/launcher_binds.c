@@ -15,6 +15,7 @@
 #include "consoles/snes/snes_pad_binds.h" // SNES pad shape (default deadzone)
 
 #include <ctype.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -726,79 +727,61 @@ int launcher_binds_snes_profile_exists(LauncherModel* m, int player) {
  * preferred (it may be the player's own rename); otherwise the live device is
  * asked, and failing both the slot keeps whatever it had. */
 /* Live device `instance` (SDL id + 1) is still connected. */
-static int snes_pad_live(const LauncherPad* pads, int pad_count, uint32_t instance) {
-    if (!instance) return 0;
-    for (int i = 0; i < pad_count; ++i) if (pads[i].id + 1 == instance) return 1;
-    return 0;
-}
-/* Another gamepad seat already holds this physical pad. */
-static int snes_pad_claimed(const LauncherModel* m, int seats, int p, const LauncherPad* pad) {
-    for (int o = 0; o < seats; ++o)
-        if (o != p && m->s.player_src[o] == 2 && m->s.player_gamepad_instance[o] == pad->id + 1)
-            return 1;
-    return 0;
+/* A GUID chooses a saved model profile; the live instance chooses the
+ * physical controller. Never let name hydration change that allocation. */
+static int snes_pad_index(const LauncherPad* pads, int count, uint32_t instance,
+                          const char* guid) {
+    if (!instance || !guid[0]) return -1;
+    for (int i=0; pads && i<count; ++i)
+        if (pads[i].id+1==instance && !strcmp(pads[i].guid,guid)) return i;
+    return -1;
 }
 
 void launcher_binds_hydrate_snes_pad_names(LauncherModel* m,
                                            const LauncherPad* pads,
                                            int pad_count) {
     if (!m || !is_snes_profile(m)) return;
+    const int seats = launcher_model_visible_player_count(m);
+    int bound[LNG_MAX_PLAYERS];
+    for (int p=0;p<LNG_MAX_PLAYERS;++p) bound[p]=-1;
 
-    /* A slot whose source is "gamepad" with no GUID is what a first launch
-     * looks like: config.ini says EnableGamepad, and nothing has ever named a
-     * device. The Input source box then reads the generic placeholder while
-     * the game is in fact about to use a specific controller. Bind the first
-     * live pad no other slot has claimed, so the box names the pad it will
-     * actually play with -- and apply that pad's saved profile, or the console
-     * default deadzone when it has none. One shot: once a GUID is set this
-     * whole block is skipped, so it never fights a later choice. */
-    const int players=launcher_model_visible_player_count(m);
-    for (int p = 0; p < players && pads; ++p) {
-        if (m->s.player_src[p] != 2 || m->s.player_gamepad_guid[p][0]) continue;
-        for (int i = 0; i < pad_count; ++i) {
-            if (!pads[i].guid[0] || snes_pad_claimed(m, players, p, &pads[i])) continue;
-            launcher_model_set_source(m, p, 2, pads[i].id, pads[i].name,
-                                      pads[i].guid);
-            launcher_binds_apply_snes_pad_profile(m, p + 1);
-            break;
-        }
+    /* Reserve all valid explicit choices before assigning waiting seats.
+     * Otherwise an earlier waiting seat can steal a later player's selection.
+     * Duplicate or disconnected claims lose only their transient instance;
+     * the saved source, GUID, bindings and deadzone remain available. */
+    for (int p=0;p<seats;++p) if (m->s.player_src[p]==2) {
+        int i=snes_pad_index(pads,pad_count,m->s.player_gamepad_instance[p],
+                             m->s.player_gamepad_guid[p]);
+        for (int o=0;o<p && i>=0;++o) if (bound[o]==i) i=-1;
+        bound[p]=i;
+        m->s.player_gamepad_instance[p]=i>=0 ? pads[i].id+1 : 0;
+        m->player_pad_id[p]=i>=0 ? pads[i].id : 0;
     }
-
-    /* Identical controllers (two DualSense) share a GUID, so the GUID alone
-     * cannot tell which physical pad a seat uses. Bind each gamepad seat that
-     * names a GUID to one live device of that model no other seat holds; the
-     * picker lists and claims devices by this binding. Instance ids are not
-     * saved, so this re-binds after every launch or reconnect. */
-    for (int p = 0; p < players && pads; ++p) {
-        const char* guid = m->s.player_gamepad_guid[p];
-        if (m->s.player_src[p] != 2 || !guid[0]) continue;
-        if (snes_pad_live(pads, pad_count, m->s.player_gamepad_instance[p])) continue;
-        m->s.player_gamepad_instance[p] = 0;
-        for (int i = 0; i < pad_count; ++i) {
-            if (strcmp(pads[i].guid, guid) || snes_pad_claimed(m, players, p, &pads[i])) continue;
-            m->s.player_gamepad_instance[p] = pads[i].id + 1;
-            m->player_pad_id[p] = pads[i].id;
-            break;
-        }
-    }
-
-    for (int p = 0; p < players; ++p) {
-        const char* guid = m->s.player_gamepad_guid[p];
-        char name[64];
-        if (m->s.player_src[p] != 2 || !guid[0]) continue;
-        if (snes_profile_get(guid, "Name", name, sizeof(name)) && name[0]) {
-            copy_str(m->player_pad_name[p], sizeof(m->player_pad_name[p]), name);
-            continue;
-        }
-        if (!pads) continue;
-        for (int i = 0; i < pad_count; ++i) {
-            if (pads[i].guid[0] && !strcmp(pads[i].guid, guid)) {
-                copy_str(m->player_pad_name[p], sizeof(m->player_pad_name[p]),
-                         pads[i].name);
-                m->player_pad_id[p] = pads[i].id;
-                break;
+    for (int p=0;p<seats;++p) if (m->s.player_src[p]==2 && bound[p]<0) {
+        const bool fresh=m->s.player_gamepad_guid[p][0]==0;
+        for (int i=0;pads && i<pad_count;++i) {
+            if (!pads[i].guid[0] || (!fresh && strcmp(pads[i].guid,m->s.player_gamepad_guid[p]))) continue;
+            bool taken=false;
+            for (int o=0;o<seats;++o) if (bound[o]==i) taken=true;
+            if (taken) continue;
+            bound[p]=i;
+            if (fresh) {
+                launcher_model_set_source(m,p,2,pads[i].id,pads[i].name,pads[i].guid);
+                launcher_binds_apply_snes_pad_profile(m,p+1);
+            } else {
+                m->s.player_gamepad_instance[p]=pads[i].id+1;
+                m->player_pad_id[p]=pads[i].id;
             }
+            break;
         }
+    }
+    for (int p=0;p<seats;++p) {
+        const char* guid=m->s.player_gamepad_guid[p];char name[64];
+        if (m->s.player_src[p]!=2 || !guid[0]) continue;
+        if (snes_profile_get(guid,"Name",name,sizeof(name)) && name[0])
+            copy_str(m->player_pad_name[p],sizeof(m->player_pad_name[p]),name);
+        else if (bound[p]>=0)
+            copy_str(m->player_pad_name[p],sizeof(m->player_pad_name[p]),pads[bound[p]].name);
     }
 }
 

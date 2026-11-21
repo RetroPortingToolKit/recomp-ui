@@ -3301,6 +3301,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
     // device; a seat with only a GUID claims the model, as before.
     auto seat_has = [&](int o, const PadOpt& opt) -> bool {
         if (m->s.player_src[o] != 2) return false;
+        if (snes_prof && opt.live)
+            return m->s.player_gamepad_instance[o] == opt.id + 1;
         if (!psx && opt.live && m->s.player_gamepad_instance[o])
             return m->s.player_gamepad_instance[o] == opt.id + 1;
         return m->s.player_gamepad_guid[o][0] &&
@@ -3323,8 +3325,10 @@ void draw_source_selectables(LauncherModel* m, int p) {
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
         const bool sel = seat_has(p, opts[i]);
-        if (claimed) ImGui::BeginDisabled();
-        if (ImGui::Selectable(label, sel) && !claimed) {
+        const bool disabled = claimed && !(snes_prof && opts[i].live);
+        ImGui::PushID(i); // Equal friendly names still identify distinct options.
+        if (disabled) ImGui::BeginDisabled();
+        if (ImGui::Selectable(label, sel) && !disabled) {
             launcher_model_set_source(m, p, 2, opts[i].id, opts[i].name,
                                      opts[i].guid);
             if (psx) {
@@ -3344,7 +3348,10 @@ void draw_source_selectables(LauncherModel* m, int p) {
                 launcher_binds_refresh(m);
             }
         }
-        if (claimed) ImGui::EndDisabled();
+        if (disabled) ImGui::EndDisabled();
+        if (claimed && snes_prof && opts[i].live && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Move this controller to this player. Its current player will be unassigned.");
+        ImGui::PopID();
     }
 
     if (nopt == 0) {
@@ -6313,7 +6320,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                 launcher_model_begin_pad_capture(m, b);
                                 // If they start a bind while still holding the
                                 // prior input, wait for a full release first.
-                                if (m->capturing && m->player_pad_id[p] &&
+                                if (m->capturing && (m->player_pad_id[p] || m->s.player_gamepad_instance[p]) &&
                                     !launcher_input_gamepad_at_rest(
                                         m->player_pad_id[p]))
                                     m->map_all_wait_release = true;
@@ -6327,7 +6334,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::Spacing();
                 if (ImGui::Button("Map All Bindings")) {
                     launcher_model_begin_map_all(m);
-                    if (m->capturing && m->player_pad_id[p] &&
+                    if (m->capturing && (m->player_pad_id[p] || m->s.player_gamepad_instance[p]) &&
                         !launcher_input_gamepad_at_rest(m->player_pad_id[p]))
                         m->map_all_wait_release = true;
                 }
