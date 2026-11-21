@@ -754,10 +754,14 @@ void launcher_model_init(LauncherModel* m,
         m->assist_fast_forward_min, m->assist_fast_forward_max);
     if (game && game->assist_default_key_bind &&
         game->assist_default_pad_bind) {
+        /* Host arrays contain only the advertised number of entries. The
+         * unused model slots were zeroed at initialization. */
+        const size_t defaults_bytes =
+            (size_t)m->assist_binding_count * sizeof(m->default_assist_key_bind[0]);
         memcpy(m->default_assist_key_bind, game->assist_default_key_bind,
-               sizeof m->default_assist_key_bind);
+               defaults_bytes);
         memcpy(m->default_assist_pad_bind, game->assist_default_pad_bind,
-               sizeof m->default_assist_pad_bind);
+               defaults_bytes);
         for (int i = 0; i < m->assist_binding_count; ++i) {
             if (m->s.assist_key_bind[i] == 0)
                 m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
