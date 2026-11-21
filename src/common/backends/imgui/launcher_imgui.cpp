@@ -6623,21 +6623,24 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     if (m->assist_binding_count <= 0 || !m->assist_binding_labels)
         return;
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
-    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST CONTROLS" : "HOST SHORTCUTS");
+    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST CONTROLS" :
+        m->assist_pad_only ? "CONTROLLER SHORTCUTS" : "HOST SHORTCUTS");
     ImGui::PopStyleColor();
     ImGui::TextColored(
         col(th.text_muted),
         m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
-            : "Press a controller button or chord.");
+            : m->assist_pad_only && m->assist_tools_note
+                ? m->assist_tools_note : "Press a controller button or chord.");
     const bool pad_col = assist_pad_column_available(m);
-    if (ImGui::BeginTable(table_id, pad_col ? 3 : 2,
+    if (ImGui::BeginTable(table_id, (m->assist_pad_only ? 1 : 2) + (pad_col ? 1 : 0),
                           ImGuiTableFlags_SizingFixedFit |
                               ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed,
                                 px(150));
-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed,
-                                px(180));
+        if (!m->assist_pad_only)
+            ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed,
+                                    px(180));
         if (pad_col)
             ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed,
                                     px(180));
@@ -6650,22 +6653,24 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(m->assist_binding_labels[action]);
-            ImGui::TableSetColumnIndex(1);
-            bool capture_key = m->capturing && m->capture_assist &&
-                               !m->capture_pad && m->capture_btn == action;
-            /* The two cells of a row are both Buttons whose ID is their
-             * label, and a row with nothing bound in either column showed
-             * "(unbound)" twice -- the same ID, and Dear ImGui's conflict
-             * warning over the Fast-forward toggle row. Scope each column. */
-            ImGui::PushID("key");
-            if (ImGui::Button(
-                    capture_key ? "[ press a key... ]" :
-                        settings_key_label(m->s.assist_key_bind[action]),
-                    ImVec2(px(170), 0)))
-                launcher_model_begin_assist_capture(m, action, false);
-            ImGui::PopID();
+            if (!m->assist_pad_only) {
+                ImGui::TableSetColumnIndex(1);
+                bool capture_key = m->capturing && m->capture_assist &&
+                                   !m->capture_pad && m->capture_btn == action;
+                /* The two cells of a row are both Buttons whose ID is their
+                 * label, and a row with nothing bound in either column showed
+                 * "(unbound)" twice -- the same ID, and Dear ImGui's conflict
+                 * warning over the Fast-forward toggle row. Scope each column. */
+                ImGui::PushID("key");
+                if (ImGui::Button(
+                        capture_key ? "[ press a key... ]" :
+                            settings_key_label(m->s.assist_key_bind[action]),
+                        ImVec2(px(170), 0)))
+                    launcher_model_begin_assist_capture(m, action, false);
+                ImGui::PopID();
+            }
             if (pad_col) {
-                ImGui::TableSetColumnIndex(2);
+                ImGui::TableSetColumnIndex(m->assist_pad_only ? 1 : 2);
                 bool capture_pad = m->capturing && m->capture_assist &&
                                    m->capture_pad && m->capture_btn == action;
                 char pad[112];
@@ -6687,8 +6692,9 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
                                         ? "Reset Assist Controls"
                                         : "Reset Host Shortcuts")) {
         launcher_model_reset_assist_bindings(m);
-        for (int i = 0; i < m->assist_binding_count; ++i)
-            launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
+        if (!m->assist_pad_only)
+            for (int i = 0; i < m->assist_binding_count; ++i)
+                launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
     }
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
@@ -6728,6 +6734,10 @@ static void draw_fractional_fast_forward(LauncherModel* m) {
 
 void draw_controller_assist_shortcuts(LauncherModel* m,
                                       const LauncherTheme& th) {
+    if (m->assist_pad_only) {
+        draw_assist_binding_editor(m, th, "controller_shortcuts", 0, true);
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
     ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST SHORTCUTS" : "HOST SHORTCUTS");
     ImGui::PopStyleColor();

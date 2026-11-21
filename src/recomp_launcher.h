@@ -2562,6 +2562,11 @@ typedef struct RecompLauncherCGameInfo {
      * button is also not shown once the title has box art (its own, or a
      * fetched launcher-cover.jpg). Appended for source compatibility. */
     const char*        cover_url_template;
+    /* Show named host shortcuts as controller-only rows when keyboard
+     * shortcuts already have their own editor. Capture, clear, defaults and
+     * persistence still use assist_pad_bind; zero preserves existing hosts.
+     * Appended for source/ABI stability. */
+    int assist_pad_only;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
@@ -2591,6 +2596,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
 /* Host may #ifdef this when setting assist_direct_pad_bind_action. */
 #define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
+#define RECOMP_LAUNCHER_HAS_PAD_ONLY_SHORTCUTS 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0

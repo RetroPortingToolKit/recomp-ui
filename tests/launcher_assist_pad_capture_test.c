@@ -11,8 +11,8 @@ void launcher_binds_set_zapper(int mouse_enabled, int crosshair) {
 }
 
 int main(void) {
-    const int keys[4] = {0, 0, 0, 0};
-    const int pads[4] = {
+    const int keys[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS] = {0, 0, 0, 0};
+    const int pads[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS] = {
         RECOMP_LAUNCHER_PAD_BUTTON_COMBO(1u << 3),
         RECOMP_LAUNCHER_PAD_BUTTON_COMBO((1u << 4) | (1u << 8)),
         RECOMP_LAUNCHER_PAD_BUTTON_COMBO((1u << 4) | (1u << 10)),
@@ -95,5 +95,23 @@ int main(void) {
         assert(model.s.assist_pad_bind[0] == RECOMP_LAUNCHER_PAD_BUTTON(2));
         assert(model.s.assist_key_bind[1] == 61);
     }
+    /* A cleared controller-only row must survive a commit/reload, rather
+     * than being mistaken for an unspecified default. Its hidden keyboard
+     * state remains owned by the separate keyboard editor. */
+    game.assist_pad_only = 1;
+    saved.assist_pad_bind[0] = 0;
+    saved.assist_key_bind[0] = 99;
+    launcher_model_init(&model, &saved, &game, NULL);
+    assert(model.s.assist_pad_bind[0] == pads[0]);
+    launcher_model_begin_assist_capture(&model, 0, true);
+    launcher_model_set_captured_pad(&model, 0);
+    launcher_model_cancel_capture(&model);
+    launcher_model_commit(&model, &saved);
+    assert(saved.assist_pad_bind[0] == -1);
+    launcher_model_init(&model, &saved, &game, NULL);
+    assert(model.s.assist_pad_bind[0] == -1);
+    launcher_model_reset_assist_bindings(&model);
+    assert(model.s.assist_pad_bind[0] == pads[0]);
+    assert(model.s.assist_key_bind[0] == 99);
     return 0;
 }
