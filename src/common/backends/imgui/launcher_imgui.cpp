@@ -4833,6 +4833,17 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
     const LauncherPanel* ident_p =
         find_composed(prof->panels_dashboard, "identity", m);
 
+    if (game_p && !ctrl_p && !save_p && !tpak_p && !ident_p) {
+        const float available = ImGui::GetContentRegionAvail().x;
+        const float width = std::min(available, px(550));
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (available - width) * 0.5f);
+        g_game_fill_h = true;
+        begin_container("dash_game", ImVec2(width, 0), ImGuiChildFlags_None);
+        game_p->draw(m, &th);
+        end_container();
+        return;
+    }
+
     if (logical_w >= 820) {
         const float gap = px(th.spacing_md);
         // When a WIDE panel (save) follows this row, the columns must hug
