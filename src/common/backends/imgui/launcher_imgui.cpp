@@ -2232,7 +2232,10 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
                                                               // (title + up-to-3-line wrapped note + 2 stacked buttons)
         float art_h = ImGui::GetContentRegionAvail().y - reserve;
         if (art_h > px(368.0f)) art_h = px(368.0f);   // allow a larger hero box art (~15% bigger than before)
-        if (art_h < px(248.0f)) art_h = px(248.0f);   // keep it big enough to balance the side column
+        // The PS2 game card fills the dashboard column. Let the cover shrink
+        // with that column so Change Game stays visible on short displays.
+        const float min_art_h = px(linked_ps2 && fill_h ? 120.0f : 248.0f);
+        if (art_h < min_art_h) art_h = min_art_h;
         if (linked_ps2 && !g_boxart.id) {
             // A linked PS2 title without supplied box art still gets its own
             // disc-shaped fallback, never another console's cartridge.
@@ -3483,22 +3486,30 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         ImGui::EndCombo();
     }
     ImGui::Dummy(ImVec2(0, px(4)));
-    // Configure + connection status share ONE half/half row (Configure left,
-    // status right) so the card stays short — that keeps the memory cards below
-    // it from being pushed off the bottom. (Analog-stick deadzone lives on the
-    // Configure page's per-player Deadzone stepper, not on this card.)
+    // Keep Configure and status on one row when both translated labels fit.
     {
         const float gap  = px(th.spacing_sm);
         const float half = (cw - gap) * 0.5f;
         const float btnh = px(32);
-        if (ImGui::Button(ui_text("Configure"), ImVec2(half, btnh))) launcher_model_open_config(m, p);
-        ImGui::SameLine(0, gap);
+        const char* configure = ui_text("Configure");
         const bool on = m->s.player_src[p] != 0;
-        const char* st = ui_text(on ? "connected" : "not assigned");
-        const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
-        // center the dot+label within the right half, vertically on the button
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (half - sw) * 0.5f);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (btnh - ImGui::GetTextLineHeight()) * 0.5f);
+        const char* connected = ui_text("connected");
+        const char* unassigned = ui_text("not assigned");
+        const char* st = on ? connected : unassigned;
+        const float dot_w = px(10) + px(8);
+        const float sw = dot_w + ImGui::CalcTextSize(st).x;
+        const float max_sw = dot_w + std::max(ImGui::CalcTextSize(connected).x,
+                                              ImGui::CalcTextSize(unassigned).x);
+        const float configure_w = ImGui::CalcTextSize(configure).x + 2 * ImGui::GetStyle().FramePadding.x;
+        const bool inline_status = half >= std::max(max_sw, configure_w);
+        if (ImGui::Button(configure, ImVec2(inline_status ? half : cw, btnh)))
+            launcher_model_open_config(m, p);
+        if (inline_status) {
+            ImGui::SameLine(0, gap);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (btnh - ImGui::GetTextLineHeight()) * 0.5f);
+        }
+        const float status_w = inline_status ? half : cw;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (status_w - sw) * 0.5f));
         draw_dot(on, th.good, th.text_muted);
         ImGui::TextColored(on ? col(th.good) : col(th.text_muted), "%s", st);
     }
@@ -3533,9 +3544,11 @@ void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     if (n > LNG_MAX_PLAYERS) n = LNG_MAX_PLAYERS;
     const float gap = px(th.spacing_md);
     const float availw = ImGui::GetContentRegionAvail().x;
-    const float pref = px(300.0f);
+    const bool ps2 = m->profile && m->profile->id && !strcmp(m->profile->id, "ps2");
+    const float pref = px(ps2 ? 216.0f : 300.0f);
     int cols = (int)((availw + gap) / (pref + gap));
     if (cols < 1) cols = 1;
+    if (ps2 && cols > 2) cols = 2;
     if (cols > n) cols = n;
     float cardw = (availw - gap * (float)(cols - 1)) / (float)cols;
     if (cardw < 1.0f) cardw = availw;
@@ -3573,6 +3586,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
 
     if (logical_w >= 820) {
         const float gap = px(th.spacing_md);
+        const bool ps2 = prof->id && !strcmp(prof->id, "ps2");
+        const float game_w = ps2
+            ? std::min(px(400), ImGui::GetContentRegionAvail().x * 0.38f)
+            : px(400);
         // When a WIDE panel (save) follows this row, the columns must hug
         // their own content (AutoResizeY) instead of stretching to fill the
         // whole scrollable "body" — otherwise there's never any room left
@@ -3597,7 +3614,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
             const bool many_players = launcher_model_visible_player_count(m) > 2;
             if (game_p) {
                 g_game_fill_h = false;
-                begin_container("dash_l", ImVec2(px(400), 0), ImGuiChildFlags_AutoResizeY);
+                begin_container("dash_l", ImVec2(game_w, 0), ImGuiChildFlags_AutoResizeY);
                 game_p->draw(m, &th);
                 end_container();
             }
@@ -3656,7 +3673,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
             // save nor a pak panel.
             if (game_p) {
                 g_game_fill_h = true;
-                begin_container("dash_l", ImVec2(px(400), 0), ImGuiChildFlags_None);
+                begin_container("dash_l", ImVec2(game_w, 0), ImGuiChildFlags_None);
                 game_p->draw(m, &th);
                 end_container();
             }
