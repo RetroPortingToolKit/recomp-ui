@@ -2443,7 +2443,11 @@ typedef struct RecompLauncherCGameInfo {
      * Image Filtering mod) sets this so no control that nothing applies is
      * drawn. Appended for ABI stability; zero keeps the row. */
     int                linear_filter_hidden;
+    /* Show Screenshot in the ordinary hotkey editor only when the host
+     * implements capture. Zero retains existing hosts. Appended for ABI stability. */
+    int has_screenshot_hotkey;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1
