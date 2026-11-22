@@ -2263,12 +2263,13 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::TextUnformatted(m->game_name ? m->game_name : "");
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(0, px(12)));
-        if (ImGui::BeginTable("ps2_game_facts", 3, ImGuiTableFlags_SizingStretchProp)) {
+        const bool has_region = m->region && m->region[0];
+        if ((has_region || m->rom_present) &&
+            ImGui::BeginTable("ps2_game_facts", 3, ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("k", ImGuiTableColumnFlags_WidthFixed, px(84));
             ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, px(1));
-            kv_row("Platform", m->platform ? m->platform : "PLAYSTATION 2", th, false, false);
-            if (m->region && m->region[0]) kv_row("Region", m->region, th, false, false);
+            if (has_region) kv_row("Region", m->region, th, false, false);
             if (m->rom_present) kv_row("Game ID", m->rom_file, th, false, false);
             ImGui::EndTable();
         }
