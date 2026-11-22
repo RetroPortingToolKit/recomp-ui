@@ -83,7 +83,7 @@ typedef struct {
 } ControllerSpec;
 
 // ---- Save module --------------------------------------------------------------
-typedef enum { SAVE_NONE = 0, SAVE_SRAM, SAVE_MEMCARD } SaveKind;
+typedef enum { SAVE_NONE = 0, SAVE_SRAM, SAVE_MEMCARD, SAVE_NATIVE_MEMCARD } SaveKind;
 typedef bool (*SaveProbeFn)(const LauncherModel* m, int slot);   // unimplemented hook (NULL today)
 typedef struct { SaveKind kind; int slots; SaveProbeFn probe; } SaveSpec;
 

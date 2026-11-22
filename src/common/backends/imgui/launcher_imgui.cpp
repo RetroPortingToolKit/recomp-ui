@@ -77,6 +77,7 @@ extern "C" void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hoo
   #endif
 #endif
 
+#include "launcher_player_tabs.h"
 #include <algorithm>
 #include <cerrno>
 #include <cctype>
@@ -2737,6 +2738,7 @@ int avail_save(const LauncherModel* m) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const SaveKind kind = prof ? prof->save.kind : SAVE_NONE;
     if (kind == SAVE_MEMCARD) return 1;
+    if (kind == SAVE_NATIVE_MEMCARD) return !m->in_session;
     if (kind == SAVE_SRAM)    return m->saves_supported;
     return 0;
 }
@@ -2762,9 +2764,70 @@ static int dash_card_columns(float availw, float gap, float cardw, int count) {
     return cols;
 }
 
+static RuiPlayerTabsLook dash_tabs_look(const LauncherTheme& th) {
+    return {imcol(th.control), imcol(th.control_hovered), imcol(th.panel),
+            imcol(th.border), imcol(th.text_muted), imcol(th.text), imcol(th.accent),
+            imcol(th.good), imcol(th.text_muted), px(34.0f), px(4.0f), px(th.radius_sm)};
+}
+
+static void choose_native_memcard(LauncherModel* m, int slot, const char* selected, bool create) {
+    if (!selected || !selected[0]) return;
+    const auto path = std::filesystem::u8path(selected);
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    const char* error = nullptr;
+    if (std::strlen(selected) >= sizeof(m->s.memcard_path[slot]))
+        error = "This memory card path is too long.";
+    else if (ec)
+        error = "Cannot access the selected memory card.";
+    else if (create && exists)
+        error = "Choose a new file name, or use Browse to open this card.";
+    else if (!create && (!exists || std::filesystem::file_size(path, ec) != 8 * 1024 * 1024 || ec))
+        error = "Choose an 8 MiB PS2 memory card image.";
+    std::snprintf(m->native_memcard_error, sizeof(m->native_memcard_error), "%s", error ? error : "");
+    if (!error) launcher_model_set_memcard_path(m, slot, selected);
+}
+
+static void draw_native_memcards(LauncherModel* m, const LauncherTheme& th) {
+    const char* labels[] = {ui_text("Memory Card 1"), ui_text("Memory Card 2")};
+    const bool inserted[] = {m->s.memcard_path[0][0] != 0, m->s.memcard_path[1][0] != 0};
+    const int slot = rui_tab_rows("ps2_memcard_tabs", 2, m->dashboard_memcard, labels,
+                                  inserted, ImGui::GetContentRegionAvail().x,
+                                  dash_tabs_look(th), 2, 0);
+    if (slot != m->dashboard_memcard) m->native_memcard_error[0] = 0;
+    m->dashboard_memcard = slot;
+    if (begin_panel("ps2_memcard")) {
+        const char* path = m->s.memcard_path[slot];
+        const auto name = path[0] ? std::filesystem::u8path(path).filename().u8string()
+                                  : std::string(ui_text("Empty"));
+        ImGui::TextWrapped("%s", name.c_str());
+        if (path[0] && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", path);
+        if (ImGui::Button(ui_text("Browse")))
+            ui_pick_file(m, "Select PS2 memory card", {"*.ps2"}, "PS2 memory card (.ps2)",
+                         [m, slot](const char* path) { choose_native_memcard(m, slot, path, false); });
+        ImGui::SameLine();
+        if (ImGui::Button(ui_text("New")))
+            ui_pick_save_file(m, "Create PS2 memory card", {"*.ps2"}, "PS2 memory card (.ps2)",
+                              [m, slot](const char* path) { choose_native_memcard(m, slot, path, true); });
+        if (inserted[slot]) {
+            ImGui::SameLine();
+            if (ImGui::Button(ui_text("Eject"))) {
+                launcher_model_set_memcard_path(m, slot, "");
+                m->native_memcard_error[0] = 0;
+            }
+        }
+        if (m->native_memcard_error[0]) ImGui::TextWrapped("%s", m->native_memcard_error);
+    }
+    end_panel();
+}
+
 void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const SaveKind kind = prof ? prof->save.kind : SAVE_NONE;
+    if (kind == SAVE_NATIVE_MEMCARD) {
+        draw_native_memcards(m, *th);
+        return;
+    }
     if (kind == SAVE_MEMCARD) {
         // No outer "MEMORY CARDS" card/eyebrow: the small per-slot cards ARE the
         // UI. Fixed width (same as player cards); wider windows add columns
@@ -3431,7 +3494,10 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     eyebrow(eb);
 
     const float inner = ImGui::GetContentRegionAvail().x;
-    const float cw    = inner;   // controls span the card => flush by construction
+    const bool split_card = m->profile && launcher_console_is_ps2(m->profile->id) && inner >= px(350.0f);
+    const float art_column = split_card ? px(138.0f) : 0.0f;
+    const float cw = inner - art_column;
+    const ImVec2 art_start = ImGui::GetCursorPos();
 
     // pad art centered in the card: PSX-style games swap analog/digital art
     // with the mode; consoles without a mode-swap art PAIR (SNES, and Genesis —
@@ -3470,9 +3536,15 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         // Center on the FITTED width so a near-square pad (N64) or a portrait
         // handheld (GB/GBC) sits centered, not left-shifted by the landscape
         // box's spare width.
-        image_fit_centered(art, 120, 78, inner);
+        image_fit_centered(art, 120, 78, split_card ? px(120.0f) : inner);
     }
-    ImGui::Dummy(ImVec2(0, px(6)));
+    const float art_bottom = ImGui::GetCursorPosY();
+    if (split_card) {
+        ImGui::SetCursorPos(ImVec2(art_start.x + art_column, art_start.y));
+        ImGui::BeginGroup();
+    } else {
+        ImGui::Dummy(ImVec2(0, px(6)));
+    }
 
     // Pad-mode selector: only when the game supports pad modes AND the mode
     // is user-selectable (not locked to a single mode).
@@ -3531,6 +3603,13 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         ImGui::Dummy(ImVec2(0, px(6)));
         pak_kind_picker(m, p, cw);
     }
+    if (split_card) {
+        ImGui::EndGroup();
+        if (ImGui::GetCursorPosY() < art_bottom) {
+            ImGui::SetCursorPosY(art_bottom);
+            ImGui::Dummy(ImVec2(0, 0));
+        }
+    }
     ImGui::PopID();
     end_panel();
 }
@@ -3546,10 +3625,22 @@ void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     const float gap = px(th.spacing_md);
     const float availw = ImGui::GetContentRegionAvail().x;
     const bool ps2 = m->profile && m->profile->id && !strcmp(m->profile->id, "ps2");
-    const float pref = px(ps2 ? 216.0f : 300.0f);
+    if (ps2) {
+        if (n > 1) {
+            bool assigned[LNG_MAX_PLAYERS]{};
+            for (int player = 0; player < n; ++player)
+                assigned[player] = m->s.player_src[player] != 0;
+            m->dashboard_player = rui_player_tabs(n, m->dashboard_player, assigned, availw,
+                                                  dash_tabs_look(th), ui_text("Player"));
+        } else {
+            m->dashboard_player = 0;
+        }
+        draw_player_panel(m, th, m->dashboard_player, availw);
+        return;
+    }
+    const float pref = px(300.0f);
     int cols = (int)((availw + gap) / (pref + gap));
     if (cols < 1) cols = 1;
-    if (ps2 && cols > 2) cols = 2;
     if (cols > n) cols = n;
     float cardw = (availw - gap * (float)(cols - 1)) / (float)cols;
     if (cardw < 1.0f) cardw = availw;
@@ -3612,10 +3703,11 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
             // even Browse/New pad) are never clipped by a boxart-height cap.
             // Multitap (3+): fill to footer and scroll controllers when they
             // would crush the save band.
-            const bool many_players = launcher_model_visible_player_count(m) > 2;
+            const bool many_players = !ps2 && launcher_model_visible_player_count(m) > 2;
             if (game_p) {
-                g_game_fill_h = false;
-                begin_container("dash_l", ImVec2(game_w, 0), ImGuiChildFlags_AutoResizeY);
+                g_game_fill_h = ps2;
+                begin_container("dash_l", ImVec2(game_w, 0),
+                                ps2 ? ImGuiChildFlags_None : ImGuiChildFlags_AutoResizeY);
                 game_p->draw(m, &th);
                 end_container();
             }

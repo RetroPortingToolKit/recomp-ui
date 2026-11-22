@@ -3,7 +3,7 @@
 #ifndef RUI_CONSOLE_PS2_PROFILE_H
 #define RUI_CONSOLE_PS2_PROFILE_H
 #include "../psx/psx_profile.h"
-static const char* const kPanelsDashboardPs2[]={"game","controller",NULL};
+static const char* const kPanelsDashboardPs2[]={"game","controller","save",NULL};
 static const char* const kPanelsSettingsPs2[]={"video","audio",NULL};
 static const SystemProfile kSystemProfilePs2 = {
     /* id       */ "ps2",
@@ -19,7 +19,7 @@ static const SystemProfile kSystemProfilePs2 = {
                                   // input, and either may be a mouse button
     },
     // PS2 native 8MiB cards remain host-owned: no PS1 formatter/inspector.
-    /* save */    { SAVE_NONE, 0, NULL },
+    /* save */    { SAVE_NATIVE_MEMCARD, 2, NULL },
     /* video */   {
         /*window_scale*/0, /*fullscreen*/1, /*linear_filter*/0, /*widescreen*/0,
         /*renderer*/0, /*supersampling*/0, /*screen_kind*/0, /*frame_interp*/0, /*aspect*/0,

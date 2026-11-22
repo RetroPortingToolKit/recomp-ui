@@ -514,6 +514,9 @@ typedef struct {
     LngView   view;
     LngAction action;
     int       cfg_player;            // 0..LNG_MAX_PLAYERS-1 — which player the Controller view edits
+    int       dashboard_player;      // currently displayed controller card
+    int       dashboard_memcard;     // currently displayed native memory-card slot
+    char      native_memcard_error[128];
     bool      skip_modal_open;       // "Skip the launcher on boot?" confirm
     bool      pgo_confirm_open;      // SYSTEM → VIDEO → Optimize FMV confirm
     bool      fmv_timing_confirm_open; // SYSTEM → VIDEO → Apply FMV Timing confirm
