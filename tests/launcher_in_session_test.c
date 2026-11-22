@@ -33,12 +33,18 @@ int main(void) {
     check(!model.has_open_launcher_hotkey,
           "a zeroed GameInfo does not offer the OpenLauncher hotkey");
 
+    check(!model.has_screenshot_hotkey, "capture is not offered by an older host");
+    game.has_screenshot_hotkey = 1;
     game.in_session = 1;
     game.has_open_launcher_hotkey = 1;
     launcher_model_init(&model, &settings, &game, NULL);
     check(model.in_session, "in_session carries into the model");
     check(model.has_open_launcher_hotkey,
           "has_open_launcher_hotkey carries into the model");
+
+    check(model.has_screenshot_hotkey, "host capture capability reaches the hotkey editor");
+    check(strcmp(launcher_hotkey_name(LNG_HK_SCREENSHOT), "Screenshot") == 0,
+          "capture action has a player-facing label");
 
     for (int h = 0; h < LNG_HK_COUNT; ++h) {
         const char *name = launcher_hotkey_name((LngHotkey)h);

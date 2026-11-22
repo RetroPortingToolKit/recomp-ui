@@ -177,6 +177,7 @@ typedef enum {
     LNG_HK_TURBO_TOGGLE, /* PSX press-to-latch fast-forward → [KeyMap] TurboToggle */
     LNG_HK_QUICK_SAVE,
     LNG_HK_QUICK_LOAD,
+    LNG_HK_SCREENSHOT, /* host capture action -> [KeyMap] Screenshot */
     LNG_HK_COUNT
 } LngHotkey;
 
@@ -244,6 +245,7 @@ typedef struct {
     bool        has_solar_sensor;    // Solar sensor panel in Settings
     bool        in_session;          // opened from a running game (RESUME, not PLAY)
     bool        has_open_launcher_hotkey; // [KeyMap] OpenLauncher row in Hotkeys
+    bool        has_screenshot_hotkey; // host implements [KeyMap] Screenshot
     bool        has_integer_scale;   // Integer-scale checkbox in Display settings
     bool        hdpack_supported;    // HD-texture-pack toggle + folder picker
     // Password/mantra save (e.g. Faxanadu): non-NULL path swaps the SAVES row
