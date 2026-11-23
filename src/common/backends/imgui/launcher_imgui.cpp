@@ -16381,6 +16381,27 @@ bool is_modifier_scancode(SDL_Scancode sc) {
  * note rather than dead code, because "why can I not bind this pad's C-buttons
  * any more" deserves an answer at the place the answer used to live. */
 
+// Use the settings model's instance ID + 1 convention so SDL2 instance 0
+// remains distinguishable from an unresolved selection during capture.
+uint32_t selected_capture_pad_instance(const LauncherModel* m) {
+    const int player = m->cfg_player;
+    if (const uint32_t id = m->player_pad_id[player]) return id + 1;
+    if (m->s.player_src[player] != 2) return 0;
+
+    if (const uint32_t instance = m->s.player_gamepad_instance[player]) {
+        for (int i = 0; i < g_pad_count; ++i) {
+            if (g_pads[i].id + 1 == instance) return instance;
+        }
+    }
+
+    const char* guid = m->s.player_gamepad_guid[player];
+    if (!guid[0]) return 0;
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (std::strcmp(g_pads[i].guid, guid) == 0) return g_pads[i].id + 1;
+    }
+    return 0;
+}
+
 bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     if (!m->capturing && !m->hk_capturing &&
         !m->camera_capturing)
@@ -16497,28 +16518,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * mapping lands in some other controller's profile. */
         const bool guid_store = psx_cap ||
             (cap_prof && cap_prof->id && (!strcmp(cap_prof->id, "n64") || !strcmp(cap_prof->id,"gba")));
-        /* Which SDL device may bind.
-         *
-         * player_pad_id is set when the player picks a pad from the Input
-         * source list, but a selection RESTORED from settings only carries the
-         * GUID -- the id is re-resolved by a sync that runs for PSX alone. On
-         * every other console the id was therefore 0 after a restart, and a
-         * filter keyed on it would have let any pad bind. Resolve the GUID
-         * against the live device list here so the rule holds from a restored
-         * selection too. */
-        uint32_t want_id = m->player_pad_id[m->cfg_player];
-        if (!want_id && m->s.player_src[m->cfg_player] == 2) {
-            const char* want_guid = m->s.player_gamepad_guid[m->cfg_player];
-            if (want_guid[0]) {
-                for (int i = 0; i < g_pad_count; ++i) {
-                    if (g_pads[i].guid[0] &&
-                        std::strcmp(g_pads[i].guid, want_guid) == 0) {
-                        want_id = g_pads[i].id;
-                        break;
-                    }
-                }
-            }
-        }
+        const uint32_t selected_instance = selected_capture_pad_instance(m);
         auto from_selected = [&](uint32_t which) -> bool {
             /* A binding belongs to the device the player SELECTED.
              *
@@ -16528,14 +16528,14 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
              * no way to tell which had won. If a device is selected, only that
              * device may bind.
              *
-             * want_id == 0 means no specific device is chosen (the console
+             * An unresolved selection means no specific device is chosen (the console
              * offers a generic "Gamepad" source), and any pad is accepted --
              * which is the behaviour Genesis had and keeps. A per-GUID store
              * additionally refuses when its selection has not resolved to a
              * live device, because the binding would otherwise be written
              * against the wrong profile. */
-            if (!want_id) return !guid_store;
-            return which == want_id;
+            if (!selected_instance) return !guid_store;
+            return which + 1 == selected_instance;
         };
         auto try_clear_release_wait = [&](uint32_t which) {
             if (!m->map_all_wait_release) return;
@@ -17047,8 +17047,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             // Pad capture release-gate: clear once the selected pad is fully at
             // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
             if (m->capturing && m->capture_pad && m->map_all_wait_release) {
-                const uint32_t id = m->player_pad_id[m->cfg_player];
-                if (id && launcher_input_gamepad_at_rest(id))
+                const uint32_t instance = selected_capture_pad_instance(m);
+                if (instance && launcher_input_gamepad_at_rest(instance - 1))
                     m->map_all_wait_release = false;
             }
 
