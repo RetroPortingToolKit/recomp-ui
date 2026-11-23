@@ -1790,6 +1790,7 @@ typedef struct RecompLauncherCRomRevision {
     const char* note;        /* shown when this one is picked; NULL: none */
 } RecompLauncherCRomRevision;
 
+#define RECOMP_LAUNCHER_HAS_VERIFIED_ROM_CHANGED 1
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
     const char*    region;
@@ -2562,6 +2563,8 @@ typedef struct RecompLauncherCGameInfo {
      * button is also not shown once the title has box art (its own, or a
      * fetched launcher-cover.jpg). Appended for source compatibility. */
     const char*        cover_url_template;
+    /* Optional notification after cartridge validation. NULL clears it. */
+    int (*verified_rom_changed_cb)(const char* path);
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
