@@ -55,11 +55,9 @@ static const int kN64GamepadBindOrder[LNG_N64_PAD_BUTTON_COUNT] = {
 #define LNG_N64_GAMEPAD_BIND_ROWS 6
 
 // ---- panel composition --------------------------------------------------------
-// Dashboard: the common game + controller cards, plus the per-port PAK cards
-// (SIDE; they stack directly under the controller cards, one per port, each
-// fronted by a pak-kind dropdown). Composes only for games with
-// GameInfo.tpak_slots > 0 — its availability gate — so Snap never shows it.
-static const char* const kPanelsDashboardN64[] = { "game", "controller", "tpak", NULL };
+// Dashboard: the game and controller cards, a shared cartridge save card
+// when the title has a save path, and optional per-port Transfer Pak cards.
+static const char* const kPanelsDashboardN64[] = { "game", "controller", "save", "tpak", NULL };
 // Settings: video + audio only — NO hotkeys page. The N64 runtimes read no
 // config.ini [KeyMap] (in-game hotkeys are fixed in the runtime), and the SS
 // Anne launcher exposed no hotkey editor either. Offering an editor that
@@ -99,8 +97,7 @@ static const SystemProfile kSystemProfileN64 = {
         // stops being the gate for whether a player can pick one.
         /* has_pak        */ 1,
     },
-    // Cartridge battery saves, one file per game (per-game via sram_path —
-    // the compact save row folded into the GAME card, like SNES/GBA).
+    // Cartridge battery saves, one file per game (per-game via sram_path).
     /* save */    { SAVE_SRAM, 1, NULL },
     /* video */   {
         /*window_scale*/0, /*fullscreen*/1, /*linear_filter*/0, /*widescreen*/1,

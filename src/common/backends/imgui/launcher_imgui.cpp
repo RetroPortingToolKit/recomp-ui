@@ -3034,12 +3034,11 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         ImGui::PopStyleColor(2);
     }
 
-    // SAVES lives in the GAME card as a compact row (no separate card / eyebrow).
-    // Present only for games with battery SRAM — data-driven, never by name.
-    // Content lives in draw_save_row() (the Save module's shared row-drawer,
-    // also used standalone by panel_save's own card — see below); folding it
-    // in here, uncarded, is what preserves today's exact GAME-card layout.
-    if (m->saves_supported || m->password_save_path || m->password_sram_path) {
+    const auto* profile = static_cast<const SystemProfile*>(m->profile);
+    const bool separate_sram = profile && profile->save.kind == SAVE_SRAM &&
+        find_composed(profile->panels_dashboard, "save", m);
+    // Profiles without a standalone SRAM panel keep the compact Game row.
+    if (!separate_sram && (m->saves_supported || m->password_save_path || m->password_sram_path)) {
         ImGui::Dummy(ImVec2(0, px(8)));
         ImGui::PushStyleColor(ImGuiCol_Separator, col(th.border));
         ImGui::Separator();
@@ -4769,17 +4768,12 @@ static const float kDashBlockW = 608.0f;
 // The least width of the "Start from" block beside that column.
 static const float kDashStartW = 300.0f;
 
-// The wide dashboard of a console with tabs (ControllerSpec.player_tabs; PSX).
-// The GAME card stands on the left. Beside it, one column as wide as the
-// memory-card block: the controller section and the memory cards, each a strip
-// of tabs over one card. The column is narrower only when the window is. The
-// space this leaves on the right is the "Start from" block, as tall as the
-// taller of its two neighbours; in a window without that space the block
-// stands under the memory cards.
-static void draw_dashboard_tabbed(LauncherModel* m, const LauncherTheme& th,
-                                  const LauncherPanel* game_p, const LauncherPanel* ctrl_p,
-                                  const LauncherPanel* tpak_p, const LauncherPanel* ident_p,
-                                  const LauncherPanel* save_p) {
+// The Game card stands on the left. The controller and save panels share
+// a column. The "Start from" block sits beside that column when it fits.
+static void draw_dashboard_with_save_column(LauncherModel* m, const LauncherTheme& th,
+                                           const LauncherPanel* game_p, const LauncherPanel* ctrl_p,
+                                           const LauncherPanel* tpak_p, const LauncherPanel* ident_p,
+                                           const LauncherPanel* save_p) {
     const float gap = px(th.spacing_md);
     float game_h = 0.0f;
     if (game_p) {
@@ -4796,7 +4790,7 @@ static void draw_dashboard_tabbed(LauncherModel* m, const LauncherTheme& th,
     const bool beside = start && availw >= px(kDashBlockW) + gap + px(kDashStartW);
     begin_container("dash_r", ImVec2(block_w, 0), ImGuiChildFlags_AutoResizeY);
     bool first = true;
-    const LauncherPanel* const stack[] = { ctrl_p, tpak_p, ident_p, save_p };
+    const LauncherPanel* const stack[] = { ctrl_p, save_p, tpak_p, ident_p };
     for (const LauncherPanel* panel : stack) {
         if (!panel || (panel == ctrl_p && m->lock_device)) continue;
         if (!first) ImGui::Dummy(ImVec2(0, gap));
@@ -4848,8 +4842,8 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
         // controller cards — so N64 takes the ordinary else-branch below and
         // the fill-to-height columns are back for it too.
         const bool has_save = (save_p != nullptr);
-        if (has_save && launcher_model_dashboard_tabbed(m)) {
-            draw_dashboard_tabbed(m, th, game_p, ctrl_p, tpak_p, ident_p, save_p);
+        if (has_save && (prof->save.kind == SAVE_SRAM || launcher_model_dashboard_tabbed(m))) {
+            draw_dashboard_with_save_column(m, th, game_p, ctrl_p, tpak_p, ident_p, save_p);
         } else if (has_save) {
             // Capture body height before the row so multitap can grow the right
             // column to the footer.
