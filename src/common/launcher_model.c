@@ -58,7 +58,7 @@ static const char* kHotkeyNames[] = {
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
     "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
-    "Quick save", "Quick load"
+    "Quick save", "Quick load", "Screenshot"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
@@ -463,6 +463,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_solar_sensor     = game->has_solar_sensor != 0;
     m->in_session           = game->in_session != 0;
     m->has_open_launcher_hotkey = game->has_open_launcher_hotkey != 0;
+    m->has_screenshot_hotkey = game->has_screenshot_hotkey != 0;
         m->has_integer_scale    = game->has_integer_scale != 0;
         m->hdpack_supported     = game->hdpack_supported != 0;
         m->password_save_path   = game->password_save_path;

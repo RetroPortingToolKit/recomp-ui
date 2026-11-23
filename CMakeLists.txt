@@ -1039,6 +1039,23 @@ if(BUILD_TESTING)
     set_tests_properties(recomp-ui-launcher-rom-identity PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher-rom-identity-test")
 
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(recomp-ui-screenshot-hotkey-test tests/launcher_screenshot_hotkey_test.c)
+        target_include_directories(recomp-ui-screenshot-hotkey-test PRIVATE src src/common)
+        target_compile_definitions(recomp-ui-screenshot-hotkey-test PRIVATE ${RUI_SDL_DEFS})
+        target_compile_options(recomp-ui-screenshot-hotkey-test PRIVATE
+            -UNDEBUG -ffunction-sections -fdata-sections)
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(recomp-ui-screenshot-hotkey-test PRIVATE -flto)
+            target_link_options(recomp-ui-screenshot-hotkey-test PRIVATE -flto)
+        endif()
+        target_link_libraries(recomp-ui-screenshot-hotkey-test PRIVATE ${RUI_SDL_TARGET})
+        target_link_options(recomp-ui-screenshot-hotkey-test PRIVATE
+            $<IF:$<PLATFORM_ID:Darwin>,-Wl$<COMMA>-dead_strip,-Wl$<COMMA>--gc-sections>)
+        add_test(NAME recomp-ui-screenshot-hotkey COMMAND recomp-ui-screenshot-hotkey-test
+            "${CMAKE_CURRENT_BINARY_DIR}/screenshot-hotkey-test.ini")
+    endif()
+
     add_executable(recomp-ui-launcher-in-session-test
         tests/launcher_in_session_test.c
         src/common/launcher_model.c
