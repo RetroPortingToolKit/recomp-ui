@@ -703,6 +703,7 @@ void launcher_model_init(LauncherModel* m,
         m->rom_patch_required_sha1 = game->rom_patch_required_sha1;
 #if RECOMP_UI_ENABLE_MODS
         m->mods                 = game->mods;
+        m->verified_rom_changed_cb = game->verified_rom_changed_cb;
 #else
         /* The provider ABI is always present for stable consumer structs, but
          * a normal launcher build must not expose or mutate mods. */
@@ -1812,6 +1813,13 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
 
     run_verify(m);
     m->disc_refused_by_setup = same_refused_file && m->verify.verdict == 3;
+    if (m->verified_rom_changed_cb) {
+        const char* verified = launcher_model_rom_verified(m) ? m->rom_full : NULL;
+        if (!m->verified_rom_changed_cb(verified) && verified) {
+            lm_set_rom_unreadable(m, "The selected file could not be read again.");
+            m->verified_rom_changed_cb(NULL);
+        }
+    }
     update_msu1_patch_available(m);
     /* A host whose BIOS lookup sees the image answers again for this one. */
     if (m->has_bios && m->bios_verify_for_rom_cb) launcher_model_refresh_bios_status(m);

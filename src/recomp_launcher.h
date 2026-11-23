@@ -1791,6 +1791,7 @@ typedef struct RecompLauncherCRomRevision {
     const char* note;        /* shown when this one is picked; NULL: none */
 } RecompLauncherCRomRevision;
 
+#define RECOMP_LAUNCHER_HAS_VERIFIED_ROM_CHANGED 1
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
     const char*    region;
@@ -2571,6 +2572,8 @@ typedef struct RecompLauncherCGameInfo {
     /* Show Screenshot in the ordinary hotkey editor only when the host
      * implements capture. Zero retains existing hosts. Appended for ABI stability. */
     int has_screenshot_hotkey;
+    /* Optional notification after cartridge validation. NULL clears it. */
+    int (*verified_rom_changed_cb)(const char* path);
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1

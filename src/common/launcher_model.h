@@ -449,6 +449,7 @@ typedef struct {
     bool setup_wizard_supported;
     const RecompLauncherCNetplayCallbacks* netplay;
     const RecompLauncherCModProvider* mods;
+    int (*verified_rom_changed_cb)(const char* path);
     int       mod_selected;
     int       mod_package_selected;
     bool      mod_show_packages;
