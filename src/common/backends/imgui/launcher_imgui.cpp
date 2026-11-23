@@ -12199,13 +12199,13 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
     if (m->in_session) {
-        /* Opened from a running game: closing the window resumes it, so
-         * leaving the game needs a button of its own. Netplay cannot start
-         * from here -- the session it would replace is still alive. */
-        const float quit_w = px(170.0f);
-        ImGui::SetCursorScreenPos(ImVec2(play_x - quit_w - px(12.0f), cta_y));
-        if (ImGui::Button(ui_text("QUIT GAME"), ImVec2(quit_w, play_h)))
-            m->action = LNG_ACTION_QUIT;
+        // The PS2 Resume screen returns to the game. The game window owns exit.
+        if (!m->profile || !m->profile->id || strcmp(m->profile->id, "ps2") != 0) {
+            const float quit_w = px(170.0f);
+            ImGui::SetCursorScreenPos(ImVec2(play_x - quit_w - px(12.0f), cta_y));
+            if (ImGui::Button(ui_text("QUIT GAME"), ImVec2(quit_w, play_h)))
+                m->action = LNG_ACTION_QUIT;
+        }
     } else if (m->netplay_supported &&
         (m->view == LNG_VIEW_DASHBOARD || m->view == LNG_VIEW_SETTINGS ||
          m->view == LNG_VIEW_CONTROLLER)) {
