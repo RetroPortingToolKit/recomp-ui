@@ -1115,6 +1115,9 @@ const char* launcher_model_audio_device_label(const LauncherModel* m);
 // ---- Optional host-defined presets ----
 int launcher_model_preset_count(const LauncherModel* m);
 int launcher_model_apply_preset(LauncherModel* m, const char* id);
+int launcher_model_store_preset(LauncherModel* m, const char* id,
+                               const char* name, int capture_current);
+int launcher_model_delete_preset(LauncherModel* m, const char* id);
 // ---- MSU-1 (only when msu1_supported) ----
 int launcher_model_set_msu1_pack(LauncherModel* m, const char* id);
 void launcher_model_toggle_msu1(LauncherModel* m);

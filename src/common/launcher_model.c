@@ -4107,6 +4107,25 @@ int launcher_model_apply_preset(LauncherModel* m, const char* id) {
     }
     return 0;
 }
+static int preset_operation_result(LauncherModel* m, int ok, const char* fallback) {
+    if (ok) m->mod_status[0] = 0;
+    else {
+        const char* error = m->mods->last_error ? m->mods->last_error(m->mods->ctx) : NULL;
+        safe_copy(m->mod_status, sizeof(m->mod_status), error && *error ? error : fallback);
+    }
+    return ok;
+}
+int launcher_model_store_preset(LauncherModel* m, const char* id,
+                               const char* name, int capture_current) {
+    if (!m || !m->mods || !m->mods->preset_store) return 0;
+    int ok = m->mods->preset_store(m->mods->ctx, id, name, capture_current ? &m->s : NULL);
+    return preset_operation_result(m, ok, "Unable to save preset");
+}
+int launcher_model_delete_preset(LauncherModel* m, const char* id) {
+    if (!m || !m->mods || !m->mods->preset_delete || !id) return 0;
+    int ok = m->mods->preset_delete(m->mods->ctx, id);
+    return preset_operation_result(m, ok, "Unable to delete preset");
+}
 int launcher_model_set_msu1_pack(LauncherModel* m, const char* id) {
     if (!m || !m->msu1_supported || !id || !m->msu1_packs || m->num_msu1_packs <= 0) return 0;
     if (!*id) { m->s.msu1_pack[0] = 0; return 1; }

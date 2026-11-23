@@ -12499,10 +12499,13 @@ static void draw_mod_presets(LauncherModel* m, const LauncherTheme& th) {
     if (!count) return;
     const char* current = m->mods->preset_current(m->mods->ctx, &m->s);
     RecompLauncherCModPreset selected{};
+    bool has_saved = false;
     std::snprintf(selected.name, sizeof(selected.name), "%s", "Custom");
     for (int i = 0; i < count; ++i) {
         RecompLauncherCModPreset item{};
-        if (m->mods->preset_get(m->mods->ctx, i, &item) && current && !std::strcmp(current, item.id)) selected = item;
+        if (!m->mods->preset_get(m->mods->ctx, i, &item)) continue;
+        has_saved = has_saved || item.editable;
+        if (current && !std::strcmp(current, item.id)) selected = item;
     }
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Preset");
@@ -12512,13 +12515,77 @@ static void draw_mod_presets(LauncherModel* m, const LauncherTheme& th) {
         for (int i = 0; i < count; ++i) {
             RecompLauncherCModPreset item{};
             if (!m->mods->preset_get(m->mods->ctx, i, &item)) continue;
-            if (ImGui::Selectable(item.name, current && !std::strcmp(current, item.id)))
+            ImGui::PushID(item.id);
+            if (ImGui::Selectable(item.name, !std::strcmp(selected.id, item.id)))
                 launcher_model_apply_preset(m, item.id);
             if (ImGui::IsItemHovered() && item.description[0]) ImGui::SetTooltip("%s", item.description);
+            ImGui::PopID();
         }
         ImGui::EndCombo();
     }
-    ImGui::TextColored(col(th.text_muted), "Individual options remain editable.");
+    if (m->mods->preset_store && m->mods->preset_delete) {
+        static char name[sizeof(selected.name)]{};
+        static char editing_id[sizeof(selected.id)]{};
+        static bool confirm_delete;
+        if (ImGui::Button(ui_text("Save current mods"))) {
+            name[0] = m->mod_status[0] = 0;
+            ImGui::OpenPopup("Save mod preset");
+        }
+        if (has_saved) {
+            ImGui::SameLine();
+            if (ImGui::Button(ui_text("Manage presets"))) {
+                editing_id[0] = name[0] = m->mod_status[0] = 0;
+                confirm_delete = false;
+                ImGui::OpenPopup("Manage mod presets");
+            }
+        }
+        if (ImGui::BeginPopupModal("Save mod preset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::SetNextItemWidth(px(280));
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            bool submit = ImGui::InputText(ui_text("Name"), name, sizeof(name), ImGuiInputTextFlags_EnterReturnsTrue);
+            if ((ImGui::Button(ui_text("Save")) || submit) && launcher_model_store_preset(m, nullptr, name, 1))
+                ImGui::CloseCurrentPopup();
+            ImGui::SameLine();
+            if (ImGui::Button(ui_text("Cancel"))) ImGui::CloseCurrentPopup();
+            if (m->mod_status[0]) ImGui::TextColored(col(th.warn), "%s", m->mod_status);
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Manage mod presets", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (ImGui::BeginListBox("##saved_mod_presets", ImVec2(px(330), px(120)))) {
+                for (int i = 0; i < count; ++i) {
+                    RecompLauncherCModPreset item{};
+                    if (!m->mods->preset_get(m->mods->ctx, i, &item) || !item.editable) continue;
+                    ImGui::PushID(item.id);
+                    if (ImGui::Selectable(item.name, !std::strcmp(editing_id, item.id))) {
+                        std::snprintf(editing_id, sizeof(editing_id), "%s", item.id);
+                        std::snprintf(name, sizeof(name), "%s", item.name);
+                        m->mod_status[0] = 0;
+                        confirm_delete = false;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndListBox();
+            }
+            if (editing_id[0]) {
+                ImGui::SetNextItemWidth(px(280));
+                ImGui::InputText(ui_text("Name"), name, sizeof(name));
+                if (ImGui::Button(ui_text("Rename"))) launcher_model_store_preset(m, editing_id, name, 0);
+                ImGui::SameLine();
+                if (ImGui::Button(ui_text("Update from current mods"))) launcher_model_store_preset(m, editing_id, nullptr, 1);
+                if (confirm_delete) {
+                    if (ImGui::Button(ui_text("Confirm delete")) && launcher_model_delete_preset(m, editing_id)) {
+                        editing_id[0] = name[0] = 0;
+                        confirm_delete = false;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button(ui_text("Keep preset"))) confirm_delete = false;
+                } else if (ImGui::Button(ui_text("Delete preset"))) confirm_delete = true;
+            }
+            if (m->mod_status[0]) ImGui::TextColored(col(th.warn), "%s", m->mod_status);
+            if (ImGui::Button(ui_text("Done"))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
     ImGui::Spacing();
 }
 

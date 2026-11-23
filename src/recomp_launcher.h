@@ -1102,6 +1102,7 @@ typedef struct RecompLauncherCModPreset {
     char id[64];
     char name[96];
     char description[512];
+    int editable; /* Nonzero for a user-owned preset. */
 } RecompLauncherCModPreset;
 
 typedef struct RecompLauncherCMsuPack {
@@ -1228,6 +1229,13 @@ typedef struct RecompLauncherCModProvider {
     int (*preset_get)(void* ctx, int index, RecompLauncherCModPreset* out);
     const char* (*preset_current)(void* ctx, const RecompLauncherCSettings* settings);
     int (*preset_apply)(void* ctx, const char* id, RecompLauncherCSettings* settings);
+    /* Optional persistent user presets. A NULL id creates a preset from the
+     * supplied name and settings. With an existing id, NULL name preserves
+     * the name and NULL settings preserve the stored mod choices. Failed
+     * operations leave the library and the currently applied mods intact. */
+    int (*preset_store)(void* ctx, const char* id, const char* name,
+                        const RecompLauncherCSettings* settings);
+    int (*preset_delete)(void* ctx, const char* id);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
 #define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
