@@ -4589,6 +4589,13 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     m->s.player_src[player] = clampi(kind, 0, 2);
     if (kind == 2) {
+        /* A deliberate SNES picker move transfers this physical controller.
+         * Same-model pads have separate instances and remain independent. */
+        if (m->profile && m->profile->id && !strcmp(m->profile->id,"snes"))
+            for (int other=0;other<LNG_MAX_PLAYERS;++other)
+                if (other!=player && m->s.player_src[other]==2 &&
+                    m->s.player_gamepad_instance[other]==pad_id+1)
+                    launcher_model_set_source(m,other,0,0,NULL,NULL);
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
         safe_copy(m->player_pad_name[player], sizeof(m->player_pad_name[player]),

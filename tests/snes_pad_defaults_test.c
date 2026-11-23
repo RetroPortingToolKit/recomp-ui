@@ -178,6 +178,45 @@ int main(int argc, char** argv) {
     launcher_model_set_deadzone(&m, 0, 7);
     expect(m.s.deadzone[0] == 7, "and takes any whole percent between");
 
+    /* Two identical controller models still have distinct SDL instances. */
+    LauncherPad twins[2] = {0};
+    for (int i = 0; i < 2; ++i) {
+        snprintf(twins[i].guid, sizeof(twins[i].guid), "same-controller-model");
+        snprintf(twins[i].name, sizeof(twins[i].name), "Twin Controller");
+        twins[i].id = i ? 9 : 0;
+    }
+    make_model(&m);
+    for (int p = 0; p < 2; ++p) {
+        m.s.player_src[p] = 2;
+        m.s.deadzone[p] = 17 + p;
+        strcpy(m.s.player_gamepad_guid[p], twins[0].guid);
+        m.s.player_gamepad_instance[p] = 1;
+    }
+    launcher_binds_hydrate_snes_pad_names(&m, twins, 2);
+    expect(m.s.player_gamepad_instance[0] == 1 && m.s.player_gamepad_instance[1] == 10,
+           "two restored same-model seats keep distinct instances, including device zero");
+    expect(m.player_pad_id[0] == 0 && m.player_pad_id[1] == 9 &&
+           !strcmp(m.player_pad_name[0], twins[0].name) && !strcmp(m.player_pad_name[1], twins[1].name),
+           "hydration retains the two physical capture targets and friendly names");
+    const LauncherPad remaining = twins[1];
+    launcher_binds_hydrate_snes_pad_names(&m, &remaining, 1);
+    expect(!m.s.player_gamepad_instance[0] && m.s.player_gamepad_instance[1] == 10,
+           "disconnect reserves the other seat's valid instance before filling the waiting seat");
+    expect(!strcmp(m.s.player_gamepad_guid[0], twins[0].guid) &&
+           m.s.deadzone[0] == 17 && m.s.deadzone[1] == 18,
+           "disconnect preserves the saved model and per-seat settings");
+    twins[0].id = 11;
+    launcher_binds_hydrate_snes_pad_names(&m, twins, 2);
+    expect(m.s.player_gamepad_instance[0] == 12 && m.s.player_gamepad_instance[1] == 10,
+           "reconnect fills the waiting seat without moving the other live device");
+    launcher_model_set_source(&m, 0, 2, twins[1].id, twins[1].name, twins[1].guid);
+    expect(m.s.player_gamepad_instance[0] == 10 && m.s.player_src[1] == 0,
+           "an explicit physical controller move clears only its former owner");
+    launcher_model_set_source(&m, 1, 2, twins[0].id, twins[0].name, twins[0].guid);
+    launcher_binds_hydrate_snes_pad_names(&m, twins, 2);
+    expect(m.s.player_gamepad_instance[0] == 10 && m.s.player_gamepad_instance[1] == 12,
+           "name refresh preserves both selections after swapping seats");
+
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     puts("snes_pad_defaults_test: ok");
