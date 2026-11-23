@@ -4017,6 +4017,10 @@ void draw_source_selectables(LauncherModel* m, int p) {
                            !strcmp(src_prof->id, "snes");
     const bool n64_prof = src_prof && src_prof->id &&
                           !strcmp(src_prof->id, "n64");
+    if (m->host_controller_seats &&
+        ImGui::Selectable(ui_text("Automatic"), m->s.player_src[p] == 2 &&
+                          !m->s.player_gamepad_guid[p][0]))
+        choose(2, 0, nullptr, nullptr);
     if (ImGui::Selectable(ui_text("None"), m->s.player_src[p] == 0)) {
         choose(0, 0, nullptr, nullptr);
         if (psx) launcher_binds_refresh(m);
@@ -4184,7 +4188,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
     // device; a seat with only a GUID claims the model, as before.
     auto seat_has = [&](int o, const PadOpt& opt) -> bool {
         if (m->s.player_src[o] != 2) return false;
-        if (!psx && opt.live && m->s.player_gamepad_instance[o])
+        if (!psx && opt.live && (m->s.player_gamepad_instance[o] || m->host_controller_seats))
             return m->s.player_gamepad_instance[o] == opt.id + 1;
         return m->s.player_gamepad_guid[o][0] &&
                std::strcmp(m->s.player_gamepad_guid[o], opt.guid) == 0;
@@ -4213,7 +4217,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
             if (psx) {
                 launcher_binds_apply_psx_pad_profile(m, p);
                 launcher_binds_refresh(m);
-            } else if (n64_prof) {
+            } else if (n64_prof && !m->host_controller_seats) {
                 /* Per-GUID store: the labels ARE this controller's mapping, so
                  * selecting a different pad shows a different page. Nothing to
                  * copy into a live file the way SNES has to. */
@@ -4357,7 +4361,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     // status right) so the card stays short — that keeps the memory cards below
     // it from being pushed off the bottom. (Analog-stick deadzone lives on the
     // Configure page's per-player Deadzone stepper, not on this card.)
-    {
+    if (!m->host_controller_seats) {
         const float gap  = px(th.spacing_sm);
         const float half = (cw - gap) * 0.5f;
         const float btnh = px(32);
@@ -4461,7 +4465,7 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
     ImGui::Dummy(ImVec2(0, px(6)));
     // Configure and the connection state on one row. (Analog-stick deadzone
     // lives on the Configure page's per-player Deadzone stepper.)
-    {
+    if (!m->host_controller_seats) {
         const float btnh = px(32);
         const float btnw = wide ? px(150.0f) : (cw - gap) * 0.5f;
         if (ImGui::Button(ui_text("Configure"), ImVec2(btnw, btnh)))

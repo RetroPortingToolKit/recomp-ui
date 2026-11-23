@@ -214,6 +214,12 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "rom:", 4) == 0) {
+        launcher_model_set_rom(m, c + 4);
+    } else if (strcmp(c, "play") == 0) {
+        if (!m->in_session && launcher_model_can_launch(m) &&
+            !launcher_model_bios_blocks_play(m))
+            launcher_model_launch_request(m);
     } else if (strncmp(c, "mod-select:", 11) == 0) {
         m->mod_selected = atoi(c + 11);
     } else if (strncmp(c, "resource-import:", 16) == 0) {
@@ -239,6 +245,11 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
     } else if (strncmp(c, "tab:", 4) == 0) {
         // Open a player's tab on the dashboard (0-based), as a click on it does.
         launcher_model_set_player_tab(m, atoi(c + 4));
+    } else if (strncmp(c, "source:", 7) == 0) {
+        int seat = 0, source = 0;
+        if (sscanf(c + 7, "%d,%d", &seat, &source) == 2 &&
+            seat >= 0 && seat < launcher_model_visible_player_count(m) && source >= 0 && source <= 2)
+            launcher_model_set_source(m, seat, source, 0, NULL, NULL);
     } else if (strncmp(c, "start:", 6) == 0) {
         // Choose a "Start from" entry by its place in the list; -1 is Power on.
         launcher_model_select_start(m, atoi(c + 6));

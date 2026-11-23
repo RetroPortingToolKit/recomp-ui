@@ -498,6 +498,12 @@ void launcher_model_init(LauncherModel* m,
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
         m->locked_pad_mode      = clampi(game->locked_pad_mode, 0, 2);
         m->lock_device          = game->lock_device != 0;
+        m->host_controller_seats = game->host_controller_seats != 0;
+        if (m->host_controller_seats) {
+            for (int p = 0; p < LNG_MAX_PLAYERS; ++p)
+                safe_copy(m->player_pad_name[p], sizeof(m->player_pad_name[p]),
+                          game->controller_names[p] ? game->controller_names[p] : "");
+        }
         m->aspect_mask          = game->aspect_mask;
 
         m->has_window_size      = game->has_window_size != 0;
@@ -4571,7 +4577,7 @@ static void lm_inspect_tpak(LauncherModel* m, int slot) {
 //   - every other console (has_pak 0): the host's declared tpak_slots is the
 //     whole answer, so a console that declares none has none. Unchanged.
 int launcher_model_pak_ports(const LauncherModel* m) {
-    if (!m) return 0;
+    if (!m || m->host_controller_seats) return 0;
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     int n = launcher_model_visible_player_count(m);
     if (!(prof && prof->controller.has_pak) && n > m->tpak_slots)
@@ -5618,11 +5624,14 @@ const char* launcher_model_player_src_label(const LauncherModel* m, int player) 
     if (src == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
         src = 0;
     if (src == 2) {
+        if (m->host_controller_seats && !m->s.player_gamepad_guid[player][0])
+            return "Automatic";
         // Never show the generic "Gamepad" placeholder when we have a concrete
         // pad name (or at least a GUID-backed label filled by sync/hydrate).
         if (m->player_pad_name[player][0] &&
             strcmp(m->player_pad_name[player], "Gamepad") != 0)
             return m->player_pad_name[player];
+        if (m->host_controller_seats) return "Controller";
         if (m->s.player_gamepad_guid[player][0])
             return m->s.player_gamepad_guid[player];
     }

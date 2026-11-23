@@ -2562,7 +2562,12 @@ typedef struct RecompLauncherCGameInfo {
      * button is also not shown once the title has box art (its own, or a
      * fetched launcher-cover.jpg). Appended for source compatibility. */
     const char*        cover_url_template;
+    /* The host persists physical input sources and owns mappings/accessories.
+     * Gamepad with an empty GUID means Automatic. Names are borrowed per seat. */
+    int host_controller_seats;
+    const char* controller_names[RECOMP_LAUNCHER_MAX_PLAYERS];
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_HOST_CONTROLLER_SEATS 1
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
