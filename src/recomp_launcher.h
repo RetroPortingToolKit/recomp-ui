@@ -1131,7 +1131,8 @@ typedef struct RecompLauncherCModResource {
     char file_description[128];
     int required;
     int verified;
-    /* "file" (default) or "directory". Appended for source compatibility. */
+    /* "file" (default), "directory", or "file-or-directory" (both pickers).
+     * Appended for source compatibility. */
     char format[64];
     /* Import this file through feature_resource_import on a background job.
      * Ordinary path selections leave this zero. */
@@ -2563,9 +2564,18 @@ typedef struct RecompLauncherCGameInfo {
      * button is also not shown once the title has box art (its own, or a
      * fetched launcher-cover.jpg). Appended for source compatibility. */
     const char*        cover_url_template;
+    /* Show named host shortcuts as controller-only rows when keyboard
+     * shortcuts already have their own editor. Capture, clear, defaults and
+     * persistence still use assist_pad_bind; zero preserves existing hosts.
+     * Appended for source/ABI stability. */
+    int assist_pad_only;
+    /* Show Screenshot in the ordinary hotkey editor only when the host
+     * implements capture. Zero retains existing hosts. Appended for ABI stability. */
+    int has_screenshot_hotkey;
     /* Optional notification after cartridge validation. NULL clears it. */
     int (*verified_rom_changed_cb)(const char* path);
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1
 #define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
@@ -2594,6 +2604,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
 /* Host may #ifdef this when setting assist_direct_pad_bind_action. */
 #define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
+#define RECOMP_LAUNCHER_HAS_PAD_ONLY_SHORTCUTS 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0

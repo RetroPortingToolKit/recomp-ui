@@ -10,7 +10,46 @@ void launcher_binds_set_zapper(int mouse_enabled, int crosshair) {
     (void)crosshair;
 }
 
+/* The documented count determines which host defaults belong to the model.
+ * Extra sentinel values must never become defaults for unused rows. */
+static int test_count_sized_defaults(void) {
+    const int counts[] = {1, 4, RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS, 0};
+    for (size_t n = 0; n < sizeof(counts) / sizeof(counts[0]); ++n) {
+        int count = counts[n];
+        int keys[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS];
+        int pads[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS];
+        RecompLauncherCGameInfo game = {0};
+        RecompLauncherCSettings saved = {0};
+        LauncherModel model;
+        for (int i = 0; i < RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS; ++i) {
+            keys[i] = 20 + i;
+            pads[i] = RECOMP_LAUNCHER_PAD_BUTTON(i);
+        }
+        game.assist_binding_count = count;
+        game.assist_default_key_bind = keys;
+        game.assist_default_pad_bind = pads;
+        launcher_model_init(&model, &saved, &game, NULL);
+        /* Reset owns a copy, rather than retaining the host arrays. */
+        memset(keys, 0, sizeof(keys));
+        memset(pads, 0, sizeof(pads));
+        memset(model.s.assist_key_bind, 0, sizeof(model.s.assist_key_bind));
+        memset(model.s.assist_pad_bind, 0, sizeof(model.s.assist_pad_bind));
+        launcher_model_reset_assist_bindings(&model);
+        for (int i = 0; i < RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS; ++i) {
+            int key = i < count ? 20 + i : 0;
+            int pad = i < count ? RECOMP_LAUNCHER_PAD_BUTTON(i) : 0;
+            if (model.default_assist_key_bind[i] != key ||
+                model.default_assist_pad_bind[i] != pad ||
+                model.s.assist_key_bind[i] != key ||
+                model.s.assist_pad_bind[i] != pad)
+                return 1;
+        }
+    }
+    return 0;
+}
+
 int main(void) {
+    if (test_count_sized_defaults()) return 1;
     const int keys[4] = {0, 0, 0, 0};
     const int pads[4] = {
         RECOMP_LAUNCHER_PAD_BUTTON_COMBO(1u << 3),
@@ -95,5 +134,23 @@ int main(void) {
         assert(model.s.assist_pad_bind[0] == RECOMP_LAUNCHER_PAD_BUTTON(2));
         assert(model.s.assist_key_bind[1] == 61);
     }
+    /* A cleared controller-only row must survive a commit/reload, rather
+     * than being mistaken for an unspecified default. Its hidden keyboard
+     * state remains owned by the separate keyboard editor. */
+    game.assist_pad_only = 1;
+    saved.assist_pad_bind[0] = 0;
+    saved.assist_key_bind[0] = 99;
+    launcher_model_init(&model, &saved, &game, NULL);
+    assert(model.s.assist_pad_bind[0] == pads[0]);
+    launcher_model_begin_assist_capture(&model, 0, true);
+    launcher_model_set_captured_pad(&model, 0);
+    launcher_model_cancel_capture(&model);
+    launcher_model_commit(&model, &saved);
+    assert(saved.assist_pad_bind[0] == -1);
+    launcher_model_init(&model, &saved, &game, NULL);
+    assert(model.s.assist_pad_bind[0] == -1);
+    launcher_model_reset_assist_bindings(&model);
+    assert(model.s.assist_pad_bind[0] == pads[0]);
+    assert(model.s.assist_key_bind[0] == 99);
     return 0;
 }

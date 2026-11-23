@@ -219,6 +219,56 @@ int main(int argc, char** argv) {
                "and seat 1's mapping is untouched");
     }
 
+    /* A GUID names a model/profile, not a connected physical controller. */
+    LauncherPad twins[2] = {0};
+    for (int i=0;i<2;++i) {
+        snprintf(twins[i].guid,sizeof(twins[i].guid),"same-controller-model");
+        snprintf(twins[i].name,sizeof(twins[i].name),"Twin Controller");
+        twins[i].id=i ? 9 : 0; /* Device zero is valid too. */
+    }
+    make_model(&m);m.player_count=4;m.s.player_src[0]=1;
+    for (int p=1;p<4;++p) {
+        m.s.player_src[p]=2;m.s.deadzone[p]=17+p;
+        snprintf(m.s.player_gamepad_guid[p],sizeof(m.s.player_gamepad_guid[p]),"%s",twins[0].guid);
+    }
+    launcher_binds_hydrate_snes_pad_names(&m,twins,2);
+    expect(m.s.player_src[0]==1,"hydration preserves the default P1 keyboard");
+    expect(m.s.player_gamepad_instance[1]==1 && m.s.player_gamepad_instance[2]==10 && !m.s.player_gamepad_instance[3],
+           "restored same-model preferences reserve two physical pads once and leave the extra seat waiting");
+    expect(m.player_pad_id[1]==0 && m.player_pad_id[2]==9,
+           "friendly-name hydration preserves each physical capture target, including device zero");
+    expect(!strcmp(m.player_pad_name[1],twins[0].name) && !strcmp(m.player_pad_name[2],twins[1].name),
+           "physical allocation keeps friendly controller names");
+    expect(m.s.deadzone[1]==18 && m.s.deadzone[2]==19,"restoring a device never replaces saved per-seat deadzones");
+
+    /* Old settings/host handoffs may contain duplicate live claims. */
+    for (int p=1;p<4;++p) {m.s.player_gamepad_instance[p]=1;m.player_pad_id[p]=0;}
+    launcher_binds_hydrate_snes_pad_names(&m,twins,1);
+    unsigned owners=0;
+    for (int p=0;p<4;++p) owners+=m.s.player_src[p]==2 && m.s.player_gamepad_instance[p]==1;
+    expect(owners==1 && m.s.player_gamepad_instance[1]==1,"one physical pad cannot remain assigned to three restored seats");
+    expect(!strcmp(m.s.player_gamepad_guid[2],twins[0].guid) && !strcmp(m.s.player_gamepad_guid[3],twins[0].guid),
+           "waiting identical-model seats retain their saved preferences");
+    launcher_binds_hydrate_snes_pad_names(&m,twins,0);
+    expect(!m.s.player_gamepad_instance[1] && !m.s.player_gamepad_instance[2] && !m.s.player_gamepad_instance[3],
+           "unplug clears transient ownership without changing saved source choices");
+    twins[0].id=11;
+    launcher_binds_hydrate_snes_pad_names(&m,twins,1);
+    expect(m.s.player_gamepad_instance[1]==12 && m.player_pad_id[1]==11 && m.s.player_src[0]==1,
+           "hot-plug restores P2's preferred pad while preserving P1 keyboard");
+
+    /* A deliberate picker selection moves that device, instead of requiring
+     * several other player cards to be cleared by hand. */
+    launcher_model_set_source(&m,0,2,twins[0].id,twins[0].name,twins[0].guid);
+    expect(m.s.player_src[1]==0 && m.s.player_gamepad_instance[0]==12,
+           "choosing an owned pad for P1 transfers its previous physical owner");
+    launcher_binds_hydrate_snes_pad_names(&m,twins,2);
+    expect(m.s.player_gamepad_instance[0]==12 && m.player_pad_id[0]==11,
+           "a refresh cannot steal an explicit physical selection back");
+    expect(m.s.player_gamepad_instance[2]==10 && m.player_pad_id[2]==9,
+           "the second identical-model controller remains available to another seat");
+    expect(m.s.deadzone[1]==18,"moving a controller preserves the old seat's mapping preferences");
+
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     puts("snes_pad_defaults_test: ok");

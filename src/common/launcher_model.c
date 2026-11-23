@@ -58,7 +58,7 @@ static const char* kHotkeyNames[] = {
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
     "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
-    "Quick save", "Quick load"
+    "Quick save", "Quick load", "Screenshot"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
@@ -463,6 +463,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_solar_sensor     = game->has_solar_sensor != 0;
     m->in_session           = game->in_session != 0;
     m->has_open_launcher_hotkey = game->has_open_launcher_hotkey != 0;
+    m->has_screenshot_hotkey = game->has_screenshot_hotkey != 0;
         m->has_integer_scale    = game->has_integer_scale != 0;
         m->hdpack_supported     = game->hdpack_supported != 0;
         m->password_save_path   = game->password_save_path;
@@ -645,6 +646,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_virtual_stylus   = game->has_virtual_stylus != 0;
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
+        m->assist_pad_only = game->assist_pad_only != 0;
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
@@ -754,10 +756,14 @@ void launcher_model_init(LauncherModel* m,
         m->assist_fast_forward_min, m->assist_fast_forward_max);
     if (game && game->assist_default_key_bind &&
         game->assist_default_pad_bind) {
+        /* Host arrays contain only the advertised number of entries. The
+         * unused model slots were zeroed at initialization. */
+        const size_t defaults_bytes =
+            (size_t)m->assist_binding_count * sizeof(m->default_assist_key_bind[0]);
         memcpy(m->default_assist_key_bind, game->assist_default_key_bind,
-               sizeof m->default_assist_key_bind);
+               defaults_bytes);
         memcpy(m->default_assist_pad_bind, game->assist_default_pad_bind,
-               sizeof m->default_assist_pad_bind);
+               defaults_bytes);
         for (int i = 0; i < m->assist_binding_count; ++i) {
             if (m->s.assist_key_bind[i] == 0)
                 m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
@@ -1207,10 +1213,11 @@ void launcher_model_init(LauncherModel* m,
             }
         }
         if (m->setup_wizard_open) {
-            const int need_tc_page =
-                !m->setup_tc_ready ||
-                (m->setup_tc_update_available && !m->setup_tc_update_skipped);
-            m->setup_page = need_tc_page ? 0 : 1;
+            const bool needs_tools =
+                m->prepare_required_before_continue &&
+                (!m->setup_tc_ready ||
+                 (m->setup_tc_update_available && !m->setup_tc_update_skipped));
+            m->setup_page = needs_tools ? 0 : 1;
         } else {
             m->setup_page = 1;
         }
@@ -5304,6 +5311,13 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
     kind = clampi(kind, 0, RECOMP_LAUNCHER_SRC_GUNCON);
     m->s.player_src[player] = kind;
     if (kind == 2) {
+        /* A deliberate SNES picker move transfers this physical controller.
+         * Same-model pads have separate instances and remain independent. */
+        if (m->profile && m->profile->id && !strcmp(m->profile->id,"snes"))
+            for (int other=0;other<LNG_MAX_PLAYERS;++other)
+                if (other!=player && m->s.player_src[other]==2 &&
+                    m->s.player_gamepad_instance[other]==pad_id+1)
+                    launcher_model_set_source(m,other,0,0,NULL,NULL);
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
         safe_copy(m->player_pad_name[player], sizeof(m->player_pad_name[player]),
@@ -5541,7 +5555,8 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
     if (m->capture_assist) {
         if (m->capture_btn >= 0 &&
             m->capture_btn < m->assist_binding_count)
-            m->s.assist_pad_bind[m->capture_btn] = encoded_binding;
+            m->s.assist_pad_bind[m->capture_btn] =
+                m->assist_pad_only && encoded_binding == 0 ? -1 : encoded_binding;
     } else {
         int buttons = launcher_model_active_button_count(m, m->cfg_player);
         if (m->capture_btn >= 0 && m->capture_btn < buttons)
@@ -5569,8 +5584,9 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
 }
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
     if (!m) return;
-    memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
-           sizeof m->s.assist_key_bind);
+    if (!m->assist_pad_only)
+        memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
+               sizeof m->s.assist_key_bind);
     memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }

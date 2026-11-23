@@ -4186,6 +4186,8 @@ void draw_source_selectables(LauncherModel* m, int p) {
     // device; a seat with only a GUID claims the model, as before.
     auto seat_has = [&](int o, const PadOpt& opt) -> bool {
         if (m->s.player_src[o] != 2) return false;
+        if (snes_prof && opt.live)
+            return m->s.player_gamepad_instance[o] == opt.id + 1;
         if (!psx && opt.live && m->s.player_gamepad_instance[o])
             return m->s.player_gamepad_instance[o] == opt.id + 1;
         return m->s.player_gamepad_guid[o][0] &&
@@ -4208,8 +4210,10 @@ void draw_source_selectables(LauncherModel* m, int p) {
             std::snprintf(label, sizeof(label), "%s %s",
                           opts[i].name, ui_text("(disconnected)"));
         const bool sel = seat_has(p, opts[i]);
-        if (claimed) ImGui::BeginDisabled();
-        if (ImGui::Selectable(label, sel) && !claimed) {
+        const bool disabled = claimed && !(snes_prof && opts[i].live);
+        ImGui::PushID(i); // Equal friendly names still identify distinct options.
+        if (disabled) ImGui::BeginDisabled();
+        if (ImGui::Selectable(label, sel) && !disabled) {
             choose(2, opts[i].id, opts[i].name,
                                      opts[i].guid);
             if (psx) {
@@ -4229,7 +4233,10 @@ void draw_source_selectables(LauncherModel* m, int p) {
                 launcher_binds_refresh(m);
             }
         }
-        if (claimed) ImGui::EndDisabled();
+        if (disabled) ImGui::EndDisabled();
+        if (claimed && snes_prof && opts[i].live && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Move this controller to this player. Its current player will be unassigned.");
+        ImGui::PopID();
     }
 
     if (nopt == 0) {
@@ -6232,6 +6239,7 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
     // Likewise a host capability: only a host that reopens this launcher
     // mid-game has anything to bind.
     if (m->has_open_launcher_hotkey) mask |= 1u << LNG_HK_OPEN_LAUNCHER;
+    if (m->has_screenshot_hotkey) mask |= 1u << LNG_HK_SCREENSHOT;
     // Same responsive grid treatment as the bindings list.
     const float cell_w = px(280.0f);
     int cols = (int)(ImGui::GetContentRegionAvail().x / cell_w);
@@ -6619,21 +6627,24 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     if (m->assist_binding_count <= 0 || !m->assist_binding_labels)
         return;
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
-    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST CONTROLS" : "HOST SHORTCUTS");
+    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST CONTROLS" :
+        m->assist_pad_only ? "CONTROLLER SHORTCUTS" : "HOST SHORTCUTS");
     ImGui::PopStyleColor();
     ImGui::TextColored(
         col(th.text_muted),
         m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
-            : "Press a controller button or chord.");
+            : m->assist_pad_only && m->assist_tools_note
+                ? m->assist_tools_note : "Press a controller button or chord.");
     const bool pad_col = assist_pad_column_available(m);
-    if (ImGui::BeginTable(table_id, pad_col ? 3 : 2,
+    if (ImGui::BeginTable(table_id, (m->assist_pad_only ? 1 : 2) + (pad_col ? 1 : 0),
                           ImGuiTableFlags_SizingFixedFit |
                               ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed,
                                 px(150));
-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed,
-                                px(180));
+        if (!m->assist_pad_only)
+            ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed,
+                                    px(180));
         if (pad_col)
             ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed,
                                     px(180));
@@ -6646,22 +6657,24 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(m->assist_binding_labels[action]);
-            ImGui::TableSetColumnIndex(1);
-            bool capture_key = m->capturing && m->capture_assist &&
-                               !m->capture_pad && m->capture_btn == action;
-            /* The two cells of a row are both Buttons whose ID is their
-             * label, and a row with nothing bound in either column showed
-             * "(unbound)" twice -- the same ID, and Dear ImGui's conflict
-             * warning over the Fast-forward toggle row. Scope each column. */
-            ImGui::PushID("key");
-            if (ImGui::Button(
-                    capture_key ? "[ press a key... ]" :
-                        settings_key_label(m->s.assist_key_bind[action]),
-                    ImVec2(px(170), 0)))
-                launcher_model_begin_assist_capture(m, action, false);
-            ImGui::PopID();
+            if (!m->assist_pad_only) {
+                ImGui::TableSetColumnIndex(1);
+                bool capture_key = m->capturing && m->capture_assist &&
+                                   !m->capture_pad && m->capture_btn == action;
+                /* The two cells of a row are both Buttons whose ID is their
+                 * label, and a row with nothing bound in either column showed
+                 * "(unbound)" twice -- the same ID, and Dear ImGui's conflict
+                 * warning over the Fast-forward toggle row. Scope each column. */
+                ImGui::PushID("key");
+                if (ImGui::Button(
+                        capture_key ? "[ press a key... ]" :
+                            settings_key_label(m->s.assist_key_bind[action]),
+                        ImVec2(px(170), 0)))
+                    launcher_model_begin_assist_capture(m, action, false);
+                ImGui::PopID();
+            }
             if (pad_col) {
-                ImGui::TableSetColumnIndex(2);
+                ImGui::TableSetColumnIndex(m->assist_pad_only ? 1 : 2);
                 bool capture_pad = m->capturing && m->capture_assist &&
                                    m->capture_pad && m->capture_btn == action;
                 char pad[112];
@@ -6683,8 +6696,9 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
                                         ? "Reset Assist Controls"
                                         : "Reset Host Shortcuts")) {
         launcher_model_reset_assist_bindings(m);
-        for (int i = 0; i < m->assist_binding_count; ++i)
-            launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
+        if (!m->assist_pad_only)
+            for (int i = 0; i < m->assist_binding_count; ++i)
+                launcher_binds_set_assist_key(m, i, m->s.assist_key_bind[i]);
     }
     if (m->capturing && m->capture_assist)
         ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
@@ -6724,6 +6738,10 @@ static void draw_fractional_fast_forward(LauncherModel* m) {
 
 void draw_controller_assist_shortcuts(LauncherModel* m,
                                       const LauncherTheme& th) {
+    if (m->assist_pad_only) {
+        draw_assist_binding_editor(m, th, "controller_shortcuts", 0, true);
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
     ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST SHORTCUTS" : "HOST SHORTCUTS");
     ImGui::PopStyleColor();
@@ -7882,7 +7900,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                                 launcher_model_begin_pad_capture(m, b);
                                 // If they start a bind while still holding the
                                 // prior input, wait for a full release first.
-                                if (m->capturing && m->player_pad_id[p] &&
+                                if (m->capturing && (m->player_pad_id[p] || m->s.player_gamepad_instance[p]) &&
                                     !launcher_input_gamepad_at_rest(
                                         m->player_pad_id[p]))
                                     m->map_all_wait_release = true;
@@ -7896,7 +7914,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                 ImGui::Spacing();
                 if (ImGui::Button("Map All Bindings")) {
                     launcher_model_begin_map_all(m);
-                    if (m->capturing && m->player_pad_id[p] &&
+                    if (m->capturing && (m->player_pad_id[p] || m->s.player_gamepad_instance[p]) &&
                         !launcher_input_gamepad_at_rest(m->player_pad_id[p]))
                         m->map_all_wait_release = true;
                 }
@@ -14234,6 +14252,15 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                             pick_mod_feature_resource(m, feature.package_id,
                                                       feature.id, resource);
                         }
+                        if (std::strcmp(resource.format, "file-or-directory") == 0) {
+                            ImGui::SameLine();
+                            if (ImGui::Button(ui_text("Select folder"))) {
+                                RecompLauncherCModResource folder = resource;
+                                std::snprintf(folder.format, sizeof(folder.format), "directory");
+                                pick_mod_feature_resource(m, feature.package_id,
+                                                          feature.id, folder);
+                            }
+                        }
                         if (!resource.required && resource.path[0]) {
                             ImGui::SameLine();
                             if (ImGui::Button(ui_text("Clear selection"))) {
@@ -16407,6 +16434,27 @@ bool is_modifier_scancode(SDL_Scancode sc) {
  * note rather than dead code, because "why can I not bind this pad's C-buttons
  * any more" deserves an answer at the place the answer used to live. */
 
+// Use the settings model's instance ID + 1 convention so SDL2 instance 0
+// remains distinguishable from an unresolved selection during capture.
+uint32_t selected_capture_pad_instance(const LauncherModel* m) {
+    const int player = m->cfg_player;
+    if (const uint32_t id = m->player_pad_id[player]) return id + 1;
+    if (m->s.player_src[player] != 2) return 0;
+
+    if (const uint32_t instance = m->s.player_gamepad_instance[player]) {
+        for (int i = 0; i < g_pad_count; ++i) {
+            if (g_pads[i].id + 1 == instance) return instance;
+        }
+    }
+
+    const char* guid = m->s.player_gamepad_guid[player];
+    if (!guid[0]) return 0;
+    for (int i = 0; i < g_pad_count; ++i) {
+        if (std::strcmp(g_pads[i].guid, guid) == 0) return g_pads[i].id + 1;
+    }
+    return 0;
+}
+
 bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     if (!m->capturing && !m->hk_capturing &&
         !m->camera_capturing)
@@ -16523,28 +16571,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
          * mapping lands in some other controller's profile. */
         const bool guid_store = psx_cap ||
             (cap_prof && cap_prof->id && (!strcmp(cap_prof->id, "n64") || !strcmp(cap_prof->id,"gba")));
-        /* Which SDL device may bind.
-         *
-         * player_pad_id is set when the player picks a pad from the Input
-         * source list, but a selection RESTORED from settings only carries the
-         * GUID -- the id is re-resolved by a sync that runs for PSX alone. On
-         * every other console the id was therefore 0 after a restart, and a
-         * filter keyed on it would have let any pad bind. Resolve the GUID
-         * against the live device list here so the rule holds from a restored
-         * selection too. */
-        uint32_t want_id = m->player_pad_id[m->cfg_player];
-        if (!want_id && m->s.player_src[m->cfg_player] == 2) {
-            const char* want_guid = m->s.player_gamepad_guid[m->cfg_player];
-            if (want_guid[0]) {
-                for (int i = 0; i < g_pad_count; ++i) {
-                    if (g_pads[i].guid[0] &&
-                        std::strcmp(g_pads[i].guid, want_guid) == 0) {
-                        want_id = g_pads[i].id;
-                        break;
-                    }
-                }
-            }
-        }
+        const uint32_t selected_instance = selected_capture_pad_instance(m);
         auto from_selected = [&](uint32_t which) -> bool {
             /* A binding belongs to the device the player SELECTED.
              *
@@ -16554,14 +16581,14 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
              * no way to tell which had won. If a device is selected, only that
              * device may bind.
              *
-             * want_id == 0 means no specific device is chosen (the console
+             * An unresolved selection means no specific device is chosen (the console
              * offers a generic "Gamepad" source), and any pad is accepted --
              * which is the behaviour Genesis had and keeps. A per-GUID store
              * additionally refuses when its selection has not resolved to a
              * live device, because the binding would otherwise be written
              * against the wrong profile. */
-            if (!want_id) return !guid_store;
-            return which == want_id;
+            if (!selected_instance) return !guid_store;
+            return which + 1 == selected_instance;
         };
         auto try_clear_release_wait = [&](uint32_t which) {
             if (!m->map_all_wait_release) return;
@@ -17073,8 +17100,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             // Pad capture release-gate: clear once the selected pad is fully at
             // rest (covers the case where SDL stops sending AXIS_MOTION at rest).
             if (m->capturing && m->capture_pad && m->map_all_wait_release) {
-                const uint32_t id = m->player_pad_id[m->cfg_player];
-                if (id && launcher_input_gamepad_at_rest(id))
+                const uint32_t instance = selected_capture_pad_instance(m);
+                if (instance && launcher_input_gamepad_at_rest(instance - 1))
                     m->map_all_wait_release = false;
             }
 
