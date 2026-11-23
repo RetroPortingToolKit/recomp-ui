@@ -181,6 +181,16 @@ int main(int argc, char** argv) {
     start("snes", NULL, 0);
     expect(launcher_binds_kb_profile_list(&m, names, 8) == 1,
            "a console lists none of another console's profiles");
+    launcher_binds_set_button(&m, 1, B_UP, 517);
+    expect(!strcmp(m.binds[0][B_UP], "Mouse5") &&
+           launcher_binds_kb_profile_save_as(&m, 1, "Side Button", 1) == RUI_KBP_OK,
+           "SNES mouse bindings have a label and save in a named profile");
+    launcher_binds_reset_player(&m, 1);
+    expect(launcher_binds_kb_profile_load(&m, 1, "Side Button") == RUI_KBP_OK &&
+           !strcmp(m.binds[0][B_UP], "Mouse5"), "reload restores the mouse binding");
+    expect(launcher_binds_kb_profile_delete(&m, "Side Button") == RUI_KBP_OK,
+           "remove the mouse-profile fixture");
+    launcher_binds_reset_player(&m, 1);
 
     /* PlayStation: Player 2 is a seat of its own, and the first release's
      * variable still names the folder. */

@@ -2574,7 +2574,11 @@ typedef struct RecompLauncherCGameInfo {
     int has_screenshot_hotkey;
     /* Optional notification after cartridge validation. NULL clears it. */
     int (*verified_rom_changed_cb)(const char* path);
+    /* The host reads Mouse1 through Mouse5 in its single-slot input map.
+     * Zero leaves existing keyboard-only hosts unchanged. */
+    int has_mouse_button_binds;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_MOUSE_BUTTON_BINDS 1
 #define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1

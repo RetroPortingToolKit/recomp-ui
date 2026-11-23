@@ -81,7 +81,7 @@ bool launcher_capture_png(const char* path, int w, int h) {
 // Synthesize a click at logical window coords: warp the cursor (so backends
 // that sample SDL_GetMouseState see it) and push button events (so backends
 // that consume the event queue see it). Covers both ImGui and Clay.
-static void synth_click(LauncherPlatform* p, float x, float y) {
+static void synth_click(LauncherPlatform* p, float x, float y, int button) {
 #if defined(LNG_SDL3)
     SDL_WarpMouseInWindow(p->window, x, y);
 #else
@@ -106,7 +106,7 @@ static void synth_click(LauncherPlatform* p, float x, float y) {
     SDL_zero(e);
     e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     e.button.windowID = SDL_GetWindowID(p->window);
-    e.button.button = SDL_BUTTON_LEFT;
+    e.button.button = (Uint8)button;
     e.button.clicks = 1;
 #if defined(LNG_SDL3)
     e.button.x = x; e.button.y = y;
@@ -291,7 +291,10 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         }
     } else if (strncmp(c, "click:", 6) == 0) {
         float x = 0, y = 0;
-        if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);
+        int button = SDL_BUTTON_LEFT;
+        if (sscanf(c + 6, "%f,%f,%d", &x, &y, &button) >= 2 &&
+            button >= SDL_BUTTON_LEFT && button <= SDL_BUTTON_X2)
+            synth_click(p, x, y, button);
     } else if (strncmp(c, "key:", 4) == 0) {
         if (strcmp(c + 4, "escape") == 0) synth_key(p, SDLK_ESCAPE);
         else {

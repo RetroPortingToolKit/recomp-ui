@@ -5,6 +5,7 @@
 // reached through the same code page as the variable that named it.
 
 #include "kb_profiles.h"
+#include "mouse_bindings.h"
 #include "launcher_sdlcompat.h"   // SDL scancode names (SDL 2 or 3)
 
 #include <ctype.h>
@@ -264,7 +265,7 @@ static uint32_t kbp_fingerprint(const RuiKbAdapter* a, const char* path, int pla
 
 /* ---- the generic file format --------------------------------------------- */
 
-static int kbp_scancode_of(const char* name) {
+static int kbp_scancode_of(const RuiKbAdapter* a, const char* name) {
     char buf[40];
     size_t i = 0;
     if (!name || !*name) return 0;
@@ -272,6 +273,10 @@ static int kbp_scancode_of(const char* name) {
     if (sc != SDL_SCANCODE_UNKNOWN) return (int)sc;
     for (; name[i] && i < sizeof(buf) - 1; ++i) buf[i] = kbp_fold(name[i]);
     buf[i] = '\0';
+    if (!strcmp(a->id, "snes")) {
+        const int mouse = rui_mouse_bind_parse(buf);
+        if (mouse) return mouse;
+    }
     if (!strcmp(buf, "enter") || !strcmp(buf, "return")) return SDL_SCANCODE_RETURN;
     if (!strcmp(buf, "tab")) return SDL_SCANCODE_TAB;
     if (!strcmp(buf, "space")) return SDL_SCANCODE_SPACE;
@@ -287,7 +292,11 @@ static int kbp_scancode_of(const char* name) {
     return 0;   /* "none" and anything unknown: unbound */
 }
 
-static const char* kbp_name_of(int sc) {
+static const char* kbp_name_of(const RuiKbAdapter* a, int sc) {
+    if (!strcmp(a->id, "snes")) {
+        const char* mouse = rui_mouse_bind_name(sc);
+        if (mouse) return mouse;
+    }
     if (sc <= 0 || sc >= 512) return "None";
     const char* n = SDL_GetScancodeName((SDL_Scancode)sc);
     return (n && n[0]) ? n : "None";
@@ -314,10 +323,10 @@ static int kbp_generic_save(const RuiKbAdapter* a, const char* path, int player,
         a->slots > 1 ? "; a second name after a comma is the alternate key" : "");
     for (int b = 0; b < a->buttons; ++b) {
         if (a->slots > 1 && keys[b * a->slots + 1] > 0)
-            fprintf(f, "%-9s = %s, %s\n", a->button_ids[b], kbp_name_of(keys[b * a->slots]),
-                    kbp_name_of(keys[b * a->slots + 1]));
+            fprintf(f, "%-9s = %s, %s\n", a->button_ids[b],
+                    kbp_name_of(a, keys[b * a->slots]), kbp_name_of(a, keys[b * a->slots + 1]));
         else
-            fprintf(f, "%-9s = %s\n", a->button_ids[b], kbp_name_of(keys[b * a->slots]));
+            fprintf(f, "%-9s = %s\n", a->button_ids[b], kbp_name_of(a, keys[b * a->slots]));
     }
     const int failed = ferror(f);
     return fclose(f) == 0 && !failed;
@@ -361,8 +370,8 @@ static int kbp_generic_read(const RuiKbAdapter* a, int player, const char* src, 
         if (comma) { *comma = '\0'; alt = kbp_trim(comma + 1); val = kbp_trim(val); }
         for (int b = 0; b < a->buttons; ++b) {
             if (kbp_compare(key, a->button_ids[b]) != 0) continue;
-            got[cur][b * a->slots] = kbp_scancode_of(val);
-            if (a->slots > 1) got[cur][b * a->slots + 1] = alt ? kbp_scancode_of(alt) : 0;
+            got[cur][b * a->slots] = kbp_scancode_of(a, val);
+            if (a->slots > 1) got[cur][b * a->slots + 1] = alt ? kbp_scancode_of(a, alt) : 0;
             ++hits[cur];
             break;
         }
