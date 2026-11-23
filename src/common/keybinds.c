@@ -5,6 +5,7 @@
  * defaults when missing. Edit and restart to apply.
  */
 #include "keybinds.h"
+#include "mouse_bindings.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -121,6 +122,8 @@ static SDL_Scancode name_to_scancode(const char *name) {
     size_t i = 0;
     for (; name[i] && i < sizeof(buf) - 1; i++) buf[i] = (char)tolower((unsigned char)name[i]);
     buf[i] = '\0';
+    const int mouse = rui_mouse_bind_parse(buf);
+    if (mouse) return (SDL_Scancode)mouse;
     if (!strcmp(buf, "enter") || !strcmp(buf, "return")) return SDL_SCANCODE_RETURN;
     if (!strcmp(buf, "tab"))                              return SDL_SCANCODE_TAB;
     if (!strcmp(buf, "space"))                            return SDL_SCANCODE_SPACE;
@@ -137,6 +140,8 @@ static SDL_Scancode name_to_scancode(const char *name) {
 
 static const char *scancode_to_name(SDL_Scancode sc) {
     if (sc == SDL_SCANCODE_UNKNOWN) return "None";
+    const char *mouse = rui_mouse_bind_name((int)sc);
+    if (mouse) return mouse;
     const char *name = SDL_GetScancodeName(sc);
     return (name && name[0]) ? name : "None";
 }

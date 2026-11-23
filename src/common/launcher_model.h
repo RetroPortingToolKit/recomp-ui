@@ -244,6 +244,7 @@ typedef struct {
     // ---- NES-style capabilities (borrowed from RecompLauncherCGameInfo) ----
     bool        has_solar_sensor;    // Solar sensor panel in Settings
     bool        in_session;          // opened from a running game (RESUME, not PLAY)
+    bool        has_mouse_button_binds;
     bool        has_open_launcher_hotkey; // [KeyMap] OpenLauncher row in Hotkeys
     bool        has_screenshot_hotkey; // host implements [KeyMap] Screenshot
     bool        has_integer_scale;   // Integer-scale checkbox in Display settings

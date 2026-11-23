@@ -15,7 +15,7 @@
 //   start:N                              choose entry N of "Start from" (0-based; -1 = Power on)
 //   disc:N                               choose the disc to boot of a multi-disc title (0-based)
 //   size:WxH                             resize the window (tests live reflow)
-//   click:X,Y                            synthetic click at logical coords
+//   click:X,Y[,BUTTON]                   synthetic SDL click (default left)
 //   key:escape                           synthetic key press
 //   capassist:ACTION,PAD                 capture named host shortcut (PAD=0/1)
 //   padbutton:BUTTON                     synthetic gamepad button press
