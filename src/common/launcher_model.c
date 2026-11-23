@@ -1212,10 +1212,11 @@ void launcher_model_init(LauncherModel* m,
             }
         }
         if (m->setup_wizard_open) {
-            const int need_tc_page =
-                !m->setup_tc_ready ||
-                (m->setup_tc_update_available && !m->setup_tc_update_skipped);
-            m->setup_page = need_tc_page ? 0 : 1;
+            const bool needs_tools =
+                m->prepare_required_before_continue &&
+                (!m->setup_tc_ready ||
+                 (m->setup_tc_update_available && !m->setup_tc_update_skipped));
+            m->setup_page = needs_tools ? 0 : 1;
         } else {
             m->setup_page = 1;
         }

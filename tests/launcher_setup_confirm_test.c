@@ -71,6 +71,55 @@ static LauncherModel* make_model(void) {
     return m;
 }
 
+static int toolchain_ready;
+
+static int fake_toolchain_ready(void) {
+    return toolchain_ready;
+}
+
+static int fake_toolchain_outdated(char* local, size_t local_cap,
+                                  char* remote, size_t remote_cap) {
+    snprintf(local, local_cap, "1");
+    snprintf(remote, remote_cap, "2");
+    return 1;
+}
+
+static void test_built_launcher_skips_toolchain_page(void) {
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(LauncherModel));
+    if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return; }
+
+    RecompLauncherCSettings settings = {0};
+    RecompLauncherCGameInfo game = {0};
+    game.name = "Media confirmation fixture";
+    game.setup_wizard_supported = 1;
+    game.setup_needs_toolchain = 1;
+    game.toolchain_is_ready = fake_toolchain_ready;
+    game.toolchain_update_available = fake_toolchain_outdated;
+    remove("rom.cfg");
+
+    toolchain_ready = 1;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1 && m->setup_tc_update_available,
+           "a completed build does not prompt for a toolchain update");
+
+    toolchain_ready = 0;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1 && !m->setup_tc_ready,
+           "a completed build can confirm media without build tools installed");
+
+    game.prepare_required_before_continue = 1;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 0,
+           "a setup host still prompts when generation needs build tools");
+
+    toolchain_ready = 1;
+    game.toolchain_update_available = NULL;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1,
+           "a setup host with working build tools goes directly to media");
+    free(m);
+}
+
 static void test_nothing_to_confirm_persists_nothing(void) {
     LauncherModel* m = make_model();
     if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return; }
@@ -171,6 +220,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "FAIL: cannot chdir to %s\n", dir);
         return 1;
     }
+    test_built_launcher_skips_toolchain_page();
     test_nothing_to_confirm_persists_nothing();
     test_confirm_records_the_pick(dir);
     test_confirm_flushes_a_roster_through_discs_cb(dir);
