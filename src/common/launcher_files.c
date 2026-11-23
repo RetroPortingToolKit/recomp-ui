@@ -670,11 +670,17 @@ static int linux_pick_folder(const char* title, const char* start_dir,
 }
 #endif /* __linux__ */
 
+#if defined(__ANDROID__)
+static LauncherAndroidOpenFile android_open_file;
+
+void launcher_set_android_open_file_picker(LauncherAndroidOpenFile open_file) {
+    android_open_file = open_file;
+}
+#endif
+
 bool launcher_native_file_picker_available(void) {
 #if defined(__ANDROID__)
-    /* Android hosts import external files through SAF. The shared launcher
-     * browses the imported files in-app; desktop helpers are unavailable. */
-    return false;
+    return android_open_file != NULL;
 #elif defined(__linux__)
     return linux_have_cmd("zenity") || linux_have_cmd("kdialog");
 #else
@@ -687,7 +693,7 @@ bool launcher_pick_rom(char* out_path, size_t out_cap) {
     out_path[0] = '\0';
 
 #if defined(__ANDROID__)
-    return false;
+    return launcher_try_pick_file("Select game file", NULL, 0, NULL, out_path, out_cap) == 1;
 #elif defined(__linux__)
     {
         const int r = linux_pick_open("Select game file", NULL, 0, NULL,
@@ -750,8 +756,12 @@ int launcher_try_pick_file(const char* title, const char* const* patterns,
     out_path[0] = '\0';
 
 #if defined(__ANDROID__)
-    (void)title; (void)patterns; (void)num_patterns; (void)desc;
-    return -1;
+    (void)desc;
+    if (!android_open_file) return -1;
+    const int result = android_open_file(title, patterns, num_patterns, out_path, out_cap);
+    if (result == 1 && launcher_path_matches_patterns(out_path, patterns, num_patterns)) return 1;
+    out_path[0] = '\0';
+    return result == 1 ? 0 : result;
 #elif defined(__linux__)
     {
         const int r = linux_pick_open(title, patterns, num_patterns, desc,
