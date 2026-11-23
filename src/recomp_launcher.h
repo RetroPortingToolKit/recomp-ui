@@ -2361,7 +2361,11 @@ typedef struct RecompLauncherCGameInfo {
      * persistence still use assist_pad_bind; zero preserves existing hosts.
      * Appended for source/ABI stability. */
     int assist_pad_only;
+    /* The host reads Mouse1 through Mouse5 in its single-slot input map.
+     * Zero leaves existing keyboard-only hosts unchanged. */
+    int has_mouse_button_binds;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_MOUSE_BUTTON_BINDS 1
 
 /* RecompLauncherCGameInfo carries texture_filter_labels / _values. */
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1

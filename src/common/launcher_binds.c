@@ -3,6 +3,7 @@
 #include "launcher_binds.h"
 #include "launcher_sdlcompat.h"   // SDL header (2 or 3)
 #include "keybinds.h"             // engine keyboard-binding store
+#include "mouse_bindings.h"
 #include "launcher_system.h"      // SystemProfile / ControllerSpec.button_count
 #include "pad_binds.h"            // shared per-GUID input.ini store (path rule)
 #include "consoles/psx/psx_binds.h"   // PSX-native keybind bridge (psx_keybinds.c format)
@@ -239,15 +240,8 @@ static void copy_str(char* d, size_t cap, const char* s) {
 
 static const char* scancode_label(SDL_Scancode sc) {
     if (sc == SDL_SCANCODE_UNKNOWN) return "(unbound)";
-    /* Mouse buttons are bound as pseudo-scancodes ABOVE SDL keyboard space
-     * (512 + SDL button), so SDL_GetScancodeName knows nothing about them
-     * and every mouse bind rendered as "(unbound)" - the bind had actually
-     * been written and persisted, it was purely a display failure. */
-    if ((int)sc > 512 && (int)sc <= 517) {
-        static const char* const kMouseNames[5] =
-            { "Mouse1", "Mouse2", "Mouse3", "Mouse4", "Mouse5" };
-        return kMouseNames[(int)sc - 513];
-    }
+    const char* mouse = rui_mouse_bind_name((int)sc);
+    if (mouse) return mouse;
     const char* n = SDL_GetScancodeName(sc);
     return (n && n[0]) ? n : "(unbound)";
 }

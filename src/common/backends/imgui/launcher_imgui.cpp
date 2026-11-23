@@ -18,6 +18,7 @@
 #include "launcher_directory_url.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
+#include "mouse_bindings.h"
 #include "launcher_udp_port.h"
 #include "launcher_panels.h"
 #include "launcher_system.h"
@@ -6410,7 +6411,9 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
                     const char* key_text = settings_player_binds
                         ? settings_key_label(m->s.player_key_bind[p][b])
                         : m->binds[p][b];
-                    if (ImGui::Button(cap_key ? "[ press a key... ]" : key_text, ImVec2(chip_w, 0)))
+                    const char* key_prompt = m->has_mouse_button_binds
+                        ? "Press key or click" : "[ press a key... ]";
+                    if (ImGui::Button(cap_key ? key_prompt : key_text, ImVec2(chip_w, 0)))
                         launcher_model_begin_capture(m, b);
                     if (cap_key) ImGui::PopStyleColor();
                 }
@@ -14398,19 +14401,26 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
         return true;   // swallow all other input while capturing a pad bind
     }
 
-    /* Mouse buttons are bindable inputs on stores that keep alternates
-     * (PSX): bind-a-mouse-button is the whole point of the alt slot. ImGui
-     * opens capture on release, so the next down event is deliberate. */
+    /* Alternates already accept mouse buttons. Single-slot hosts opt in
+     * through the launcher bridge. Capture opens on release, so the next
+     * down event is deliberate. */
     if (m->capturing && !m->capture_pad) {
         const SystemProfile* mprof = (const SystemProfile*)m->profile;
         const bool alt_store = mprof && mprof->controller.binds_per_input >= 2;
+        const bool mouse_store = m->has_mouse_button_binds && !m->capture_assist;
         if (ev.type == SDL_EVENT_MOUSE_BUTTON_UP) return true;   /* swallow */
         if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-            if (!alt_store || !m->capture_mouse_armed) return true;
+            if ((!alt_store && !mouse_store) || !m->capture_mouse_armed ||
+                (mouse_store && ev.button.which == SDL_TOUCH_MOUSEID))
+                return true;
             int btn = (int)ev.button.button;      /* SDL: 1 L, 2 M, 3 R, 4/5 side */
-            if (btn >= 1 && btn <= 5) {
-                launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
-                                               m->capture_slot, 512 + btn);
+            if (btn >= 1 && btn <= RUI_MOUSE_BIND_COUNT) {
+                const int code = RUI_MOUSE_BIND_BASE + btn;
+                if (alt_store)
+                    launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
+                                                   m->capture_slot, code);
+                else
+                    launcher_binds_set_button(m, m->cfg_player + 1, m->capture_btn, code);
                 if (m->map_all_active) launcher_model_map_all_advance(m);
                 else                   launcher_model_cancel_capture(m);
             }

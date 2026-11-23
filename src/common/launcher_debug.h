@@ -11,7 +11,7 @@
 //                                          switch view (no clicking required)
 //   player:0|1                           which player the controller view edits
 //   size:WxH                             resize the window (tests live reflow)
-//   click:X,Y                            synthetic click at logical coords
+//   click:X,Y[,BUTTON]                   synthetic SDL click (default left)
 //   key:escape                           synthetic key press
 //   wait:N                               idle N frames (let layout settle)
 //   shot:PATH                            write a PNG of the current frame
