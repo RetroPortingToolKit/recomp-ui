@@ -71,25 +71,52 @@ static LauncherModel* make_model(void) {
     return m;
 }
 
+static int toolchain_ready;
+
+static int fake_toolchain_ready(void) {
+    return toolchain_ready;
+}
+
+static int fake_toolchain_outdated(char* local, size_t local_cap,
+                                  char* remote, size_t remote_cap) {
+    snprintf(local, local_cap, "1");
+    snprintf(remote, remote_cap, "2");
+    return 1;
+}
+
 static void test_built_launcher_skips_toolchain_page(void) {
-    LauncherModel* m = make_model();
+    LauncherModel* m = (LauncherModel*)calloc(1, sizeof(LauncherModel));
     if (!m) { fprintf(stderr, "FAIL: out of memory\n"); ++fails; return; }
 
-    m->setup_needs_toolchain = true;
-    m->setup_tc_ready = true;
-    m->setup_tc_update_available = true;
-    m->prepare_required_before_continue = false;
+    RecompLauncherCSettings settings = {0};
+    RecompLauncherCGameInfo game = {0};
+    game.name = "Media confirmation fixture";
+    game.setup_wizard_supported = 1;
+    game.setup_needs_toolchain = 1;
+    game.toolchain_is_ready = fake_toolchain_ready;
+    game.toolchain_update_available = fake_toolchain_outdated;
+    remove("rom.cfg");
 
-    expect(!lm_setup_needs_toolchain_page(m),
+    toolchain_ready = 1;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1 && m->setup_tc_update_available,
            "a completed build does not prompt for a toolchain update");
 
-    m->setup_tc_ready = false;
-    expect(!lm_setup_needs_toolchain_page(m),
+    toolchain_ready = 0;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1 && !m->setup_tc_ready,
            "a completed build can confirm media without build tools installed");
 
-    m->prepare_required_before_continue = true;
-    expect(lm_setup_needs_toolchain_page(m),
+    game.prepare_required_before_continue = 1;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 0,
            "a setup host still prompts when generation needs build tools");
+
+    toolchain_ready = 1;
+    game.toolchain_update_available = NULL;
+    launcher_model_init(m, &settings, &game, NULL);
+    expect(m->setup_wizard_open && m->setup_page == 1,
+           "a setup host with working build tools goes directly to media");
     free(m);
 }
 
