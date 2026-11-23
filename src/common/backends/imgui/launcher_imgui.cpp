@@ -3993,6 +3993,32 @@ static void draw_aspect_row(LauncherModel* m, const LauncherTheme& th) {
     ImGui::PopID();
 }
 
+#if defined(RECOMP_UI_DISPLAY_WIDESCREEN_PACKAGE)
+static void draw_widescreen_shortcut(LauncherModel* m, const LauncherTheme& th) {
+    const auto* mods = m->mods;
+    if (!mods || !mods->feature_count || !mods->feature_get) return;
+    const int count = mods->feature_count(mods->ctx);
+    for (int index = 0; index < count; ++index) {
+        RecompLauncherCModFeature feature{};
+        if (!mods->feature_get(mods->ctx, index, &feature) ||
+            std::strcmp(feature.package_id, RECOMP_UI_DISPLAY_WIDESCREEN_PACKAGE) != 0 ||
+            std::strcmp(feature.id, "widescreen") != 0 ||
+            !launcher_mod_feature_listed(mods, &feature))
+            continue;
+
+        const char* label = ui_text("Open in Mods");
+        const float width = ImGui::CalcTextSize(label).x + 2.0f * ImGui::GetStyle().FramePadding.x;
+        row_label_right("Widescreen", th, width);
+        if (ImGui::Button(label, ImVec2(width, px(30)))) {
+            launcher_model_set_view(m, LNG_VIEW_MODS);
+            m->mod_selected = index;
+            m->mod_search[0] = '\0';
+        }
+        break;
+    }
+}
+#endif
+
 // True when this game exposes ANY of the deeper PSX-style DISPLAY controls.
 // SNES (and any console leaving every has_* flag 0) takes the legacy-only
 // branch below and gets the fixed-band DISPLAY card. Fullscreen is NOT part
@@ -4174,6 +4200,9 @@ void draw_render_pipeline_controls(LauncherModel* m, const LauncherTheme& th) {
 
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
+#if defined(RECOMP_UI_DISPLAY_WIDESCREEN_PACKAGE)
+    draw_widescreen_shortcut(m, th);
+#endif
 
     if (!any_deep_display(m)) {
         // ---- legacy minimal surface (SNES/NES etc.) ---------------------------
