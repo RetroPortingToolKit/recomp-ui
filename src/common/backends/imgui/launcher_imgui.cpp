@@ -4546,7 +4546,6 @@ void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     const float gap = px(th.spacing_md);
     const float availw = ImGui::GetContentRegionAvail().x;
     const bool has_pak_slot = p < launcher_model_pak_ports(m);
-    const bool has_pak = has_pak_slot && pak_kind_def(pak_kind_of(m, p))->body;
     // Side by side while each half can hold a standard card; else the accessory
     // stacks under the controller.
     const float pref = px(300.0f);
@@ -4556,7 +4555,8 @@ void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     begin_container("pc", ImVec2(cardw, 0), ImGuiChildFlags_AutoResizeY);
     draw_player_panel(m, th, p, cardw);
     end_container();
-    if (has_pak) {
+    // The picker in the player panel can change the Pak during this frame.
+    if (has_pak_slot && pak_kind_def(pak_kind_of(m, p))->body) {
         if (side_by_side) ImGui::SameLine(0, gap);
         else ImGui::Dummy(ImVec2(0, gap));
         draw_pak_card(m, th, p, cardw);
