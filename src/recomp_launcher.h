@@ -898,6 +898,8 @@ typedef struct RecompLauncherCNetplayCallbacks {
      * Servers that predate it simply keep the legacy path. */
     int  (*relay_via_ice_get)(void* ctx);
     int  (*relay_via_ice_set)(void* ctx, int on);
+    /* Optional caption for a title's session-variant selector. */
+    const char* (*session_variant_title)(void* ctx);
 } RecompLauncherCNetplayCallbacks;
 
 /* recomp_launcher_run_window honours RECOMP_NETPLAY_LAUNCH through

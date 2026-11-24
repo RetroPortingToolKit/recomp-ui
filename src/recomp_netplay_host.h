@@ -203,7 +203,10 @@ typedef struct RecompNetplayHostHooks {
      * Requires recomp-net/lan_room.h. No galleries or occupied-seat trades
      * are offered by this initial protocol. Online server rooms are unchanged. */
     int lan_max_players;
+    const char *session_variant_title; /* Optional title-owned selector caption. */
 } RecompNetplayHostHooks;
+
+#define RECOMP_NETPLAY_HOST_HAS_SESSION_VARIANT_TITLE 1
 
 /* Present since RecompNetplayHostHooks.netplay_max_players was appended. */
 #define RECOMP_NETPLAY_HOST_HAS_NETPLAY_MAX_PLAYERS 1

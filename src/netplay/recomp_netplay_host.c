@@ -3775,6 +3775,12 @@ static int cb_mod_xfer_progress(void *ctx)
 }
 
 #ifdef RNET_HAS_SESSION_VARIANT
+static const char *cb_session_variant_title(void *ctx)
+{
+  (void)ctx;
+  return g_h.session_variant_title;
+}
+
 static int cb_session_variant_count(void *ctx)
 {
   (void)ctx;
@@ -3859,6 +3865,7 @@ static RecompLauncherCNetplayCallbacks g_callbacks = {
      * past this point would silently shift if a field were ever inserted. */
     .rollback_get = cb_rollback_get,
 #ifdef RNET_HAS_SESSION_VARIANT
+    .session_variant_title = cb_session_variant_title,
     .session_variant_count = cb_session_variant_count,
     .session_variant_label = cb_session_variant_label,
     .session_variant_get = cb_session_variant_get,
