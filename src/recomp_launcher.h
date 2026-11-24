@@ -1347,12 +1347,8 @@ struct RecompLauncherCSettings {
     // tpak_enabled: 0 = unset (host predates the field / fresh config) -> the
     // model defaults a slot WITH a rom to enabled; use -1 for explicit off.
     //
-    // This field is ALSO what the launcher's per-port pak-kind dropdown reads
-    // and writes (launcher_imgui.cpp, draw_pak_card): enabled == Transfer Pak
-    // in the port, disabled == empty port. There is deliberately no separate
-    // kind field, because two fields for one fact can disagree. Adding a
-    // second pak kind (Controller Pak) is what forces a real pak_kind[] array
-    // here — see the note above draw_pak_card before adding one.
+    // This is also the legacy Transfer Pak / None setting for hosts that
+    // do not pass explicit per-port choices to the accessory picker.
     char tpak_rom_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     char tpak_save_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     int  tpak_enabled[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -2578,6 +2574,17 @@ typedef struct RecompLauncherCGameInfo {
      * Zero leaves existing keyboard-only hosts unchanged. */
     int has_mouse_button_binds;
 } RecompLauncherCGameInfo;
+
+enum {
+    RECOMP_LAUNCHER_PAK_TRANSFER = 1,
+    RECOMP_LAUNCHER_PAK_RUMBLE = 2,
+};
+
+// Supply the supported accessory flags and per-port choices for the next
+// launcher window. The four choices use 0 for None and otherwise a Pak flag.
+// Keep the array valid until the window returns. Pass NULL to restore the
+// legacy Transfer Pak picker.
+void recomp_launcher_set_n64_pak_options(unsigned options, int* choices);
 #define RECOMP_LAUNCHER_HAS_MOUSE_BUTTON_BINDS 1
 #define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1

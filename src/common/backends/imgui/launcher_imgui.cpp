@@ -3578,28 +3578,8 @@ static const char* rui_basename(const char* path) {
 }
 
 // ---- pak kind -------------------------------------------------------------
-// The dropdown has deliberately NO backing field of its own. Settings already
-// carries tpak_enabled[] as a tri-state (0 = unset, 1 = on, -1 = off) meaning
-// "this port has a Transfer Pak in it"; a second flag would be free to
-// disagree with it, and then neither would be the answer. So the kind IS that
-// field, read through the model's resolver:
-//
-//   PAK_TRANSFER  <=>  launcher_model_tpak_enabled(m, port)
-//   PAK_NONE      <=>  !launcher_model_tpak_enabled(m, port)
-//
-// Picking a kind writes through launcher_model_toggle_tpak, which stores an
-// explicit 1 or -1 and never 0 — so a settings file written by an older build
-// keeps its original meaning on load (0 = unset = "on iff a cart is inserted",
-// launcher_model_tpak_enabled), and the first pick in this panel is what turns
-// that inherited default into a stated one.
-//
-// WHOEVER ADDS THE THIRD KIND (Controller Pak / Rumble Pak) READ THIS: a
-// tri-state boolean cannot express three kinds. That change needs a real
-// pak_kind[] array in the C ABI (recomp_launcher.h), with tpak_enabled[] kept
-// as the compatibility INPUT for a config that predates it — pak_kind unset +
-// tpak_enabled resolving true means Transfer Pak. Only pak_kind_of() and
-// pak_set_kind() below read or write the storage, so that is a two-function
-// change; do not try to pack a third kind into tpak_enabled.
+// Hosts can pass explicit per-port choices for the accessories they support.
+// The legacy Transfer Pak flag retains its original meaning for other hosts.
 enum PakKind { PAK_NONE = 0, PAK_TRANSFER = 1 };
 
 static void pak_body_transfer(LauncherModel* m, const LauncherTheme& th, int port);
@@ -3624,6 +3604,7 @@ struct PakKindDef {
 static const PakKindDef kPakKinds[] = {
     { PAK_NONE,     "None",         nullptr },
     { PAK_TRANSFER, "Transfer Pak", pak_body_transfer },
+    { RECOMP_LAUNCHER_PAK_RUMBLE, "Rumble Pak", nullptr },
 };
 static const int kPakKindCount = (int)(sizeof(kPakKinds) / sizeof(kPakKinds[0]));
 
@@ -3636,15 +3617,7 @@ static const PakKindDef* pak_kind_def(int kind) {
 }
 
 static int pak_kind_of(const LauncherModel* m, int port) {
-    return launcher_model_tpak_enabled(m, port) ? PAK_TRANSFER : PAK_NONE;
-}
-
-// Writes the pick back through the one field. A no-op when the kind already
-// matches, because toggle_tpak is a toggle — calling it on an already-correct
-// state would invert it.
-static void pak_set_kind(LauncherModel* m, int port, int kind) {
-    if (pak_kind_of(m, port) == kind) return;
-    launcher_model_toggle_tpak(m, port);   // stores an explicit 1 / -1
+    return launcher_model_n64_pak_kind(m, port);
 }
 
 // The pak panel composes only while at least one player has picked a kind that
@@ -3671,10 +3644,12 @@ void pak_kind_picker(LauncherModel* m, int port, float w) {
     ImGui::PushID("pak");
     ImGui::SetNextItemWidth(w);
     if (ImGui::BeginCombo("##pakkind", ui_text(pak_kind_def(kind)->label))) {
-        for (int i = 0; i < kPakKindCount; ++i)
-            if (ImGui::Selectable(ui_text(kPakKinds[i].label),
-                                  kind == kPakKinds[i].kind))
-                pak_set_kind(m, port, kPakKinds[i].kind);
+        const unsigned options = launcher_model_n64_pak_options();
+        for (const auto& entry : kPakKinds) {
+            if (entry.kind != PAK_NONE && !(options & entry.kind)) continue;
+            if (ImGui::Selectable(ui_text(entry.label), kind == entry.kind))
+                launcher_model_set_n64_pak_kind(m, port, entry.kind);
+        }
         ImGui::EndCombo();
     }
     ImGui::PopID();
@@ -3780,7 +3755,7 @@ static void pak_body_transfer(LauncherModel* m, const LauncherTheme& th, int por
             // silently fall back to None and this section would vanish under
             // the player's hand. Removing the CARTRIDGE does not remove the
             // PAK, so restate the kind the player picked.
-            pak_set_kind(m, port, PAK_TRANSFER);
+            launcher_model_set_n64_pak_kind(m, port, PAK_TRANSFER);
         }
     }
 

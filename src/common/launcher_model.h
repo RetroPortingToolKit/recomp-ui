@@ -1289,6 +1289,9 @@ void launcher_model_toggle_tpak(LauncherModel* m, int slot);
 // True when the slot is enabled (resolves the tri-state tpak_enabled field:
 // >0 on, <0 off, 0 unset => on iff a cartridge is inserted).
 bool launcher_model_tpak_enabled(const LauncherModel* m, int slot);
+unsigned launcher_model_n64_pak_options(void);
+int launcher_model_n64_pak_kind(const LauncherModel* m, int port);
+void launcher_model_set_n64_pak_kind(LauncherModel* m, int port, int kind);
 
 // ---- audio output device (num_audio_devices only) ----
 // Adopt a device by its host-enumerated display name; NULL/"" => system
