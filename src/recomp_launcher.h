@@ -2573,6 +2573,8 @@ typedef struct RecompLauncherCGameInfo {
     /* The host reads Mouse1 through Mouse5 in its single-slot input map.
      * Zero leaves existing keyboard-only hosts unchanged. */
     int has_mouse_button_binds;
+    /* A selected Transfer Pak requires a readable cartridge and battery save. */
+    int require_tpak_files;
 } RecompLauncherCGameInfo;
 
 enum {
