@@ -1311,7 +1311,7 @@ struct RecompLauncherCSettings {
     int  texture_filter;      // 0 = nearest, 1 = bilinear
     int  screen_kind;         // 0 raw, 1 CRT, 2 composite, 3 trinitron
     int  frame_interp;        // bool
-    int  frame_interp_fps;    // 0=display, else 90/120/144/165/240
+    int  frame_interp_fps;    // 0=display, else a target the host supports
     int  spu_hq;              // bool
     int  auto_skip_fmv;       // bool
     int  turbo_loads;         // bool
@@ -2573,6 +2573,9 @@ typedef struct RecompLauncherCGameInfo {
     /* The host reads Mouse1 through Mouse5 in its single-slot input map.
      * Zero leaves existing keyboard-only hosts unchanged. */
     int has_mouse_button_binds;
+    /* Optional ceiling for the frame interpolation choices. Zero retains the
+     * standard choices through 240 Hz. */
+    int frame_interp_max_fps;
 } RecompLauncherCGameInfo;
 
 enum {

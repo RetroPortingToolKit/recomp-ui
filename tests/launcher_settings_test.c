@@ -19,6 +19,7 @@
 #endif
 
 static int window_available = 1, edit = 0, toggle_tf = 0;
+static int cycle_interpolation = 0;
 static LngAction action = LNG_ACTION_QUIT;
 static RecompLauncherCSettings observed;
 static int opened_width, opened_height, resized_width, resized_height;
@@ -49,6 +50,7 @@ LngAction launcher_backend_run(LauncherPlatform* p, LauncherModel* m,
     }
     observed = m->s;
     if (toggle_tf) launcher_model_toggle_texture_filter(m);
+    if (cycle_interpolation) launcher_model_cycle_interp_fps(m);
     if (edit) {
         launcher_model_set_scale(m, 4); /* windowed-only: set before fullscreen */
         launcher_model_set_fullscreen(m, edit);
@@ -289,6 +291,29 @@ int main(int argc, char** argv) {
         run(&psx, &t);
         require(observed.texture_filter == 1, "a host without a catalog keeps Nearest/Bilinear");
         action = LNG_ACTION_QUIT;
+    }
+    {
+        RecompLauncherCGameInfo interpolation = {0};
+        launcher_profile_apply("n64", &interpolation);
+        interpolation.has_frame_interp = 1;
+        interpolation.config_path = "interpolation-legacy.ini";
+        RecompLauncherCSettings settings = defaults();
+        settings.frame_interp_fps = 240;
+        action = LNG_ACTION_LAUNCH;
+        cycle_interpolation = 1;
+        run(&interpolation, &settings);
+        require(observed.frame_interp_fps == 240 && settings.frame_interp_fps == 0,
+                "legacy hosts still cycle from 240 to display refresh");
+
+        interpolation.frame_interp_max_fps = 360;
+        interpolation.config_path = "interpolation-360.ini";
+        settings.frame_interp_fps = 240;
+        run(&interpolation, &settings);
+        require(settings.frame_interp_fps == 360, "a 360 Hz host offers 360 after 240");
+        cycle_interpolation = 0;
+        run(&interpolation, &settings);
+        require(observed.frame_interp_fps == 360 && settings.frame_interp_fps == 360,
+                "a host-supplied 360 Hz target survives initialization and commit");
     }
     puts("launcher settings persistence: PASS");
     return 0;
