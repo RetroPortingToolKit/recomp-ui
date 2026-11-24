@@ -4617,12 +4617,38 @@ void launcher_model_set_tpak_save(LauncherModel* m, int slot, const char* path) 
     lm_inspect_tpak(m, slot);
 }
 
+static unsigned n64_pak_options = RECOMP_LAUNCHER_PAK_TRANSFER;
+static int* n64_pak_choices;
+
+void recomp_launcher_set_n64_pak_options(unsigned options, int* choices) {
+    n64_pak_options = choices ? options : RECOMP_LAUNCHER_PAK_TRANSFER;
+    n64_pak_choices = choices;
+}
+
+unsigned launcher_model_n64_pak_options(void) {
+    return n64_pak_options;
+}
+
 bool launcher_model_tpak_enabled(const LauncherModel* m, int slot) {
     if (slot < 0 || slot >= launcher_model_pak_ports(m)) return false;
+    if (n64_pak_choices) return n64_pak_choices[slot] == RECOMP_LAUNCHER_PAK_TRANSFER;
     int e = m->s.tpak_enabled[slot];
     if (e > 0) return true;
     if (e < 0) return false;
     return m->s.tpak_rom_path[slot][0] != '\0';   // unset: on iff a cart is inserted
+}
+
+int launcher_model_n64_pak_kind(const LauncherModel* m, int port) {
+    if (port < 0 || port >= launcher_model_pak_ports(m)) return 0;
+    if (n64_pak_choices) return n64_pak_choices[port];
+    return launcher_model_tpak_enabled(m, port) ? RECOMP_LAUNCHER_PAK_TRANSFER : 0;
+}
+
+void launcher_model_set_n64_pak_kind(LauncherModel* m, int port, int kind) {
+    if (port < 0 || port >= launcher_model_pak_ports(m)) return;
+    if (launcher_model_n64_pak_kind(m, port) == kind) return;
+    if (n64_pak_choices) n64_pak_choices[port] = kind;
+    else m->s.tpak_enabled[port] = kind ? 1 : -1;
 }
 
 void launcher_model_toggle_tpak(LauncherModel* m, int slot) {
