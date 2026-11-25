@@ -758,6 +758,18 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-test>
                 ${CMAKE_CURRENT_BINARY_DIR})
 
+    if(UNIX AND NOT APPLE AND NOT ANDROID)
+        add_executable(recomp-ui-launcher-cover-api24-test tests/launcher_cover_test.c)
+        target_include_directories(recomp-ui-launcher-cover-api24-test PRIVATE src src/common)
+        target_compile_definitions(recomp-ui-launcher-cover-api24-test PRIVATE
+            LAUNCHER_COVER_TEST_API24=1 __ANDROID__=1 __ANDROID_API__=24)
+        target_link_libraries(recomp-ui-launcher-cover-api24-test PRIVATE Threads::Threads)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cover-api24")
+        add_test(NAME recomp-ui-launcher-cover-api24
+            COMMAND $<TARGET_FILE:recomp-ui-launcher-cover-api24-test>
+                    "${CMAKE_CURRENT_BINARY_DIR}/cover-api24")
+    endif()
+
     # The title's own folder and the cover template as the model holds them.
     add_executable(recomp-ui-launcher-user-dir-test
         tests/launcher_user_dir_test.c

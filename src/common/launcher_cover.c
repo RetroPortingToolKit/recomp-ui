@@ -465,12 +465,16 @@ static char** cover_host_env(void) {
 static int cover_run_tool(const char* tool, const char* url, const char* dest,
                           const char* code_path) {
     char* argv[16];
+#if !defined(__ANDROID__) || __ANDROID_API__ >= 28
     posix_spawn_file_actions_t actions;
+#endif
     char** env;
     pid_t pid = 0;
     int status = 0;
     int waited = 0;
+#if !defined(__ANDROID__) || __ANDROID_API__ >= 28
     int rc;
+#endif
     int i = 0;
 
     argv[i++] = (char*)"curl";
@@ -490,6 +494,35 @@ static int cover_run_tool(const char* tool, const char* url, const char* dest,
     argv[i++] = (char*)url;
     argv[i] = NULL;
 
+    /* Android API 24-27 has fork/exec but not posix_spawn. Prepare everything
+     * in the parent; the child uses only async-signal-safe syscalls. */
+#if defined(__ANDROID__) && __ANDROID_API__ < 28
+    env = cover_host_env();
+    pid = fork();
+    if (pid == 0) {
+        int null_fd = open("/dev/null", O_RDWR);
+        int code_fd = open(code_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        int null_source, code_source;
+        if (null_fd < 0 || code_fd < 0) _exit(127);
+        /* An inherited standard descriptor may be closed. Move both sources
+         * out of 0..2 before dup2 can overwrite either original descriptor. */
+        null_source = fcntl(null_fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+        code_source = fcntl(code_fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+        close(null_fd);
+        close(code_fd);
+        if (null_source < 0 || code_source < 0 ||
+            dup2(null_source, STDIN_FILENO) < 0 ||
+            dup2(code_source, STDOUT_FILENO) < 0 ||
+            dup2(null_source, STDERR_FILENO) < 0)
+            _exit(127);
+        close(null_source);
+        close(code_source);
+        execve(tool, argv, env ? env : environ);
+        _exit(127);
+    }
+    free(env);
+    if (pid < 0) return 0;
+#else
     /* The child gets three files: nothing to read, the code file for its
      * standard output, and nowhere for its messages. */
     if (posix_spawn_file_actions_init(&actions) != 0) return 0;
@@ -505,6 +538,7 @@ static int cover_run_tool(const char* tool, const char* url, const char* dest,
     posix_spawn_file_actions_destroy(&actions);
     free(env);
     if (rc != 0) return 0;
+#endif
 
     for (;;) {
         const pid_t r = waitpid(pid, &status, WNOHANG);

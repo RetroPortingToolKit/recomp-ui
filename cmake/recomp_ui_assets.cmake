@@ -36,7 +36,12 @@ set(_RUI_CONSOLE_ASSETS_n64
     "${RUI_ASSETS}/consoles/n64/img/cart_red.tga"
     "${RUI_ASSETS}/consoles/n64/img/cart_blue.tga"
     "${RUI_ASSETS}/consoles/n64/img/cart_yellow.tga"
-    "${RUI_ASSETS}/consoles/n64/img/cart_green.tga")
+    "${RUI_ASSETS}/consoles/n64/img/cart_green.tga"
+    "${RUI_ASSETS}/consoles/n64/img/cart_green.LICENSE.txt")
+
+# Hosts may provide a photographed Transfer Pak; its absence is supported.
+set(_RUI_CONSOLE_OPTIONAL_ASSETS_n64
+    "${RUI_ASSETS}/consoles/n64/img/tpak_empty.tga")
 
 set(_RUI_CONSOLE_ASSETS_nes
     "${RUI_ASSETS}/consoles/nes/img/pad_nes.tga"

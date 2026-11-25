@@ -1,0 +1,15 @@
+Japanese Pocket Monsters Green cartridge photograph
+
+Photograph by Gekkio, Game Boy hardware database, entry gekkio #1.
+Source: https://gbhwdb.gekkio.fi/static/DMG-APBJ-1/gekkio-1_01_front.jpg
+Entry: https://gbhwdb.gekkio.fi/cartridges/DMG-APBJ-1/
+
+Licensed under Creative Commons Attribution-ShareAlike 4.0 International:
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Changes: resized to 228 x 258 pixels and converted to a 32-bit TGA for the UI.
+The cartridge, label artwork and trademarks are reproduced from the original
+photograph; no replacement Pokemon artwork was generated.
+
+Nintendo, Creatures Inc. and GAME FREAK retain their respective label artwork
+and trademark rights.

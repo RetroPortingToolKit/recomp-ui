@@ -6602,7 +6602,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     ImGui::PopStyleColor();
     ImGui::TextColored(
         col(th.text_muted),
-        m->has_assist_tools
+        "%s", m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
             : m->assist_pad_only && m->assist_tools_note
                 ? m->assist_tools_note : "Press a controller button or chord.");
@@ -8357,7 +8357,8 @@ static void pick_mod_feature_resource(
     const RecompLauncherCModResource& resource,
     std::function<void(const char* path, bool stored)> on_done = nullptr) {
     const auto* mods = m ? m->mods : nullptr;
-    if (!mods || !mods->feature_resource_set_path) return;
+    if (!mods || !mods->feature_resource_set_path ||
+        recomp_mod_resource_is_managed(&resource)) return;
     std::vector<std::string> patterns;
     const std::string remaining = resource.file_patterns;
     size_t start = 0;
@@ -8435,7 +8436,8 @@ static void prompt_missing_mod_resources(LauncherModel* m,
         if (!mods->feature_resource_get(mods->ctx, package_id.c_str(),
                                         feature_id.c_str(), index, &resource))
             continue;
-        if (!resource.required || resource.path[0]) continue;
+        if (!resource.required || resource.path[0] ||
+            recomp_mod_resource_is_managed(&resource)) continue;
         const std::string label = resource.label;
         pick_mod_feature_resource(
             m, package_id.c_str(), feature_id.c_str(), resource,
@@ -14050,12 +14052,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     }
 
                     char label[320];
-                    std::snprintf(label, sizeof(label), "%s\n%s%s%s",
-                                  feature.name,
-                                  feature.package_name[0] ? feature.package_name
-                                                          : feature.package_id,
-                                  feature.package_version[0] ? "  " : "",
-                                  feature.package_version);
+                    const bool show_package = feature.package_name[0] &&
+                        std::strcmp(feature.package_name, feature.name) != 0;
+                    std::snprintf(label, sizeof(label), "%s%s%s", feature.name,
+                                  show_package ? "\n" : "",
+                                  show_package ? feature.package_name : "");
                     if (ImGui::Selectable(
                             label, m->mod_selected == item.index, 0,
                             ImVec2(0, px(44)))) {
@@ -14188,6 +14189,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 mods->ctx, feature.package_id, feature.id,
                                 resource_index, &resource))
                             continue;
+                        if (recomp_mod_resource_is_managed(&resource)) continue;
                         ImGui::PushID(resource.id);
                         if (resource.required) {
                             ImGui::TextUnformatted(resource.label);

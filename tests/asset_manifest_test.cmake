@@ -37,7 +37,7 @@ assert_console_asset_names(
     "pad_ps2.png")
 assert_console_asset_names(
     n64
-    "brand_n64.tga;cart_blue.tga;cart_empty.tga;cart_green.tga;cart_red.tga;cart_yellow.tga;pad_n64.tga")
+    "brand_n64.tga;cart_blue.tga;cart_empty.tga;cart_green.tga;cart_green.LICENSE.txt;cart_red.tga;cart_yellow.tga;pad_n64.tga")
 assert_console_asset_names(
     nes
     "brand_nes.tga;pad_nes.tga")
@@ -58,9 +58,9 @@ endif()
 
 _recomp_ui_resolve_console_assets(_all_assets all)
 list(LENGTH _all_assets _all_count)
-if(NOT _all_count EQUAL 25)
+if(NOT _all_count EQUAL 26)
     message(FATAL_ERROR
-        "The explicit all-console manifest should contain 25 assets, got ${_all_count}")
+        "The explicit all-console manifest should contain 26 assets, got ${_all_count}")
 endif()
 
 # Optional assets are declared but NOT required to exist — that is the whole
