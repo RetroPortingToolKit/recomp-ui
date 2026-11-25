@@ -152,16 +152,16 @@ inline int rui_tab_rows(const char* id, int count, int selected,
     return picked;
 }
 
-// The player strip: "<word> 1" to "<word> count", four to a row, with L1 / R1.
-// assigned[p] is player p's dot.
+// The player strip labels each tab by its physical port, four to a row, with
+// L1 / R1. Without a map the ports are consecutive. Dots are indexed by tab.
 inline int rui_player_tabs(int count, int selected, const bool* assigned,
                            float width, const RuiPlayerTabsLook& look,
-                           const char* word) {
+                           const char* word, const int* ports = nullptr) {
     if (count > kRuiTabsMax) count = kRuiTabsMax;
     char text[kRuiTabsMax][48];
     const char* labels[kRuiTabsMax];
     for (int p = 0; p < count; ++p) {
-        std::snprintf(text[p], sizeof(text[p]), "%s %d", word, p + 1);
+        std::snprintf(text[p], sizeof(text[p]), "%s %d", word, (ports ? ports[p] : p) + 1);
         labels[p] = text[p];
     }
     return rui_tab_rows("player_tabs", count, selected, labels, assigned, width,

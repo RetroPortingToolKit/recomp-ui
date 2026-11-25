@@ -1788,6 +1788,33 @@ typedef struct RecompLauncherCRomRevision {
 } RecompLauncherCRomRevision;
 
 #define RECOMP_LAUNCHER_HAS_VERIFIED_ROM_CHANGED 1
+typedef struct RecompLauncherCDeviceTest {
+    int running;
+    float level;             // normalized 0..1, optional live input meter
+    char message[512];       // optional host-owned test feedback
+    char level_label[128];   // optional measured level / clipping feedback
+} RecompLauncherCDeviceTest;
+
+typedef struct RecompLauncherCFixedController {
+    int port;                 // zero-based physical controller port
+    const char* name;
+    const char* status;       // optional host device status
+    const char* hint;         // optional player instructions
+    const char* image_path;   // optional launcher artwork, relative to bundle
+    // The host owns the labels and selection during recomp_launcher_run_window.
+    // A choice changes an input of the fixed device, never its physical port.
+    const char* choice_label;
+    const char* const* choices;
+    int choice_count;
+    int* selected_choice;
+    // Optional host input test. action: 0 poll, 1 start, 2 stop. The host
+    // owns capture and reports errors; the UI never opens an input device.
+    void* test_context;
+    void (*test_input)(void* context, int action, int selected_choice,
+                       RecompLauncherCDeviceTest* state);
+    int* input_gain_db;      // optional host-owned input boost, 0..30 dB
+} RecompLauncherCFixedController;
+
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
     const char*    region;
@@ -2578,6 +2605,12 @@ typedef struct RecompLauncherCGameInfo {
     int frame_interp_max_fps;
     /* A selected Transfer Pak requires a readable cartridge and battery save. */
     int require_tpak_files;
+    /* Dashboard ports in ascending physical order. Zero uses num_players and
+     * the system's normal controller layout. Bit 0 is physical port 1. */
+    unsigned controller_port_mask;
+    /* Optional fixed device shown in place of one controller card. Borrowed
+     * throughout the launcher call. The host enforces the runtime binding. */
+    const RecompLauncherCFixedController* fixed_controller;
 } RecompLauncherCGameInfo;
 
 enum {
