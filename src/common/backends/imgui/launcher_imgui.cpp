@@ -4988,14 +4988,17 @@ void draw_shader_row(LauncherModel* m, const LauncherTheme& th, float col_w = 0.
         for (const ShaderPresetEntry& preset : g_shader_presets) {
             bool selected = shader_path_matches(preset.path, m->s.shader_path);
             if (ImGui::Selectable(preset.label.c_str(), selected)) {
-                // Bundled presets need a stable resource path. In particular,
-                // an AppImage mount path changes on each launch. The SNES
-                // loader resolves assets/shaders relative to its executable.
-                std::error_code ec;
+                // The NES and SNES loaders resolve this resource beside the executable.
+                // Keep bundled choices portable across AppImage mounts.
                 const bool snes = m->platform && strcmp(m->platform, "SUPER NINTENDO") == 0;
-                auto base = snes ? std::filesystem::path(asset("assets/shaders")) : std::filesystem::current_path(ec);
+                const bool nes = m->profile && m->profile->id && strcmp(m->profile->id, "nes") == 0;
+                const bool executable_relative = snes || nes;
+                std::error_code ec;
+                auto base = executable_relative ? std::filesystem::path(asset("assets/shaders"))
+                                                : std::filesystem::current_path(ec);
                 auto relative = std::filesystem::relative(preset.path, base, ec);
-                auto resource = snes ? std::filesystem::path("assets/shaders") / relative : relative;
+                auto resource = executable_relative ? std::filesystem::path("assets/shaders") / relative
+                                                    : relative;
                 launcher_model_set_shader_path(m, ec ? preset.path.c_str() : resource.generic_string().c_str());
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
@@ -5476,7 +5479,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // Frame interpolation is only meaningful under OpenGL (Software has no
     // interpolation pass); Presentation target only matters once frame
     // interpolation is actually on.
-    if (m->has_frame_interp && m->s.renderer) {
+    if (m->has_frame_interp && (!m->has_renderer || m->s.renderer)) {
         row_label_right("Frame interpolation", th, cb);
         bool fi = m->s.frame_interp != 0;
         if (ImGui::Checkbox("##fi", &fi)) launcher_model_toggle_frame_interp(m);
@@ -5652,7 +5655,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
     const SystemProfile* audio_prof = (const SystemProfile*)m->profile;
-    if (!audio_prof || !audio_prof->hide_audio_freq) {
+    // A zero rate means the host drives audio automatically (no configurable rate).
+    if (m->s.audio_freq > 0 && (!audio_prof || !audio_prof->hide_audio_freq)) {
         const float fw = settings_cycle_w(m, "Sample rate", th,
             launcher_model_cycle_freq, launcher_model_freq_label);
         row_label_right("Sample rate", th, fw);
