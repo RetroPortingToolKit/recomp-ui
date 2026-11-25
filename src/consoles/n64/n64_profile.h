@@ -55,9 +55,9 @@ static const int kN64GamepadBindOrder[LNG_N64_PAD_BUTTON_COUNT] = {
 #define LNG_N64_GAMEPAD_BIND_ROWS 6
 
 // ---- panel composition --------------------------------------------------------
-// Dashboard: the game and controller cards, a shared cartridge save card
-// when the title has a save path, and optional per-port Transfer Pak cards.
-static const char* const kPanelsDashboardN64[] = { "game", "controller", "save", "tpak", NULL };
+// Cartridge saves use the compact row inside the game card. Controller and
+// optional Transfer Pak cards remain in the right column.
+static const char* const kPanelsDashboardN64[] = { "game", "controller", "tpak", NULL };
 // Settings: video + audio only — NO hotkeys page. The N64 runtimes read no
 // config.ini [KeyMap] (in-game hotkeys are fixed in the runtime), and the SS
 // Anne launcher exposed no hotkey editor either. Offering an editor that
