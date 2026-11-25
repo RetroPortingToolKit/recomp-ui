@@ -216,6 +216,19 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
     } else if (strncmp(c, "mod-select:", 11) == 0) {
         m->mod_selected = atoi(c + 11);
+    } else if (strncmp(c, "mod-option:", 11) == 0) {
+        char option[RECOMP_LAUNCHER_MOD_ID_MAX];
+        const char* value = strchr(c + 11, ':');
+        RecompLauncherCModFeature feature;
+        if (value && (size_t)(value - (c + 11)) < sizeof option && m->mods &&
+            m->mods->feature_get && m->mods->feature_set_option &&
+            m->mods->feature_get(m->mods->ctx, m->mod_selected, &feature)) {
+            memcpy(option, c + 11, (size_t)(value - (c + 11)));
+            option[value - (c + 11)] = 0;
+            if (!m->mods->feature_set_option(m->mods->ctx, feature.package_id,
+                                              feature.id, option, value + 1))
+                fprintf(stderr, "Launcher script: mod option rejected: %s\n", option);
+        }
     } else if (strncmp(c, "resource-import:", 16) == 0) {
         char resource[RECOMP_LAUNCHER_MOD_ID_MAX];
         const char* path = strchr(c + 16, ':');
