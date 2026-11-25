@@ -251,8 +251,16 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     /* Automated launcher checks must not steal the user's desktop/focus. */
     const bool test_hidden = getenv("LNG_SCRIPT") && getenv("LNG_TEST_HIDDEN");
     if (test_hidden) window_flags |= SDL_WINDOW_HIDDEN;
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__SWITCH__)
     window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_BORDERLESS;
+#endif
+#ifdef __SWITCH__
+    /* NWindow buffers are scaled to the display. A desktop-sized buffer
+     * would stretch the launcher and its touch coordinates to a new aspect. */
+    SDL_DisplayMode mode;
+    win_w=1280;win_h=720;
+    if(SDL_GetCurrentDisplayMode(0,&mode)==0){win_w=mode.w;win_h=mode.h;}
+    window_flags&=~(SDL_WINDOW_RESIZABLE|SDL_WINDOW_ALLOW_HIGHDPI);
 #endif
     p->window = SDL_CreateWindow(title ? title : "Launcher",
                                  SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -287,7 +295,12 @@ bool launcher_platform_open(LauncherPlatform* p, const char* title,
     // narrow one-column breakpoint on a 150% desktop — so this asks for the
     // pixels the requested logical size really needs, and keeps the result
     // reachable on displays that cannot show them all.
+#ifndef __SWITCH__
     fit_window_to_display(p, logical_w, logical_h);
+#else
+    fprintf(stderr,"[launcher] Switch canvas %dx%d, logical %dx%d, scale %.3f\n",
+            p->pixel_w,p->pixel_h,p->logical_w,p->logical_h,p->display_scale);
+#endif
     launcher_boot_timing_mark("rui:platform_open:window+gl_ready");
     return true;
 }
@@ -420,6 +433,12 @@ void launcher_platform_refresh_metrics(LauncherPlatform* p) {
 #endif
     }
     if (s <= 0.0f) s = 1.0f;
+#ifdef __SWITCH__
+    /* A 540-unit canvas gives handheld text a 4/3 scale at 720p, with
+     * corresponding larger controls. Keep pixels and touch in the same
+     * logical coordinate system, including a docked drawable. */
+    s = p->pixel_h > 540 ? (float)p->pixel_h / 540.0f : 1.0f;
+#endif
     forced = forced_display_scale();
     if (forced > 0.0f) s = forced;
 
@@ -433,7 +452,11 @@ void launcher_platform_refresh_metrics(LauncherPlatform* p) {
     // pixel/scale logical units and ImGui renders it at pixel density — the
     // Retina/Deck model, on any OS. Where the ratio ALREADY carries the
     // density (macOS retina), the window size is the logical size: leave it.
-    if (s > 1.0f && win_w > 0 && (p->pixel_w == win_w || forced > 0.0f)) {
+    bool synthesize = p->pixel_w == win_w || forced > 0.0f;
+#ifdef __SWITCH__
+    synthesize = true;
+#endif
+    if (s > 1.0f && win_w > 0 && synthesize) {
         p->logical_w = (int)(p->pixel_w / s);
         p->logical_h = (int)(p->pixel_h / s);
     }
