@@ -5553,7 +5553,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     // Frame interpolation is only meaningful under OpenGL (Software has no
     // interpolation pass); Presentation target only matters once frame
     // interpolation is actually on.
-    if (m->has_frame_interp && m->s.renderer) {
+    if (m->has_frame_interp && (!m->has_renderer || m->s.renderer)) {
         row_label_right("Frame interpolation", th, cb);
         bool fi = m->s.frame_interp != 0;
         if (ImGui::Checkbox("##fi", &fi)) launcher_model_toggle_frame_interp(m);

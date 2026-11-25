@@ -553,6 +553,7 @@ typedef struct {
     int         num_rom_patterns;
     const char* rom_filter_desc;
     bool     has_frame_interp;
+    int      interp_fps_count;
     bool     has_spu_hq;
     bool     has_rewind_depth;
     bool     has_vsync;
