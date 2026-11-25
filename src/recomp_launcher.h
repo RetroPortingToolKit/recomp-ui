@@ -2743,6 +2743,19 @@ typedef void (*RecompLauncherCHostFrame)(void*,void*,void*,unsigned);
 void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context);
 void recomp_launcher_set_window_hidden(int hidden);
 
+/* Shared app startup surface. poll returns 0 while loading, 1 when the
+ * native runtime is ready, or -1 after failure/cancellation. Closing or
+ * Cancel sets cancel_requested on every subsequent poll; the surface stays
+ * alive until the worker acknowledges it. No startup or no-progress deadline.
+ * All calls occur on the UI thread. Uses the same theme, art and DPI policy
+ * as Home. The host retains the worker and any error reporting. */
+typedef int (*RecompLauncherCLoadingPoll)(void* context, int cancel_requested,
+                                        char* status, size_t status_capacity);
+int recomp_launcher_run_loading(const char* window_title,
+                               const RecompLauncherCGameInfo* game,
+                               const char* assets_dir,
+                               RecompLauncherCLoadingPoll poll, void* context);
+
 /* Valid after run_window returns RECOMP_LAUNCHER_RESULT_RELAUNCH. Copies the
  * executable path produced by rebuild_with_progress. Returns 1 on success. */
 int recomp_launcher_relaunch_exe(char* out, size_t out_cap);

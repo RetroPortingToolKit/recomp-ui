@@ -16,6 +16,7 @@
 #include "launcher_assets_dir.h"
 #include "launcher_backend.h"
 #include "launcher_boot_timing.h"
+#include "launcher_theme_overrides.h"
 #include "launcher_gl.h"
 #include "launcher_input.h"
 #include "launcher_files.h"
@@ -16746,6 +16747,103 @@ extern "C" const LauncherPanel* launcher_panel_find(const char* id) {
 extern "C" bool launcher_panel_available(const LauncherPanel* p, const LauncherModel* m) {
     if (!p) return false;
     return p->available ? (p->available(m) != 0) : true;
+}
+
+extern "C" int recomp_launcher_run_loading(const char* window_title,
+                                            const RecompLauncherCGameInfo* game,
+                                            const char* assets_dir,
+                                            RecompLauncherCLoadingPoll poll,
+                                            void* context) {
+    if (!poll) return -1;
+    LauncherPlatform platform{};
+    if (!launcher_platform_open(&platform, window_title, 760, 540)) {
+        // Startup still belongs to the worker. Request cooperative cancellation
+        // and retain its borrowed context until it acknowledges completion.
+        char status[256]{};
+        while (!poll(context, 1, status, sizeof status)) SDL_Delay(16);
+        return -1;
+    }
+    launcher_platform_set_icon(&platform, game ? game->window_icon_path : nullptr);
+    launcher_backend_set_assets_directory(assets_dir);
+    const LauncherTheme theme = launcher_theme_for_game(game ? game->theme : nullptr);
+    g_th = &theme;
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    LNG_ImplSDL_InitForOpenGL(platform.window, platform.gl);
+#ifdef LNG_GLES2
+    ImGui_ImplOpenGL3_Init("#version 100");
+#else
+    ImGui_ImplOpenGL3_Init("#version 330");
+#endif
+    LauncherTexture cover = launcher_texture_load(asset(game && game->boxart_path ?
+        game->boxart_path : "assets/img/boxart.tga").c_str());
+    const auto font = asset("assets/fonts/LatoLatin-Regular.ttf");
+    const auto japanese = asset("assets/fonts/NotoSansJP-Subset.ttf");
+    const auto symbols = asset("assets/fonts/NotoSansSymbols2-Regular.ttf");
+    const auto emoji = asset("assets/fonts/OpenMoji-black-glyf.ttf");
+    float scale = 0;
+    const char* loading_script = SDL_getenv("LNG_LOADING_SCRIPT");
+    const bool scripted_loading = loading_script && *loading_script;
+    if (scripted_loading) launcher_debug_init_script(loading_script);
+    bool cancel = false;
+    int result = 0;
+    while (!result) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            LNG_ImplSDL_ProcessEvent(&event);
+            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) cancel = true;
+        }
+        cancel |= platform.should_quit;
+        char status[256]{};
+        result = poll(context, cancel, status, sizeof status);
+        if (result) break;
+        launcher_platform_refresh_metrics(&platform);
+        if (scale != platform.display_scale) {
+            apply_scale(theme, platform.display_scale, font.c_str(), japanese.c_str(),
+                        symbols.c_str(), emoji.c_str());
+            scale = platform.display_scale;
+        }
+        ImGui_ImplOpenGL3_NewFrame();
+        LNG_ImplSDL_NewFrame();
+        apply_logical_display(&platform);
+        ImGui::NewFrame();
+        auto* viewport = ImGui::GetMainViewport();
+        draw_crt_background(viewport->Pos, viewport->Size);
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(.5f, .5f));
+        ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, viewport->Size.x - 32), 0));
+        ImGui::Begin("##game_startup", nullptr, ImGuiWindowFlags_NoTitleBar |
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+        if (cover.id) {
+            const float factor = std::min(220.0f / cover.w, 240.0f / cover.h);
+            ImGui::Image(tid(cover), ImVec2(cover.w * factor, cover.h * factor));
+        }
+        ImGui::TextUnformatted(window_title ? window_title : "Nintendo 64");
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", status[0] ? status : "Starting game…");
+        ImGui::ProgressBar(-float(ImGui::GetTime()), ImVec2(-1, 12), "");
+        if (cancel) ImGui::TextUnformatted("Canceling startup…");
+        else if (ImGui::Button(ui_text("Cancel"))) cancel = true;
+        ImGui::End();
+        ImGui::Render();
+        glViewport(0, 0, platform.pixel_w, platform.pixel_h);
+        glClearColor(theme.background.r, theme.background.g, theme.background.b, theme.background.a);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (s_host_frame) s_host_frame(s_host_frame_context, nullptr, &platform, 1);
+        if (scripted_loading && launcher_debug_step_pending(&platform)) cancel = true;
+        launcher_platform_present(&platform);
+        SDL_Delay(16);
+    }
+    launcher_texture_free(&cover);
+    ImGui_ImplOpenGL3_Shutdown();
+    LNG_ImplSDL_Shutdown();
+    ImGui::DestroyContext();
+    g_th = nullptr;
+    launcher_backend_set_assets_directory(nullptr);
+    launcher_platform_close(&platform);
+    return result;
 }
 
 extern "C" LngAction launcher_backend_run(LauncherPlatform* p,

@@ -51,6 +51,8 @@ bool launcher_debug_active(void);
 
 // Parse LNG_SCRIPT. Safe to call when unset (script mode simply stays off).
 void launcher_debug_init(void);
+/* Same driver for an app's loading surface; commands never borrow a model. */
+void launcher_debug_init_script(const char* script);
 
 // Advance the script by one frame. Call once per frame AFTER rendering and
 // BEFORE presenting, so `shot:` captures the completed frame. Sets

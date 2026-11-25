@@ -28,8 +28,11 @@ static bool  g_active = false;
 
 bool launcher_debug_active(void) { return g_active; }
 
-void launcher_debug_init(void) {
-    const char* s = SDL_getenv("LNG_SCRIPT");
+void launcher_debug_init_script(const char* s) {
+    g_cmd_count = 0;
+    g_cmd_index = 0;
+    g_wait_frames = 0;
+    g_active = false;
     if (!s || !s[0]) return;
 
     snprintf(g_script, sizeof(g_script), "%s", s);
@@ -43,6 +46,8 @@ void launcher_debug_init(void) {
     g_active = g_cmd_count > 0;
     if (g_active) fprintf(stderr, "[dbg] script: %d commands\n", g_cmd_count);
 }
+
+void launcher_debug_init(void) { launcher_debug_init_script(SDL_getenv("LNG_SCRIPT")); }
 
 bool launcher_capture_png(const char* path, int w, int h) {
     if (w <= 0 || h <= 0) return false;
