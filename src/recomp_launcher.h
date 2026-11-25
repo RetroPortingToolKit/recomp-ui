@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* Mod support is framework-available but developer opt-in. The integration
  * helper defines this from its default-OFF RECOMP_UI_ENABLE_MODS CMake option.
@@ -1131,13 +1132,20 @@ typedef struct RecompLauncherCModResource {
     char file_description[128];
     int required;
     int verified;
-    /* "file" (default), "directory", or "file-or-directory" (both pickers).
-     * Appended for source compatibility. */
+    /* "file" (default), "directory", "file-or-directory" (both pickers),
+     * or "managed" for converter-owned output. Managed resources remain in
+     * provider enumeration, identity and replay metadata. Launchers omit their
+     * controls and never prompt for them; import the original media through its
+     * separate selectable resource. Appended for source compatibility. */
     char format[64];
     /* Import this file through feature_resource_import on a background job.
      * Ordinary path selections leave this zero. */
     int import_on_select;
 } RecompLauncherCModResource;
+
+static inline int recomp_mod_resource_is_managed(const RecompLauncherCModResource* resource) {
+    return resource && strcmp(resource->format, "managed") == 0;
+}
 
 typedef struct RecompLauncherCModProvider {
     void* ctx;
