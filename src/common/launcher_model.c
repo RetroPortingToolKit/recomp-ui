@@ -477,6 +477,8 @@ void launcher_model_init(LauncherModel* m,
         m->zapper               = game->zapper != 0;
         /* 0 = unset (caller predates the field) -> assume 2 players. */
         m->player_count         = game->num_players ? clampi(game->num_players, 1, LNG_MAX_PLAYERS) : 2;
+        m->controller_port_mask = game->controller_port_mask & ((1u << LNG_MAX_PLAYERS) - 1u);
+        m->fixed_controller     = game->fixed_controller;
         m->memcard_slots        = game->memcard_slots;
         m->rom_cache_path       = game->rom_cache_path;
         m->expected_crc         = game->expected_crc;
@@ -4480,8 +4482,30 @@ int launcher_model_visible_player_count(const LauncherModel* m) {
 
 int launcher_model_player_tabs(const LauncherModel* m) {
     if (!m || m->lock_device) return 0;
-    const int n = launcher_model_visible_player_count(m);
+    int n = 0;
+    if (m->controller_port_mask) {
+        for (unsigned mask = m->controller_port_mask; mask; mask &= mask - 1u)
+            ++n;
+    } else {
+        n = launcher_model_visible_player_count(m);
+    }
     return n >= 2 ? n : 0;
+}
+
+int launcher_model_controller_port(const LauncherModel* m, int tab) {
+    if (tab < 0) return -1;
+    if (!m || !m->controller_port_mask)
+        return tab < launcher_model_visible_player_count(m) ? tab : -1;
+    for (int port = 0; port < LNG_MAX_PLAYERS; ++port) {
+        if ((m->controller_port_mask & (1u << port)) && tab-- == 0) return port;
+    }
+    return -1;
+}
+
+const RecompLauncherCFixedController* launcher_model_fixed_controller(
+    const LauncherModel* m, int port) {
+    const RecompLauncherCFixedController* device = m ? m->fixed_controller : NULL;
+    return device && device->port == port && device->name && device->name[0] ? device : NULL;
 }
 
 int launcher_model_player_tab(const LauncherModel* m) {
