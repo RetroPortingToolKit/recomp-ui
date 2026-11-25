@@ -656,6 +656,7 @@ void launcher_model_init(LauncherModel* m,
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
         m->assist_pad_only = game->assist_pad_only != 0;
+        m->assist_key_disabled_mask = game->assist_key_disabled_mask;
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
@@ -5625,11 +5626,13 @@ void launcher_model_map_all_advance(LauncherModel* m) {
 void launcher_model_begin_assist_capture(LauncherModel* m, int action,
                                          bool gamepad) {
     if (!m || action < 0 ||
-        action >= m->assist_binding_count)
+        action >= m->assist_binding_count ||
+        (!gamepad && (m->assist_pad_only || (m->assist_key_disabled_mask & (1u << action)))))
         return;
     m->hk_capturing = false;
     m->capturing = true;
     m->capture_assist = true;
+    m->capture_mouse_armed = true;
     m->capture_pad = gamepad;
     m->capture_btn = action;
     m->capture_slot = 0;
@@ -5638,7 +5641,8 @@ void launcher_model_set_captured_key(LauncherModel* m, int scancode) {
     if (!m || !m->capturing || m->capture_pad) return;
     if (m->capture_assist) {
         if (m->capture_btn >= 0 &&
-            m->capture_btn < m->assist_binding_count)
+            m->capture_btn < m->assist_binding_count && !m->assist_pad_only &&
+            !(m->assist_key_disabled_mask & (1u << m->capture_btn)))
             m->s.assist_key_bind[m->capture_btn] = scancode;
     } else {
         int buttons = launcher_model_active_button_count(m, m->cfg_player);
@@ -5652,7 +5656,8 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
         if (m->capture_btn >= 0 &&
             m->capture_btn < m->assist_binding_count)
             m->s.assist_pad_bind[m->capture_btn] =
-                m->assist_pad_only && encoded_binding == 0 ? -1 : encoded_binding;
+                (m->assist_pad_only || (m->assist_key_disabled_mask & (1u << m->capture_btn))) &&
+                encoded_binding == 0 ? -1 : encoded_binding;
     } else {
         int buttons = launcher_model_active_button_count(m, m->cfg_player);
         if (m->capture_btn >= 0 && m->capture_btn < buttons)
@@ -5681,8 +5686,9 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
     if (!m) return;
     if (!m->assist_pad_only)
-        memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
-               sizeof m->s.assist_key_bind);
+        for (int i = 0; i < m->assist_binding_count; ++i)
+            if (!(m->assist_key_disabled_mask & (1u << i)))
+                m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
     memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }
