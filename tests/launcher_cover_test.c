@@ -23,6 +23,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Build the API24 helper into this fixture so its real fork/exec path is
+ * exercised without a network request or an Android UI/hardware dependency. */
+#if defined(LAUNCHER_COVER_TEST_API24)
+#include "launcher_cover.c"
+#endif
+
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
@@ -809,9 +815,54 @@ static void test_template(void) {
     expect(!launcher_cover_fetch_offered(NULL, 1), "button: no template and box art, no button");
 }
 
+#if defined(LAUNCHER_COVER_TEST_API24)
+static void test_closed_stdio(const char* self) {
+    unsigned mask;
+    expect(self && self[0] == '/', "API24 helper executable has an absolute path");
+    if (!self || self[0] != '/') return;
+    for (mask = 0; mask < 8; ++mask) {
+        char code[1200], label[160];
+        pid_t child;
+        int status = 0;
+        pid_t waited = -1;
+        snprintf(code, sizeof(code), "%s/fd-routing-%u.code", g_dir, mask);
+        remove(code);
+        child = fork();
+        if (child == 0) {
+            unsigned fd;
+            for (fd = 0; fd < 3; ++fd)
+                if (mask & (1u << fd)) close((int)fd);
+            _exit(cover_run_tool(self, URL_SLUS, "/unused", code) ? 0 : 1);
+        }
+        if (child > 0) {
+            do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+        }
+        snprintf(label, sizeof(label), "API24 closed standard descriptors mask=%u keeps stdout separate from stderr", mask);
+        expect(child > 0 && waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 &&
+               file_is(code, "200", 3), label);
+        remove(code);
+    }
+}
+#endif
+
 int main(int argc, char** argv) {
+#if defined(LAUNCHER_COVER_TEST_API24)
+    /* cover_run_tool execs this executable with curl's fixed argv. */
+    if (argc > 1 && !strcmp(argv[1], "-s")) {
+        char input;
+        static const char noise[] = "helper stderr must not enter the HTTP-code file";
+        if (read(STDIN_FILENO, &input, 1) != 0 ||
+            write(STDOUT_FILENO, "200", 3) != 3 ||
+            write(STDERR_FILENO, noise, sizeof(noise) - 1) != (ssize_t)(sizeof(noise) - 1))
+            return 1;
+        return 0;
+    }
+#endif
     if (argc > 1 && argv[1][0]) snprintf(g_dir, sizeof(g_dir), "%s", argv[1]);
     make_fixtures();
+#if defined(LAUNCHER_COVER_TEST_API24)
+    test_closed_stdio(argv[0]);
+#endif
 
     test_serial();
     test_url();

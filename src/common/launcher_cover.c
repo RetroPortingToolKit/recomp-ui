@@ -502,11 +502,21 @@ static int cover_run_tool(const char* tool, const char* url, const char* dest,
     if (pid == 0) {
         int null_fd = open("/dev/null", O_RDWR);
         int code_fd = open(code_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-        if (null_fd < 0 || code_fd < 0 || dup2(null_fd, STDIN_FILENO) < 0 ||
-            dup2(code_fd, STDOUT_FILENO) < 0 || dup2(null_fd, STDERR_FILENO) < 0)
+        int null_source, code_source;
+        if (null_fd < 0 || code_fd < 0) _exit(127);
+        /* An inherited standard descriptor may be closed. Move both sources
+         * out of 0..2 before dup2 can overwrite either original descriptor. */
+        null_source = fcntl(null_fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+        code_source = fcntl(code_fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+        close(null_fd);
+        close(code_fd);
+        if (null_source < 0 || code_source < 0 ||
+            dup2(null_source, STDIN_FILENO) < 0 ||
+            dup2(code_source, STDOUT_FILENO) < 0 ||
+            dup2(null_source, STDERR_FILENO) < 0)
             _exit(127);
-        if (null_fd > STDERR_FILENO) close(null_fd);
-        if (code_fd > STDERR_FILENO) close(code_fd);
+        close(null_source);
+        close(code_source);
         execve(tool, argv, env ? env : environ);
         _exit(127);
     }
