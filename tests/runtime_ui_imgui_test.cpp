@@ -24,7 +24,7 @@ int set_value(void *context, const RecompRuntimeUiItem *, int value) {
 
 void render_case(uint32_t presentation_flags, ImVec2 display,
                  float minimum_width, float minimum_height,
-                 float maximum_width) {
+                 float maximum_width, float host_font_scale = 1.0f) {
     static const char *const modes[] = { "Standard (4:3)", "16:9", "Adaptive" };
     static const RecompRuntimeUiItem items[] = {
         { "view", "Display", "View mode", "Choose the visible game area.",
@@ -51,6 +51,7 @@ void render_case(uint32_t presentation_flags, ImVec2 display,
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.DisplaySize = display;
+    io.FontGlobalScale = host_font_scale;
     io.DeltaTime = 1.0f / 60.0f;
     unsigned char *font_pixels = nullptr;
     int font_w = 0, font_h = 0;
@@ -67,8 +68,35 @@ void render_case(uint32_t presentation_flags, ImVec2 display,
     assert(window->Size.x <= maximum_width);
     const float first_frame_font_scale = window->FontWindowScale;
     ImGui::Render();
+
+    if (!(presentation_flags & RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY)) {
+        // Reuse the actual window/context through large->ordinary->large
+        // resizes. Geometry, font and pointer space must stay aligned, with
+        // no accumulating scale or changes to host-wide ImGui settings.
+        const float original_scrollbar = ImGui::GetStyle().ScrollbarSize;
+        struct SizeCase { ImVec2 size; float width; float scale; };
+        for (const SizeCase &test : {SizeCase{ImVec2(2880.0f, 1800.0f), 1950.0f, 2.5f},
+                                    SizeCase{ImVec2(1280.0f, 720.0f), 780.0f, 1.0f},
+                                    SizeCase{ImVec2(2880.0f, 1800.0f), 1950.0f, 2.5f}}) {
+            const ImVec2 size = test.size;
+            io.DisplaySize = size;
+            ImGui::NewFrame();
+            recomp_runtime_ui_render_imgui(ui);
+            window = ImGui::FindWindowByName("##recomp-runtime-ui");
+            const float expected_font = std::max(1.0f, test.scale / host_font_scale);
+            assert(std::fabs(window->Size.x - test.width) < 1.0f);
+            assert(std::fabs(window->FontWindowScale - expected_font) < 0.001f);
+            assert(window->Pos.x >= 0.0f && window->Pos.y >= 0.0f);
+            assert(window->Pos.x + window->Size.x <= size.x);
+            assert(window->Pos.y + window->Size.y <= size.y);
+            assert(io.FontGlobalScale == host_font_scale);
+            assert(ImGui::GetStyle().ScrollbarSize == original_scrollbar);
+            ImGui::Render();
+        }
+    }
     assert(ImGui::GetDrawData()->CmdListsCount > 0);
 
+    io.DisplaySize = display;
     ImGui::NewFrame();
     recomp_runtime_ui_render_imgui(ui);
     window = ImGui::FindWindowByName("##recomp-runtime-ui");
@@ -248,13 +276,75 @@ void confirmation_cadence_case() {
     recomp_runtime_ui_destroy(ui);
 }
 
+void footer_case(ImVec2 display, uint32_t flags) {
+    static const RecompRuntimeUiItem item = {
+        "disc", "Disc", "Selected disc", "Choose a disc.",
+        RECOMP_RUNTIME_UI_INT, 1, 4, 1, nullptr, 0, nullptr };
+    int value = 1;
+    RecompRuntimeUiConfig config{};
+    config.title = "Game menu";
+    config.items = &item;
+    config.item_count = 1;
+    config.accept_label = "Enter / Cross";
+    config.back_label = "Esc / Circle";
+    config.callbacks.context = &value;
+    config.callbacks.get_value = get_value;
+    config.callbacks.set_value = set_value;
+    config.presentation_flags = flags;
+    RecompRuntimeUi *ui = recomp_runtime_ui_create(&config);
+    recomp_runtime_ui_open(ui);
+    recomp_runtime_ui_set_status(ui, "Could not open that disc. Check its image files and try again.");
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = display;
+    io.DeltaTime = 1.0f / 60.0f;
+    ImFontConfig font;
+    font.SizePixels = 18.0f;
+    io.Fonts->AddFontDefault(&font);
+    unsigned char *pixels; int w, h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        recomp_runtime_ui_render_imgui(ui);
+        ImGui::Render();
+    }
+    ImGuiWindow *menu = ImGui::FindWindowByName("##recomp-runtime-ui");
+    ImGuiWindow *footer = nullptr;
+    for (ImGuiWindow *window : ImGui::GetCurrentContext()->Windows)
+        if (window->ParentWindow == menu && std::strstr(window->Name, "##footer")) footer = window;
+    assert(footer && menu);
+    /* Hints and status fit vertically and leave a usable button region. */
+    assert(footer->Pos.x + footer->Size.x <= menu->InnerRect.Max.x - 70.0f);
+    assert(footer->Pos.y + footer->Size.y <= menu->InnerRect.Max.y + 1.0f);
+    assert(footer->ScrollMax.y < 1.0f);
+    const ImVec2 resume(menu->WorkRect.Max.x - 20.0f, footer->Pos.y + 10.0f);
+    io.AddMousePosEvent(resume.x, resume.y);
+    for (int frame = 0; frame < 3; ++frame) {
+        if (frame == 1) io.AddMouseButtonEvent(0, true);
+        if (frame == 2) io.AddMouseButtonEvent(0, false);
+        ImGui::NewFrame();
+        recomp_runtime_ui_render_imgui(ui);
+        ImGui::Render();
+    }
+    assert(!recomp_runtime_ui_is_open(ui));
+    ImGui::DestroyContext();
+    recomp_runtime_ui_destroy(ui);
+}
+
 } // namespace
 
 int main() {
+    footer_case(ImVec2(640, 480), 0);
+    footer_case(ImVec2(1280, 720), 0);
+    footer_case(ImVec2(2880, 1800), 0);
+    footer_case(ImVec2(1200, 900), RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY);
     confirmation_cadence_case();
     nested_mouse_case();
     toast_case();
     render_case(0, ImVec2(1280.0f, 720.0f), 779.0f, 671.0f, 781.0f);
+    render_case(0, ImVec2(2880.0f, 1800.0f), 1949.0f, 1679.0f, 1951.0f);
+    render_case(0, ImVec2(2880.0f, 1800.0f), 1949.0f, 1679.0f, 1951.0f, 2.0f);
     render_case(RECOMP_RUNTIME_UI_PRESENTATION_TOUCH_FRIENDLY,
                 ImVec2(3088.0f, 1440.0f), 3000.0f, 1300.0f, 3020.0f);
     return 0;

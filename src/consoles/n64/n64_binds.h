@@ -66,6 +66,9 @@ void rui_n64_binds_set(const char* path, int device, int b, int slot,
 // built-in defaults + persist.
 void rui_n64_binds_reset_device(const char* path, int device);
 
+// The field Reset puts on (device, b, slot).
+void rui_n64_binds_default(int device, int b, int slot, int* out_type, int* out_id);
+
 // Human display string for a field ("X", "LT", "R-Stick Up", "Btn 16",
 // em dash for none) — PSR field_to_string() vocabulary.
 void rui_n64_binds_label(int type, int id, char* out, size_t cap);

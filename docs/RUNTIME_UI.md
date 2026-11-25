@@ -153,6 +153,9 @@ the system id selects design tokens only.
 - Prefer UTF-8-capable modern presentation; the compact fallback is ASCII-only.
 - A renderer/backend switch that cannot be applied live should remain in the
   pre-boot launcher until the host provides a safe restart workflow.
+- Window scale applies to windowed output only. Disable that control in
+  borderless and exclusive fullscreen, and reject resize callbacks in those
+  modes before changing the saved windowed size.
 
 ## psxrecomp in-game menu provider
 
@@ -166,7 +169,7 @@ offers it through `PsxMenuHost`; the provider only shows values the host
 reports and sends edits back to it, so recomp-ui and any other provider behave
 the same.
 
-- Rows: Display > Fullscreen; Graphics > Render thread (restart-only: a quick
+- Rows: Display > Fullscreen; Graphics > Renderer, Render thread and Present thread (restart-only: a quick
   relaunch when the menu closes); System > Resume, Pause in menu, Return to
   launcher, Quit; Disc > Selected disc, Insert disc and resume (multi-disc
   titles, through the runtime's tray policy). Linear, FMV and texture

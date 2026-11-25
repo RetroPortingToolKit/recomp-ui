@@ -59,9 +59,17 @@ bool launcher_pick_rom(char* out_path, size_t out_cap);
 // Whether a blocking native picker is available. This is always true on
 // Windows/macOS. On Linux it reports zenity/kdialog availability so a GUI
 // backend can use its own in-app browser when neither is installed. Android
-// reports false and returns -1 from tri-state pickers, selecting that browser
-// for app-owned files; host setup imports external documents through SAF.
+// reports whether its activity registered a document picker for open requests.
 bool launcher_native_file_picker_available(void);
+
+#if defined(__ANDROID__)
+// The host grants access through Android's document picker and supplies an
+// app-owned local path. Call this before starting the launcher. The callback
+// uses the same tri-state result as launcher_try_pick_file.
+typedef int (*LauncherAndroidOpenFile)(const char* title, const char* const* patterns,
+                                       int num_patterns, char* out_path, size_t out_cap);
+void launcher_set_android_open_file_picker(LauncherAndroidOpenFile open_file);
+#endif
 
 // Open the OS "choose a folder" dialog (for the MSU-1 music folder). Returns
 // true and fills `out_path` on success.

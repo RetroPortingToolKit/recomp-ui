@@ -80,6 +80,7 @@ static const SystemProfile kSystemProfileGba = {
         kGbaPadButtons, LNG_GBA_PAD_BUTTON_COUNT,
         "pad_gba.tga", NULL, NULL,     // handheld art; no analog/digital pair
         /* max_players */ 1, /* has_pad_mode */ 0, /* link seats are netplay-only: create_max_slots */
+        /* binds_per_input */ 1, /* modes */ NULL, 0, /* has_pad_binds */ 1,
     },
     // One battery save per cartridge: the runtime presents EEPROM/flash/SRAM
     // uniformly as a single .sav next to the ROM (or game.toml [save].path).
@@ -121,7 +122,7 @@ static inline int launcher_console_is_gba(const char* name) {
 // widescreen_supported for titles with an extended-view build) are set by the
 // host AFTER this.
 static inline void launcher_profile_apply_gba(RecompLauncherCGameInfo* gi) {
-    gi->theme    = "gba";              // indigo LCD theme, no CRT scanlines
+    gi->theme    = "gba";
     gi->platform = "GAME BOY ADVANCE";
     gi->rom_noun = "ROM";
     gi->num_players = 1;               // one pad card; link seats online = hooks.netplay_max_players (create_max_slots)
@@ -130,6 +131,8 @@ static inline void launcher_profile_apply_gba(RecompLauncherCGameInfo* gi) {
     // (gbarecomp is LLE-BIOS by default — a real BIOS image is required).
     gi->has_screen_kind       = 1;
     gi->has_bios              = 1;
+    gi->has_integer_scale     = 1;
+    gi->has_scanlines         = 1;
     // widescreen_supported stays 0: per-game opt-in (e.g. Mega Man Zero's
     // extended view); most titles render the stock 240x160.
 }

@@ -257,6 +257,14 @@ void rui_nes_binds_set(const char* path, int player, int b, int scancode) {
                           nes_kb_scancode_to_name((SDL_Scancode)scancode));
 }
 
+int rui_nes_binds_default(int player, int b) {
+    if (player < 0 || player > 3 || b < 0 || b >= LNG_NES_PAD_BUTTON_COUNT)
+        return SDL_SCANCODE_UNKNOWN;
+    if (player == 0) return (int)kNesDefaultsP1[b];
+    if (player == 1) return (int)kNesDefaultsP2[b];
+    return SDL_SCANCODE_UNKNOWN;
+}
+
 void rui_nes_binds_reset(const char* path, int player) {
     if (player < 0 || player > 3) return;
     if (!s_nes_binds_init) rui_nes_binds_init(path);

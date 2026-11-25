@@ -27,6 +27,44 @@ static void write_text(const char* path, const char* body) {
     require(fclose(f) == 0, "close fixture");
 }
 
+static void check_transfer_pak(LauncherModel* m, const char* rom, const char* cart) {
+    const char* save = "transfer-pak-test.sav";
+    const int port = 2;
+    int choices[RECOMP_LAUNCHER_MAX_TPAKS] = {0};
+    choices[port] = RECOMP_LAUNCHER_PAK_TRANSFER;
+    recomp_launcher_set_n64_pak_options(RECOMP_LAUNCHER_PAK_TRANSFER, choices);
+    RecompLauncherCGameInfo game = {0};
+    RecompLauncherCSettings settings = {0};
+    game.num_players = RECOMP_LAUNCHER_MAX_TPAKS;
+    game.tpak_slots = RECOMP_LAUNCHER_MAX_TPAKS;
+    game.require_tpak_files = 1;
+    launcher_model_init(m, &settings, &game, rom);
+    require(!launcher_model_can_launch(m) && launcher_model_tpak_blocking_port(m) == port,
+            "selected empty Transfer Pak blocks Play");
+    launcher_model_set_tpak_rom(m, port, cart);
+    require(!launcher_model_can_launch(m), "cartridge alone blocks Play");
+    write_text(save, "battery save");
+    launcher_model_set_tpak_save(m, port, save);
+    require(launcher_model_can_launch(m), "cartridge and battery save enable Play");
+    launcher_model_set_tpak_save(m, port, "");
+    require(strcmp(m->s.tpak_rom_path[port], cart) == 0 &&
+            m->s.tpak_save_path[port][0] == '\0' &&
+            !launcher_model_can_launch(m), "clearing only the battery save preserves the cartridge and blocks Play");
+    launcher_model_set_tpak_save(m, port, save);
+    require(launcher_model_can_launch(m), "reselecting the battery save enables Play");
+    launcher_model_commit(m, &settings);
+    launcher_model_init(m, &settings, &game, rom);
+    require(launcher_model_can_launch(m), "restored Transfer Pak is ready");
+    require(remove(save) == 0, "remove battery save fixture");
+    launcher_model_refresh_tpak_files(m);
+    require(!launcher_model_can_launch(m), "Play recheck detects a removed save");
+    launcher_model_init(m, &settings, &game, rom);
+    require(!launcher_model_can_launch(m), "restored missing save blocks Play");
+    launcher_model_set_n64_pak_kind(m, port, 0);
+    require(launcher_model_can_launch(m), "deselected Transfer Pak cannot block Play");
+    recomp_launcher_set_n64_pak_options(0, NULL);
+}
+
 int main(int argc, char** argv) {
     require(argc == 2, "test directory argument");
     char rom[1024], other[1024], bad[1024], cache[1024], saved[1024];
@@ -103,12 +141,29 @@ int main(int argc, char** argv) {
     require(strcmp(launcher_model_rom_path(m), other) == 0,
             "disc hosts retain their existing persistence flow");
 
+    game.host_persists_paths = 1;
+    launcher_model_init(m, &settings, &game, rom);
+    launcher_model_commit(m, &settings);
+    f = fopen(cache, "rb");
+    require(f != NULL, "host-owned paths preserve an existing cache");
+    require(fgets(saved, sizeof(saved), f) != NULL, "existing cache remains readable");
+    fclose(f);
+    saved[strcspn(saved, "\r\n")] = '\0';
+    require(strcmp(saved, other) == 0, "host-owned paths do not overwrite a cache");
+    remove(cache);
+    launcher_model_commit(m, NULL);
+    f = fopen(cache, "rb");
+    require(f == NULL, "host-owned paths do not create a cache");
+    game.host_persists_paths = 0;
+    launcher_model_init(m, &settings, &game, rom);
+
     require(chdir(argv[1]) == 0, "enter fixture directory");
     launcher_model_set_rom(m, "External ROM (USA).sfc");
     launcher_model_commit(m, &settings);
     launcher_model_init(m, &settings, &game, "");
     require(strcmp(launcher_model_rom_path(m), rom) == 0,
             "relative ROM selection is cached as an absolute path");
+    check_transfer_pak(m, rom, other);
     free(m);
     remove(cache); remove(rom); remove(other); remove(bad);
     puts("PASS: selected ROM persists across launcher instances");

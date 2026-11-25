@@ -10,9 +10,16 @@
 //   view:dashboard|settings|controller|assist_tools|credits
 //                                          switch view (no clicking required)
 //   player:0|1                           which player the controller view edits
+//   tab:N                                open player N's tab on the dashboard (0-based)
+//   cardtab:N                            open memory card N's tab on the dashboard (0-based)
+//   start:N                              choose entry N of "Start from" (0-based; -1 = Power on)
+//   disc:N                               choose the disc to boot of a multi-disc title (0-based)
 //   size:WxH                             resize the window (tests live reflow)
-//   click:X,Y                            synthetic click at logical coords
+//   click:X,Y[,BUTTON]                   synthetic SDL click (default left)
 //   key:escape                           synthetic key press
+//   capassist:ACTION,PAD                 capture named host shortcut (PAD=0/1)
+//   padbutton:BUTTON                     synthetic gamepad button press
+//   padaxis:AXIS,VALUE                   synthetic gamepad axis event
 //   wait:N                               idle N frames (let layout settle)
 //   shot:PATH                            write a PNG of the current frame
 //   quit                                 exit the launcher
@@ -51,6 +58,7 @@ bool launcher_debug_active(void);
 bool launcher_debug_hidden(void);
 bool launcher_debug_next_event(SDL_Event* event);
 bool launcher_debug_mouse_frame(float* x, float* y, bool* down);
+bool launcher_debug_mouse_button_frame(float* x, float* y, bool* down, int* button);
 void launcher_debug_shutdown(void);
 
 // Parse LNG_SCRIPT. Safe to call when unset (script mode simply stays off).

@@ -68,11 +68,25 @@ void rui_nes_camera_bind_reset(const char* path) { (void)path; }
 void rui_nes_camera_bind_set(const char* path, int action, int scancode) { (void)path; (void)action; (void)scancode; }
 void rui_nes_zapper_get(const char* path, int* mouse_enabled, int* crosshair) { (void)path; (void)mouse_enabled; (void)crosshair; }
 void rui_nes_zapper_set(const char* path, int mouse_enabled, int crosshair) { (void)path; (void)mouse_enabled; (void)crosshair; }
-void rui_pad_binds_sibling_path(const char* ref, const char* file, char* out, int cap) { (void)ref; (void)file; (void)out; (void)cap; }
+int rui_kbp_dir(const RuiKbAdapter* a, char* out, int cap) { (void)a; (void)out; (void)cap; return 0; }
+int rui_kbp_list(const char* dir, char names[][RUI_KBP_NAME_MAX + 1], int max) { (void)dir; (void)names; (void)max; return 0; }
+int rui_kbp_in_use(const RuiKbAdapter* a, const char* dir, const char* keys_path, int player, char* out, int cap) { (void)a; (void)dir; (void)keys_path; (void)player; (void)out; (void)cap; return 0; }
+int rui_kbp_save_as(const RuiKbAdapter* a, const char* dir, const char* name, const char* keys_path, int player, int replace) { (void)a; (void)dir; (void)name; (void)keys_path; (void)player; (void)replace; return 0; }
+int rui_kbp_load(const RuiKbAdapter* a, const char* dir, const char* name, const char* keys_path, int player) { (void)a; (void)dir; (void)name; (void)keys_path; (void)player; return 0; }
+int rui_kbp_load_file(const RuiKbAdapter* a, const char* keys_path, int player, const char* src) { (void)a; (void)keys_path; (void)player; (void)src; return 0; }
+int rui_kbp_rename(const char* dir, const char* from, const char* to) { (void)dir; (void)from; (void)to; return 0; }
+int rui_kbp_delete(const char* dir, const char* name) { (void)dir; (void)name; return 0; }
+const RuiKbAdapter* rui_psx_kb_adapter(const char* console_id) { (void)console_id; return 0; }
+int rui_nes_binds_default(int player, int b) { (void)player; (void)b; return 0; }
+int rui_genesis_binds_default_key(int player, int b) { (void)player; (void)b; return 0; }
+int rui_gb_binds_default(int b, int slot) { (void)b; (void)slot; return 0; }
+void rui_n64_binds_default(int device, int b, int slot, int* out_type, int* out_id) { (void)device; (void)b; (void)slot; (void)out_type; (void)out_id; }
+SDL_Scancode recompui_keybinds_default_button(int player, int button) { (void)player; (void)button; return 0; }
 int rui_psx_binds_get_slot(const char* path, int player, int b, int slot) { (void)path; (void)player; (void)b; (void)slot; return 0; }
 void rui_psx_binds_init(const char* path) { (void)path; }
 void rui_psx_binds_reset(const char* path, int player) { (void)path; (void)player; }
 void rui_psx_binds_save(const char* path) { (void)path; }
+int rui_psx_binds_load_profile(const char* path, int player, const char* src) { (void)path; (void)player; (void)src; return 0; }
 void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int scancode) { (void)path; (void)player; (void)b; (void)slot; (void)scancode; }
 int rui_psx_pad_binds_deadzone(const char* path, const char* guid) { (void)path; (void)guid; return 0; }
 void rui_psx_pad_binds_delete(const char* path, const char* guid) { (void)path; (void)guid; }
@@ -227,6 +241,83 @@ int main(int argc, char** argv) {
     expect(m.s.deadzone[0] == 7, "and takes any whole percent between");
 
     test_psx_identical_controllers();
+    /* ---- Super Multitap seats ------------------------------------------ */
+    /* A five-player SNES title shows five cards: the profile's ceiling is the
+     * multitap's, and num_players decides. A two-player title keeps two. */
+    expect(kSystemProfileSnes.controller.max_players >= 5,
+           "the SNES profile admits a five-seat multitap title");
+    make_model(&m);
+    m.player_count = 5;
+    expect(launcher_model_visible_player_count(&m) == 5,
+           "a five-player SNES title draws five controller cards");
+    make_model(&m);
+    expect(launcher_model_visible_player_count(&m) == 2,
+           "a two-player SNES title still draws two");
+    /* Seats 3.. write their own [GamepadMap] line, never seat 1's. */
+    expect(strcmp(snes_gamepad_config_key(0), "Controls") == 0, "seat 1 key is Controls");
+    expect(strcmp(snes_gamepad_config_key(1), "ControlsP2") == 0, "seat 2 key is ControlsP2");
+    expect(strcmp(snes_gamepad_config_key(4), "ControlsP5") == 0, "seat 5 key is ControlsP5");
+    make_model(&m);
+    m.player_count = 5;
+    expect(snes_gamepad_set_button(&m, 4, 0, LNG_PADBIND_NONE, 0, 0) == 1,
+           "seat 5 accepts a gamepad rebind");
+    {
+        char line[LNG_SNES_PAD_BUTTON_COUNT][48];
+        snes_gamepad_read_config_order(0, line);
+        expect(strcmp(line[kSnesUiToGamepadConfig[0]], "") != 0,
+               "and seat 1's mapping is untouched");
+    }
+
+    /* A GUID names a model/profile, not a connected physical controller. */
+    LauncherPad twins[2] = {0};
+    for (int i=0;i<2;++i) {
+        snprintf(twins[i].guid,sizeof(twins[i].guid),"same-controller-model");
+        snprintf(twins[i].name,sizeof(twins[i].name),"Twin Controller");
+        twins[i].id=i ? 9 : 0; /* Device zero is valid too. */
+    }
+    make_model(&m);m.player_count=4;m.s.player_src[0]=1;
+    for (int p=1;p<4;++p) {
+        m.s.player_src[p]=2;m.s.deadzone[p]=17+p;
+        snprintf(m.s.player_gamepad_guid[p],sizeof(m.s.player_gamepad_guid[p]),"%s",twins[0].guid);
+    }
+    launcher_binds_hydrate_snes_pad_names(&m,twins,2);
+    expect(m.s.player_src[0]==1,"hydration preserves the default P1 keyboard");
+    expect(m.s.player_gamepad_instance[1]==1 && m.s.player_gamepad_instance[2]==10 && !m.s.player_gamepad_instance[3],
+           "restored same-model preferences reserve two physical pads once and leave the extra seat waiting");
+    expect(m.player_pad_id[1]==0 && m.player_pad_id[2]==9,
+           "friendly-name hydration preserves each physical capture target, including device zero");
+    expect(!strcmp(m.player_pad_name[1],twins[0].name) && !strcmp(m.player_pad_name[2],twins[1].name),
+           "physical allocation keeps friendly controller names");
+    expect(m.s.deadzone[1]==18 && m.s.deadzone[2]==19,"restoring a device never replaces saved per-seat deadzones");
+
+    /* Old settings/host handoffs may contain duplicate live claims. */
+    for (int p=1;p<4;++p) {m.s.player_gamepad_instance[p]=1;m.player_pad_id[p]=0;}
+    launcher_binds_hydrate_snes_pad_names(&m,twins,1);
+    unsigned owners=0;
+    for (int p=0;p<4;++p) owners+=m.s.player_src[p]==2 && m.s.player_gamepad_instance[p]==1;
+    expect(owners==1 && m.s.player_gamepad_instance[1]==1,"one physical pad cannot remain assigned to three restored seats");
+    expect(!strcmp(m.s.player_gamepad_guid[2],twins[0].guid) && !strcmp(m.s.player_gamepad_guid[3],twins[0].guid),
+           "waiting identical-model seats retain their saved preferences");
+    launcher_binds_hydrate_snes_pad_names(&m,twins,0);
+    expect(!m.s.player_gamepad_instance[1] && !m.s.player_gamepad_instance[2] && !m.s.player_gamepad_instance[3],
+           "unplug clears transient ownership without changing saved source choices");
+    twins[0].id=11;
+    launcher_binds_hydrate_snes_pad_names(&m,twins,1);
+    expect(m.s.player_gamepad_instance[1]==12 && m.player_pad_id[1]==11 && m.s.player_src[0]==1,
+           "hot-plug restores P2's preferred pad while preserving P1 keyboard");
+
+    /* A deliberate picker selection moves that device, instead of requiring
+     * several other player cards to be cleared by hand. */
+    launcher_model_set_source(&m,0,2,twins[0].id,twins[0].name,twins[0].guid);
+    expect(m.s.player_src[1]==0 && m.s.player_gamepad_instance[0]==12,
+           "choosing an owned pad for P1 transfers its previous physical owner");
+    launcher_binds_hydrate_snes_pad_names(&m,twins,2);
+    expect(m.s.player_gamepad_instance[0]==12 && m.player_pad_id[0]==11,
+           "a refresh cannot steal an explicit physical selection back");
+    expect(m.s.player_gamepad_instance[2]==10 && m.player_pad_id[2]==9,
+           "the second identical-model controller remains available to another seat");
+    expect(m.s.deadzone[1]==18,"moving a controller preserves the old seat's mapping preferences");
+
     remove(cfg);
     if (fails) { fprintf(stderr, "%d failure(s)\n", fails); return 1; }
     puts("snes_pad_defaults_test: ok");

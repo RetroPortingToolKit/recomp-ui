@@ -1,5 +1,7 @@
 #include "recomp_launcher.h"
 #include "consoles/psx/psx_profile.h"
+#include "consoles/ps2/ps2_profile.h"
+#include "launcher_system.h"
 
 #include <assert.h>
 #include <string.h>
@@ -37,7 +39,22 @@ int main(void) {
     /* The PC/system Display capabilities remain available. */
     assert(game.has_window_size == 1);
     assert(game.has_renderer == 1);
+    assert(game.frame_generation_hidden == 1);
     assert(game.has_vsync == 1);
+
+    /* The related PS2 profile shares DualShock vocabulary, while native
+     * cards and presentation settings belong to its host. */
+    memset(&game, 0, sizeof(game));
+    launcher_profile_apply_ps2(&game);
+    assert(strcmp(game.platform, "PLAYSTATION 2") == 0);
+    assert(game.num_players == 2);
+    assert(game.pad_mode_supported == 1 && game.pad_mode_selectable == 0);
+    assert(game.has_supersampling == 0 && game.has_renderer == 0);
+    assert(kSystemProfilePs2.save.kind == SAVE_NONE);
+    assert(kSystemProfilePs2.controller.buttons == kPsxPadButtons);
+    assert(kSystemProfilePs2.controller.max_players == 2);
+    assert(launcher_system_by_id("ps2") == &kSystemProfilePs2);
+    assert(launcher_system_infer(&game) == &kSystemProfilePs2);
 
     return 0;
 }

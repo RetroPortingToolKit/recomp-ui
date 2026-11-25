@@ -48,6 +48,32 @@ static void run(const char *keybinds, int host_owned) {
     launcher_binds_reset_camera(&m);
 }
 
+static void extended_game_actions(void) {
+    static LauncherModel m;
+    static const char *const labels[] = {
+        "System action 1", "System action 2", "System action 3",
+        "System action 4", "System action 5", "System action 6",
+        "System action 7", "Previous weapon (L)", "Next weapon (R)"
+    };
+    RecompLauncherCSettings io;
+    RecompLauncherCGameInfo gi;
+    memset(&io, 0, sizeof(io));
+    memset(&gi, 0, sizeof(gi));
+    memset(&m, 0, sizeof(m));
+    launcher_profile_apply("nes", &gi);
+    gi.name = "Extended game actions";
+    gi.settings_bindings = 1;
+    gi.assist_binding_labels = labels;
+    gi.assist_binding_count = 9;
+    io.assist_key_bind[8] = 64; /* A saved F7 binding on the ninth row. */
+    launcher_model_init(&m, &io, &gi, "");
+    assert(m.assist_binding_count == 9);
+    assert(!strcmp(m.assist_binding_labels[8], "Next weapon (R)"));
+    assert(m.s.assist_key_bind[8] == 64);
+    launcher_binds_refresh(&m);
+    assert(m.assist_binding_count == 9 && m.s.assist_key_bind[8] == 64);
+}
+
 int main(int argc, char **argv) {
     char path[1024];
     snprintf(path, sizeof(path), "%s/nes_host_keybinds.ini", argc > 1 ? argv[1] : ".");
@@ -57,6 +83,7 @@ int main(int argc, char **argv) {
     run(path, 0);
     assert(exists(path));         /* the runner's store still seeds its file */
     remove(path);
+    extended_game_actions();
     puts("nes host bindings test passed");
     return 0;
 }

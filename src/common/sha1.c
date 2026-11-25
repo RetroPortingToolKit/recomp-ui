@@ -40,7 +40,7 @@ void recompui_sha1_compute(const uint8_t* data, size_t len, uint8_t out[20]) {
     size_t pad_to = (rem < 56) ? 64 : 128;
     memset(tail + rem + 1, 0, pad_to - rem - 1);
     uint64_t bits = (uint64_t)len * 8u;
-    for (int i = 0; i < 8; ++i)
+    for (size_t i = 0; i < 8; ++i)
         tail[pad_to - 1 - i] = (uint8_t)(bits >> (8 * i));
     sha1_block(h, tail);
     if (pad_to == 128) sha1_block(h, tail + 64);

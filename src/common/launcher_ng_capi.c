@@ -9,6 +9,7 @@
 
 #include "recomp_launcher.h"
 
+#include "launcher_assets_dir.h"
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_boot_timing.h"
@@ -17,7 +18,9 @@
 #include "launcher_platform.h"
 #include "launcher_settings.h"
 #include "launcher_theme.h"
+#include "launcher_theme_overrides.h"
 #include "launcher_window_size.h"
+#include "consoles/psx/psx_start_from.h"   // "Start from": the list and the hand-over
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +32,10 @@ static char g_last_relaunch_exe[512];
 
 void recomp_launcher_set_preserve_sdl(int preserve) {
     launcher_platform_set_quit_sdl(!preserve);
+}
+
+void recomp_launcher_set_window_hidden(int hidden) {
+    launcher_platform_set_hidden_window(hidden != 0);
 }
 
 int recomp_launcher_relaunch_exe(char* out, size_t out_cap) {
@@ -162,13 +169,23 @@ fail:
     return 1;
 }
 
+#define GAME_THEME_FILE "theme_game.ini"
+
+/* assets_dir contract (assets folder or its base dir): launcher_assets_dir.h. */
+static void load_game_theme_from(const char* assets_dir) {
+    char folder[4096], path[4200];
+    if (launcher_theme_game_overrides_loaded() || !assets_dir) return;
+    if (!launcher_assets_dir_resolve(assets_dir, folder, sizeof folder)) return;
+    const int n = snprintf(path, sizeof path, "%s/" GAME_THEME_FILE, folder);
+    if (n > 0 && n < (int)sizeof path) launcher_theme_load_game_overrides(path);
+}
+
 int recomp_launcher_run_window(const char* window_title,
                              RecompLauncherCSettings* io,
                              const RecompLauncherCGameInfo* game,
                              const char* assets_dir,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len) {
-    (void)assets_dir;   // launcher_ng resolves assets next to the exe (SDL base path)
     g_last_relaunch_exe[0] = '\0';
 
     /* Packaging self-test (RECOMP_UI_PICKER_SELFTEST): exercise the native
@@ -217,11 +234,25 @@ int recomp_launcher_run_window(const char* window_title,
     launcher_binds_load(&model, game ? game->config_path : NULL,
                                 game ? game->keybinds_path : NULL);
     const RecompLauncherCSettings before = model.s;
+    /* The dashboard's "Start from" block: the title's save states and
+     * replays, read from the product's own folder. */
+    if (launcher_model_start_from_available(&model)) {
+#if defined(LNG_SDL3)
+        psx_start_from_load(&model, SDL_GetBasePath(), NULL);
+#else
+        char* base = SDL_GetBasePath();
+        psx_start_from_load(&model, base, NULL);
+        SDL_free(base);
+#endif
+    }
     launcher_boot_timing_mark("rui:model+binds_ready");
 
-    LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
+    load_game_theme_from(assets_dir);
+    LauncherTheme theme = launcher_theme_for_game(game ? game->theme : NULL);
 
+    launcher_backend_set_assets_directory(assets_dir);   /* contract: launcher_assets_dir.h */
     LngAction act = launcher_backend_run(&plat, &model, &theme);
+    launcher_backend_set_assets_directory(NULL);
 
     launcher_window_size_save(window_size_path, plat.logical_w, plat.logical_h);
     launcher_platform_close(&plat);
@@ -249,6 +280,16 @@ int recomp_launcher_run_window(const char* window_title,
          * lobby launch may arm it. Quitting must never hand the host a
          * pending session. */
         memset(&io->netplay_launch, 0, sizeof(io->netplay_launch));
+    }
+
+    /* "Start from": PLAY hands the chosen save state to the host through
+     * PSX_LOAD_SLOT, or the chosen replay through PSX_REPLAY_FILE, which it
+     * reads next. Any other way out, and a netplay launch, leave no such
+     * variable of ours behind. A tick of Record replay goes back to Power on. */
+    if (launcher_model_start_from_available(&model)) {
+        launcher_model_start_sync(&model);
+        psx_start_from_apply(&model, act != LNG_ACTION_LAUNCH ||
+                                         (io && io->netplay_launch.enabled));
     }
 
     if (act == LNG_ACTION_LAUNCH || act == LNG_ACTION_RELAUNCH) {

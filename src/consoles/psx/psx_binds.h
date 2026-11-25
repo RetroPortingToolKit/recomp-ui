@@ -29,6 +29,14 @@ extern "C" {
 // file rewritten cleanly rather than half-applying a foreign blend.
 void rui_psx_binds_init(const char* path);
 
+/* A host with a distinct keyboard contract may seed its own defaults. Existing
+ * files remain authoritative, including intentionally unbound players. While
+ * enabled, saves update only those player/key entries and preserve other INI
+ * sections. NULL restores the ordinary PSX policy. Pass 24 scancodes/player. */
+void rui_psx_binds_host_defaults(const int* scancodes, int players);
+/* Check actual persisted primary bindings without changing the live store. */
+int rui_psx_binds_check_saved(const char* path);
+
 // Current binding (SDL_Scancode as int) for player (0..LNG_MAX_PLAYERS-1),
 // rebind-spec button b (0..LNG_PSX_PAD_BUTTON_COUNT-1). Auto-initializes
 // from `path` on first use.
@@ -46,6 +54,29 @@ void rui_psx_binds_set_slot(const char* path, int player, int b, int slot, int s
 // Flush the whole in-memory keyboard map to `path`. Rebinds already persist
 // on capture; this is the explicit Save Profile action of the keyboard panel.
 void rui_psx_binds_save(const char* path);
+
+// Load Profile: replace one player's keyboard map (0-based player) with the
+// [player<N>] section of `src` (else its [player1]) and persist to `path`.
+// Returns 1 on success, 0 if `src` is unreadable, foreign-format or has no
+// usable section; the current map is then left unchanged.
+int rui_psx_binds_load_profile(const char* path, int player, const char* src);
+
+// Save one player's keyboard map (0-based player) to the profile file `dst`,
+// as a single [player1] section, so that Load Profile puts it on any player.
+// Returns 1 when the file was written. keybinds.ini is not changed.
+int rui_psx_binds_save_profile(const char* path, int player, const char* dst);
+
+// 1 when Load Profile of `src` onto this player would change nothing: the
+// player's keys, primary and alternate, are the ones the file holds.
+int rui_psx_binds_matches_profile(const char* path, int player, const char* src);
+
+// The key Reset puts on (player, b, slot 0 primary / 1 alternate): the host's
+// supplied defaults when there are any, else the shared built-in map.
+int rui_psx_binds_default_key(int player, int b, int slot);
+
+// 1 when the player's keys are what Reset puts there (the effective defaults,
+// host-supplied or built-in) with no alternate.
+int rui_psx_binds_is_default(const char* path, int player);
 
 // Reset one player to the shared default keyboard map + persist.
 void rui_psx_binds_reset(const char* path, int player);

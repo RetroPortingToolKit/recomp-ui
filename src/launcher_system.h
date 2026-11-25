@@ -29,6 +29,7 @@
 
 #include "consoles/snes/snes_profile.h"
 #include "consoles/psx/psx_profile.h"
+#include "consoles/ps2/ps2_profile.h"
 #include "consoles/gba/gba_profile.h"
 #include "consoles/n64/n64_profile.h"
 #include "consoles/nes/nes_profile.h"
@@ -36,6 +37,8 @@
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
 #include "consoles/vb/vb_profile.h"
+#include "consoles/cdi/cdi_profile.h"
+#include "consoles/3do/3do_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,6 +69,7 @@ LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
 // launcher_profile_apply() accepts. Returns NULL if unknown.
 static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (!name || !name[0]) return NULL;
+    if (launcher_console_is_ps2(name)) return &kSystemProfilePs2;
     if (launcher_console_is_psx(name))  return &kSystemProfilePsx;
     if (launcher_console_is_snes(name)) return &kSystemProfileSnes;
     if (launcher_console_is_gba(name))  return &kSystemProfileGba;
@@ -75,6 +79,8 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (launcher_console_is_gbc(name))  return &kSystemProfileGbc;
     if (launcher_console_is_gb(name))   return &kSystemProfileGb;
     if (launcher_console_is_nds(name))  return &kSystemProfileNds;
+    if (launcher_console_is_cdi(name))  return &kSystemProfileCdi;
+    if (launcher_console_is_3do(name))  return &kSystemProfile3do;
     if (lps_streq_ci(name, "smsgg") || lps_streq_ci(name, "sms") || lps_streq_ci(name, "gg"))
         return &kSystemProfile_smsgg;
     if (lps_streq_ci(name, "vb") || lps_streq_ci(name, "virtualboy")) return &kSystemProfile_vb;
@@ -90,6 +96,8 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
 // or the legacy/SNES-shaped minimal surface).
 static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGameInfo* gi) {
     if (gi && gi->platform && gi->platform[0]) {
+        if (lps_streq_ci(gi->platform, "PHILIPS CD-I")) return &kSystemProfileCdi;
+        if (lps_streq_ci(gi->platform, "PLAYSTATION 2")) return &kSystemProfilePs2;
         if (lps_streq_ci(gi->platform, "PLAYSTATION"))       return &kSystemProfilePsx;
         if (lps_streq_ci(gi->platform, "SUPER NINTENDO"))    return &kSystemProfileSnes;
         if (lps_streq_ci(gi->platform, "NINTENDO 64"))       return &kSystemProfileN64;
@@ -97,6 +105,8 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
         // "GENESIS" was the pre-buildout stub label (kept for host compat).
         if (lps_streq_ci(gi->platform, "SEGA GENESIS"))      return &kSystemProfileGenesis;
         if (lps_streq_ci(gi->platform, "GENESIS"))           return &kSystemProfileGenesis;
+        // A 32X cartridge uses the same Genesis controllers and SRAM.
+        if (lps_streq_ci(gi->platform, "SEGA 32X"))          return &kSystemProfileGenesis;
         if (lps_streq_ci(gi->platform, "GAME BOY ADVANCE"))  return &kSystemProfileGba;
         // Both the built-out label and the old stub's "NINTENDO" resolve to
         // the NES row, so hosts built against the stub-era string keep working.
@@ -110,6 +120,7 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
         if (lps_streq_ci(gi->platform, "GAME BOY COLOR"))    return &kSystemProfileGbc;
         if (lps_streq_ci(gi->platform, "GAME BOY"))          return &kSystemProfileGb;
         if (lps_streq_ci(gi->platform, "NINTENDO DS"))       return &kSystemProfileNds;
+        if (lps_streq_ci(gi->platform, "3DO"))               return &kSystemProfile3do;
         if (lps_streq_ci(gi->platform, "MASTER SYSTEM"))     return &kSystemProfile_smsgg;
         if (lps_streq_ci(gi->platform, "VIRTUAL BOY"))       return &kSystemProfile_vb;
     }

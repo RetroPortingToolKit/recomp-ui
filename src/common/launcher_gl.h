@@ -30,6 +30,11 @@ LauncherTexture launcher_texture_load(const char* path);
 // art asset-agnostic instead of hand-editing each game's images.
 LauncherTexture launcher_texture_load_colorkey(const char* path, int tolerance);
 
+// A texture from w x h pixels of four bytes each (red, green, blue, alpha),
+// row by row from the top. Same filtering as a loaded image. id == 0 on
+// failure.
+LauncherTexture launcher_texture_from_rgba(const unsigned char* rgba, int w, int h);
+
 void launcher_texture_free(LauncherTexture* t);
 
 // Decode an image file to a tightly-packed RGBA8 buffer, WITHOUT touching GL.

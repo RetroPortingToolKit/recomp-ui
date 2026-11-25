@@ -81,6 +81,10 @@ static const char* const kPsxDiscPatterns[] = {
     ((int)(sizeof(kPsxDiscPatterns) / sizeof(kPsxDiscPatterns[0])))
 
 // ---- SystemProfile row ----------------------------------------------------------
+static const PadModeDef kPsxPadModes[] = {
+    { 1, "Auto", LNG_PSX_PAD_BUTTON_COUNT },
+};
+
 static const SystemProfile kSystemProfilePsx = {
     /* id       */ "psx",
     /* platform */ "PLAYSTATION",
@@ -93,6 +97,11 @@ static const SystemProfile kSystemProfilePsx = {
         /* has_pad_mode */ 1,
         /* binds_per_input */ 2,  // primary + alternate; either asserts the
                                   // input, and either may be a mouse button
+        /* modes */ kPsxPadModes, /* mode_count */ 1, /* has_pad_binds */ 0,
+        /* pad_bind_order */ NULL, /* pad_bind_cols */ 0, /* pad_bind_rows */ 0,
+        /* has_pak */ 0,
+        /* player_tabs */ 1,      // the memory cards sit under the controller
+                                  // card: one tab per player, not a grid
     },
     // MEMCARD is PSX's real target shape (2 slots): the standalone "save" panel
     // (see kPanelsDashboardPsx above) renders a dual-slot picker + 15-block
@@ -126,7 +135,9 @@ static const SystemProfile kSystemProfilePsx = {
                                    (1u << LNG_HK_DISPLAY_PERF)   |
                                    RUI_PSX_REWIND_HOTKEY_MASK    |
                                    (1u << LNG_HK_SAVE_STATE_MENU) |
-                                   (1u << LNG_HK_TURBO_TOGGLE)),
+                                   (1u << LNG_HK_TURBO_TOGGLE)    |
+                                   (1u << LNG_HK_QUICK_SAVE)     |
+                                   (1u << LNG_HK_QUICK_LOAD)),
     /* panels_dashboard  */ kPanelsDashboardPsx,
     /* panels_settings   */ kPanelsSettingsPsx,
     /* panels_controller */ kPanelsControllerCommon,
@@ -138,6 +149,7 @@ static const SystemProfile kSystemProfilePsx = {
     /* hide_audio_freq   */ 1,       // psxrecomp opens audio at its built-in rate; Volume only
     /* brand             */ "brand_psx.tga",
     /* wordmark_image    */ NULL,
+    /* start_from        */ 1,      // psx_start_from.h lists the save states
 };
 
 // ---- name aliases + ABI capability defaults -------------------------------------
@@ -180,6 +192,7 @@ static inline void launcher_profile_apply_psx(RecompLauncherCGameInfo* gi) {
     gi->has_deadzone_pct = 1;
     gi->has_rewind_depth = 0;
     gi->linear_filter_hidden = 1;
+    gi->frame_generation_hidden = 1;
     gi->has_vsync = 1;         /* psxrecomp paces frames itself, so driver
                                 * vsync is a latency-vs-tearing choice. */
 }

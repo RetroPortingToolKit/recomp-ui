@@ -1,5 +1,8 @@
 # recomp-ui
 
+PSX controller startup uses [automatic controller mode](docs/PSX_CONTROLLER_MODE.md).
+Hosts can also expose [native PSX peripheral choices](docs/PSX_NATIVE_PERIPHERALS.md).
+
 > ℹ️ **Note from mstan:** This repo and I are now part of [RetroPortingToolkit](https://retroportingtoolkit.com/). I remain a primary maintainer of recomp-ui alongside the team. [More info](https://1379.tech/forming-a-collective-retro-porting-toolkit/).
 
 A shared, **console-agnostic launcher and in-game settings UI** for static-
@@ -21,6 +24,64 @@ binary core**:
 
 ---
 
+## Host integration helpers
+
+### Host launch options and game version
+
+Hosts can adopt the optional C helpers before their own argument parser:
+
+```c
+int launcher_mode = recomp_launcher_parse_cli_args(&argc, argv);
+/* Load the host's saved settings as usual. */
+recomp_launcher_set_game_version("v1.2.3");
+if (!recomp_launcher_cli_should_skip(launcher_mode, settings.skip_launcher)) {
+    /* Call recomp_launcher_run_window(...) as usual. */
+}
+```
+
+`--no-launcher` and `--skip-launcher` request one direct boot; `--launcher`
+requests the launcher even when the saved preference skips it. The last
+launcher switch wins. The helper removes these switches from argv, preserves
+other arguments, and stops at `--`. It never changes the saved skip setting.
+The host retains its normal required-media checks and direct-boot mod setup.
+These switches require host adoption; linking recomp-ui alone does not parse
+an executable's arguments.
+
+The version setter copies up to 127 bytes and displays the supplied game
+version below the launcher title/platform. NULL clears it; existing hosts that
+do not supply a version keep their current presentation. This metadata is
+process-local and is not a setting or a netplay compatibility identity.
+
+### File-path TEXT options
+
+Existing provider and option structs retain their layouts. A host/provider can
+opt a TEXT option into Browse/Clear with the fixed V1 metadata extension:
+
+```c
+RecompLauncherCModTextPathV1 path = {0};
+snprintf(path.filter_description, sizeof(path.filter_description), "Seed patch");
+path.pattern_count = 1;
+snprintf(path.patterns[0], sizeof(path.patterns[0]), "*.apsm");
+int registered = recomp_launcher_register_mod_text_path_v1(
+    &provider, "example.randomizer", "randomizer", "seed", &path);
+/* Open the launcher, then unregister before destroying/reusing provider. */
+recomp_launcher_unregister_mod_text_paths(&provider);
+```
+
+Check the registration result. Package-level options use NULL/empty feature
+IDs. IDs, filter description and up to eight patterns are copied; the provider
+pointer is an identity key borrowed for the registration's lifetime. Register
+NULL metadata to remove one entry. Call registration/query functions on the UI
+thread or while the launcher is closed.
+
+Browse uses the existing native/in-app picker and writes through the ordinary
+package or feature `set_option` callback; cancel writes nothing. Clear submits
+an empty value. Providers retain validation and saved-path ownership, with no
+fixed-ROM identity requirement added. Unregistered TEXT options keep their
+input-only control. The existing `RECOMP_LAUNCHER_MOD_VALUE_MAX` capacity still
+applies: overlong selections are rejected rather than truncated to another
+filename.
+
 ## Architecture: composition + inheritance
 
 recomp-ui is **one** launcher composed differently per console — never a
@@ -39,7 +100,7 @@ Adding a console is (ideally) **one `SystemProfile` row** in
 data passed through the C ABI — theme, platform label, box art, pad image,
 which panels — so there is no `../snes` / `../psx` source fork.
 
-The DRY heart is [`src/launcher_model.h`](src/launcher_model.h): all launcher
+The DRY heart is [`src/common/launcher_model.h`](src/common/launcher_model.h): all launcher
 STATE + BEHAVIOR, free of any UI toolkit, built purely from the C ABI structs —
 so behavior is identical across every game.
 
@@ -61,7 +122,7 @@ recomp_target_launcher_ui(my-game-runtime
     CONSOLE psx                                  # required: psx/snes/nds/n64/nes/...
     BOXART ${CMAKE_SOURCE_DIR}/art/boxart.tga   # optional: game box art
     PAD    ${CMAKE_SOURCE_DIR}/art/pad.tga       # optional: per-console controller image
-    BRAND  ${CMAKE_SOURCE_DIR}/art/brand.tga)    # optional: per-console top-left mark
+    BRAND  ${CMAKE_SOURCE_DIR}/art/brand.tga)    # optional: game top-left mark
 ```
 
 `recomp_ui.cmake` is fully self-contained: it bundles Dear ImGui, crc32/sha256/
@@ -94,6 +155,16 @@ then exposes a dedicated Display → Screen layout cycle backed by
 features. The Nintendo DS profile uses it for stacked versus separate windows,
 keeps Player 1's ordinary buttons controller-configurable, and leaves the
 bottom-screen pointer/touch mapping to the host.
+
+The PSX Settings page uses compact General and Display groups: two columns by
+default, three where useful on wide windows, and one on narrow windows. Internal
+Resolution and PGXP controls sit in the first Display group. With a supporting
+host provider and built-in enhancement catalog, Faithful / Best presets write
+the actual preferences; subsequent edits show Custom. Both retain 4:3 and
+original motion. Best raises rendering quality and can increase GPU demand.
+Audio, bindings, cards and unrelated mod choices are retained. Unsupported
+providers do not expose a preset that cannot be applied. The exact visual map
+is in `src/common/backends/imgui/launcher_psx_settings.inc`.
 
 ### 3. Call it from your `main()`
 
@@ -353,6 +424,16 @@ in-session commits keep their existing paths; commit-only hosts never
 auto-prepare. A host can prime a validated warm ticket before opening the UI
 so an ordinary warm launcher does not need a preparation screen at all.
 
+When `RECOMP_LAUNCHER_HAS_MOD_PREPARATION_PROGRESS` is defined, a worker-safe
+provider may also supply `commit_with_progress`. It receives a report callback
+and context; pass a fraction in 0..1 (or a negative value for an indefinite bar)
+and a short preparation message. The launcher copies progress without accessing
+the provider on the UI thread. A zero report result requests cancellation.
+Check it between bounded work units and before publishing output bindings, and
+retain the previous verified cache on failure or cancellation. Cancel and close
+join the owned worker; cancellation always suppresses launch. Legacy providers
+keep their existing callback and completion behavior.
+
 Hosted-lobby, LAN, and direct netplay launches never call the normal `commit()`.
 If supplied, `commit_netplay()` should clear any in-session mod plan without
 changing the user's persisted offline selection. If it is `NULL`, recomp-ui
@@ -384,6 +465,24 @@ game build cache while still honoring an explicit `OFF`. An older build
 directory may retain the former recomp-ui default (`OFF`); reconfigure it with
 the explicit `-DRECOMP_UI_ENABLE_MODS:BOOL=ON` command above. PSXRecomp emits a
 CMake warning when it detects this Mods-less cached state.
+
+#### Cover button and desktop icon (PlayStation disc panel)
+
+The disc panel carries a **Fetch cover** button and a **desktop icon** button.
+recomp-ui ships no cover and has no built-in cover source: the host sets
+`GameInfo.cover_url_template` to an `https://` address with the disc serial as
+`{serial}` (for example `https://example.org/covers/{serial}.jpg`, with the
+serial as `SLUS-04321`). Apart from the placeholder, only letters, digits and
+`/ . - _` are accepted (no query, port or credentials). With no usable
+template the Fetch cover button is not shown. It is also not shown once the
+title has box art, either its own or a fetched `launcher-cover.jpg`. Nothing
+is fetched without a click; the request is made by the system's `curl` with an
+argument vector (no shell), https only, and the result must be a JPEG/PNG of a
+sane size.
+
+Both buttons save into the folder of the host's settings file
+(`GameInfo.config_path`; a bare file name resolves to the current folder when
+the launcher opens). Without a settings file they are disabled.
 
 ### In-game settings overlay
 
@@ -612,7 +711,8 @@ recomp_target_launcher_ui(game-target
 | `BOXART <path>` | Optional per-game TGA copied next to the executable. |
 | `BOXART_NAME <name>` | Optional destination basename when several targets share one output directory. Pair it with `GameInfo.boxart_path`. |
 | `PAD <path>` | Optional controller-art override staged as `assets/img/pad.tga`. |
-| `BRAND <path>` | Optional top-left brand override staged as `assets/img/brand_mark.tga`. |
+| `BRAND <path>` | Optional top-left game mark staged as `assets/img/brand_game.tga`; it wins over the console profile's own mark. |
+| `THEME <path>` | Optional game colors staged as `assets/theme_game.ini`: a `[colors]` section with `LauncherTheme` field names as keys and `#RRGGBB` or `#RRGGBBAA` values (`accent = #ECC57D`). Set keys override the console theme in the launcher and the in-game menu; the rest stay. A host that skips the launcher loads the file itself with `launcher_theme_load_game_overrides()`. |
 | `HOST_IMGUI` + `IMGUI_DIR <path>` | Reuse Dear ImGui already compiled by the host, avoiding duplicate core/backend symbols. `IMGUI_DIR` must contain `imgui.h` and the backend headers. |
 
 `RECOMP_UI_HOST_IMGUI=ON` plus `RECOMP_UI_HOST_IMGUI_INCLUDE=<path>` remains
@@ -648,6 +748,8 @@ cmake -G Ninja -S . -B build
 cmake --build build -j
 # Preview a console: LNG_VARIANT = psx | snes | gba | genesis | ...
 LNG_VARIANT=genesis ./build/recomp-ui-launcher
+# Preview a player count: LNG_PLAYERS = 1..8 (LNG_MULTITAP=1 shows PSX seats 3+)
+LNG_VARIANT=psx LNG_PLAYERS=4 LNG_MULTITAP=1 ./build/recomp-ui-launcher
 ```
 
 `LNG_SCRIPT` drives it headless for screenshot regression, e.g.

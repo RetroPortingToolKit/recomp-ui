@@ -1383,6 +1383,12 @@ static int cb_connect(void *ctx)
 {
   int rc;
   (void)ctx;
+  if (rnet_account_state() != RNET_ACCOUNT_SIGNED_IN) {
+    snprintf(g_runtime_error, sizeof(g_runtime_error), "login_required");
+    return -1;
+  }
+  if (strcmp(g_runtime_error, "login_required") == 0)
+    g_runtime_error[0] = '\0';
   rnet_lobby_set_game_identity(game_name(), game_version());
   rc = rnet_lobby_connect(cb_default_url(NULL));
   /* connect() resets the client; the reset keeps the identity, and this
@@ -4030,6 +4036,14 @@ int recomp_netplay_host_auto_launch(const char *role, const char *player_name,
   cb->set_player_name(NULL, player_name && player_name[0]
                                 ? player_name
                                 : (is_host ? "HostTest" : "GuestTest"));
+  /* A saved device key redeems asynchronously. Give that existing sign-in
+   * the same bounded opportunity as the interactive launcher. */
+  cb->pump(NULL);
+  while (rnet_account_state() == RNET_ACCOUNT_WAITING &&
+         auto_now_ms() < deadline) {
+    auto_sleep_ms(10);
+    cb->pump(NULL);
+  }
   if (cb->connect(NULL) != 0) {
     auto_log(role, "connect_failed");
     return -2;

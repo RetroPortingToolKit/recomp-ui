@@ -34,6 +34,7 @@ static SDL_Event g_events[8];
 static int g_event_count;
 static float g_mouse_x, g_mouse_y;
 static int g_click_phase;
+static int g_click_button=SDL_BUTTON_LEFT;
 static bool g_mouse_valid;
 
 bool launcher_debug_hidden(void) {
@@ -52,11 +53,16 @@ bool launcher_debug_next_event(SDL_Event* e) {
     memmove(g_events, g_events + 1, (size_t)g_event_count * sizeof(*e));
     return true;
 }
-bool launcher_debug_mouse_frame(float* x, float* y, bool* down) {
+bool launcher_debug_mouse_button_frame(float* x, float* y, bool* down, int* button) {
     if (!launcher_debug_hidden() || !g_mouse_valid) return false;
-    *x = g_mouse_x; *y = g_mouse_y; *down = g_click_phase == 1;
+    *x = g_mouse_x; *y = g_mouse_y; *down = g_click_phase == 1; *button=g_click_button;
     if (g_click_phase) g_click_phase = g_click_phase == 1 ? 2 : 0;
     return true;
+}
+bool launcher_debug_mouse_frame(float* x,float* y,bool* down) {
+    int button;bool pressed;
+    if(!launcher_debug_mouse_button_frame(x,y,&pressed,&button))return false;
+    *down=pressed&&button==SDL_BUTTON_LEFT;return true;
 }
 void launcher_debug_shutdown(void) {
     launcher_debug_tcp_close();
@@ -127,9 +133,9 @@ bool launcher_capture_png(const char* path, int w, int h) {
 // Synthesize a click at logical window coords: warp the cursor (so backends
 // that sample SDL_GetMouseState see it) and push button events (so backends
 // that consume the event queue see it). Covers both ImGui and Clay.
-static void synth_click(LauncherPlatform* p, float x, float y) {
+static void synth_click(LauncherPlatform* p, float x, float y, int button) {
     if (launcher_debug_hidden()) {
-        g_mouse_x = x; g_mouse_y = y; g_mouse_valid = true; g_click_phase = 1;
+        g_mouse_x=x;g_mouse_y=y;g_mouse_valid=true;g_click_phase=1;g_click_button=button;
         return;
     }
 #if defined(LNG_SDL3)
@@ -156,7 +162,7 @@ static void synth_click(LauncherPlatform* p, float x, float y) {
     SDL_zero(e);
     e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     e.button.windowID = SDL_GetWindowID(p->window);
-    e.button.button = SDL_BUTTON_LEFT;
+    e.button.button = (Uint8)button;
     e.button.clicks = 1;
 #if defined(LNG_SDL3)
     e.button.x = x; e.button.y = y;
@@ -312,6 +318,20 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
         else ok = false;
+    } else if (strncmp(c, "mod-select:", 11) == 0) {
+        m->mod_selected = atoi(c + 11);
+    } else if (strncmp(c, "resource-import:", 16) == 0) {
+        char resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+        const char* path = strchr(c + 16, ':');
+        RecompLauncherCModFeature feature;
+        if (path && (size_t)(path - (c + 16)) < sizeof resource && m->mods &&
+            m->mods->feature_get && m->mods->feature_get(m->mods->ctx, m->mod_selected, &feature)) {
+            memcpy(resource, c + 16, (size_t)(path - (c + 16)));
+            resource[path - (c + 16)] = 0;
+            launcher_model_import_mod_resource(m, feature.package_id, feature.id, resource, path + 1);
+        }
+    } else if (strcmp(c, "wait-ready") == 0) {
+        if (m->setup_preparing) --g_cmd_index;
     } else if (strncmp(c, "player:", 7) == 0) {
         // Select which player the Controller view configures. Clamp to the
         // launcher's real player range (N64 profiles run up to 4) instead of
@@ -320,6 +340,18 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         if (pl < 0) pl = 0;
         if (pl > LNG_MAX_PLAYERS - 1) pl = LNG_MAX_PLAYERS - 1;
         m->cfg_player = pl;
+    } else if (strncmp(c, "tab:", 4) == 0) {
+        // Open a player's tab on the dashboard (0-based), as a click on it does.
+        launcher_model_set_player_tab(m, atoi(c + 4));
+    } else if (strncmp(c, "start:", 6) == 0) {
+        // Choose a "Start from" entry by its place in the list; -1 is Power on.
+        launcher_model_select_start(m, atoi(c + 6));
+    } else if (strncmp(c, "disc:", 5) == 0) {
+        // Choose the disc to boot of a multi-disc title (0-based).
+        launcher_model_select_disc(m, atoi(c + 5));
+    } else if (strncmp(c, "cardtab:", 8) == 0) {
+        // Open a memory card's tab on the dashboard (0-based).
+        launcher_model_set_card_tab(m, atoi(c + 8));
     } else if (strncmp(c, "capbtn:", 7) == 0) {
         launcher_model_begin_capture(m, atoi(c + 7));   // rebind a player button (generic spec index)
     } else if (strncmp(c, "cappad:", 7) == 0) {
@@ -331,6 +363,30 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) synth_pad_axis(axis, value);
     } else if (strncmp(c, "caphk:", 6) == 0) {
         launcher_model_begin_hk_capture(m, (LngHotkey)atoi(c + 6)); // rebind a hotkey
+    } else if (strncmp(c, "capassist:", 10) == 0) {
+        int action = 0, pad = 0;
+        if (sscanf(c + 10, "%d,%d", &action, &pad) == 2)
+            launcher_model_begin_assist_capture(m, action, pad != 0);
+    } else if (strncmp(c, "padbutton:", 10) == 0) {
+        SDL_Event event;
+        SDL_zero(event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        LNG_EVGBTN(event) = (Uint8)atoi(c + 10);
+        LNG_EVGBTNWHICH(event) = 1;
+        SDL_PushEvent(&event);
+        event.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+        SDL_PushEvent(&event);
+    } else if (strncmp(c, "padaxis:", 8) == 0) {
+        int axis = 0, value = 0;
+        if (sscanf(c + 8, "%d,%d", &axis, &value) == 2) {
+            SDL_Event event;
+            SDL_zero(event);
+            event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+            LNG_EVGAXIS(event) = (Uint8)axis;
+            LNG_EVGAXISVAL(event) = (Sint16)value;
+            LNG_EVGAXISWHICH(event) = 1;
+            SDL_PushEvent(&event);
+        }
     } else if (strncmp(c, "size:", 5) == 0) {
         int w = 0, h = 0;
         if (sscanf(c + 5, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) {
@@ -339,7 +395,10 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
         }
     } else if (strncmp(c, "click:", 6) == 0) {
         float x = 0, y = 0;
-        if (sscanf(c + 6, "%f,%f", &x, &y) == 2) synth_click(p, x, y);
+        int button = SDL_BUTTON_LEFT;
+        if (sscanf(c + 6, "%f,%f,%d", &x, &y, &button) >= 2 &&
+            button >= SDL_BUTTON_LEFT && button <= SDL_BUTTON_X2)
+            synth_click(p, x, y, button);
         else ok = false;
     } else if (strncmp(c, "key:", 4) == 0) {
         if (strcmp(c + 4, "escape") == 0) synth_key(p, SDLK_ESCAPE);

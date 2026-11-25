@@ -14,12 +14,16 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <errno.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
 #if defined(_WIN32)
 #  include <windows.h>
+#  include <io.h>
+#  include <fcntl.h>
+#  include <sys/stat.h>
 #else
 #  include <pthread.h>
 #  include <unistd.h>
@@ -35,7 +39,7 @@ static const int kFreqCount   = (int)(sizeof(kFreqTable) / sizeof(kFreqTable[0])
 
 static const int kWindowWidths[]    = { 960, 1280, 1600, 1920 };
 static const int kWindowWidthCount  = (int)(sizeof(kWindowWidths) / sizeof(kWindowWidths[0]));
-static const int kInterpFpsTable[]  = { 0, 90, 120, 144, 165, 240 };
+static const int kInterpFpsTable[]  = { 0, 90, 120, 144, 165, 240, 360 };
 static const int kInterpFpsCount    = (int)(sizeof(kInterpFpsTable) / sizeof(kInterpFpsTable[0]));
 static const char* kScreenKindNames[4] = { "Raw", "CRT", "Composite", "Trinitron" };
 
@@ -53,7 +57,8 @@ static const char* kHotkeyNames[] = {
     "Window bigger", "Window smaller", "Volume up", "Volume down",
     "FPS readout", "Toggle renderer",
     "Solar level up", "Solar level down", "Resume live solar",
-    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle"
+    "Rewind", "Save states menu", "Open launcher", "Fast-forward toggle",
+    "Quick save", "Quick load", "Screenshot"
 };
 typedef char kHotkeyNames_covers_every_hotkey[
     (sizeof(kHotkeyNames) / sizeof(kHotkeyNames[0]) == LNG_HK_COUNT) ? 1 : -1];
@@ -61,7 +66,9 @@ static const char* kViewNames[LNG_VIEW__COUNT] = {
     "Dashboard", "Settings", "Controller", "Netplay", "Mods",
     "Assist Tools", "Credits", "Lobby"
 };
-static const char* kSrcNames[3]  = { "None", "Keyboard", "Gamepad" };
+/* Index 3 (RECOMP_LAUNCHER_SRC_MOUSE) and 4 (RECOMP_LAUNCHER_SRC_GUNCON) exist
+ * only where launcher_model_mouse/guncon_source_available() say so. */
+static const char* kSrcNames[5]  = { "None", "Keyboard", "Gamepad", "PS1 Mouse", "GunCon" };
 
 static void safe_copy(char* dst, size_t cap, const char* src) {
     if (!dst || cap == 0) return;
@@ -138,7 +145,7 @@ static long lm_file_size(FILE* f) {
 static void lm_write_zero_padding(FILE* f, long count) {
     static const unsigned char zeros[256] = {0};
     while (count > 0) {
-        size_t n = (size_t)(count > (long)sizeof(zeros) ? sizeof(zeros) : count);
+        size_t n = count > (long)sizeof(zeros) ? sizeof(zeros) : (size_t)count;
         fwrite(zeros, 1, n, f);
         count -= (long)n;
     }
@@ -178,28 +185,59 @@ static size_t lm_path_stem(const char* path, char* out, size_t cap) {
     return n;
 }
 
-// Compare two disc paths for "same image". Exact string equality first (the
-// common case: the launcher hands back exactly the path the host gave it),
-// then a case-insensitive compare of the file-name STEM. The stem, not the
-// whole name: a .cue and the .bin it owns are one disc, and hosts hand us
-// either — psxrecomp resolves a picked .cue to its .bin before it mounts —
-// so "Disc 2.cue" and "Disc 2.bin" must land on the same roster slot. Two
-// different discs of a set never share a stem; they are numbered.
-static int lm_path_eq(const char* a, const char* b) {
-    if (!a || !b || !a[0] || !b[0]) return 0;
-    if (strcmp(a, b) == 0) return 1;
-    char sa[128], sb[128];
-    if (!lm_path_stem(a, sa, sizeof(sa)) || !lm_path_stem(b, sb, sizeof(sb)))
-        return 0;
-    return strcmp(sa, sb) == 0;
+// Identity key of a disc path: the whole path with the file name's last
+// extension dropped, separators unified, case-folded on Windows. Same rule as
+// psxrecomp's disc_roster_key(). The directory stays in the key, so two cache
+// folders that both hold "disc.cue" are different discs, while a .cue and the
+// same-directory .bin it owns (hosts hand us either) share one key. Hosts pass
+// normalized absolute paths, so nothing further is normalized here. Length 0
+// when there is nothing usable or the path does not fit.
+static size_t lm_path_key(const char* path, char* out, size_t cap) {
+    if (!path || !out || cap == 0) return 0;
+    out[0] = '\0';
+    size_t n = strlen(path);
+    if (n == 0 || n >= cap) return 0;
+    const char* base = path;
+    for (const char* p = path; *p; ++p)
+        if (*p == '/' || *p == '\\') base = p + 1;
+    const char* dot = NULL;
+    for (const char* p = base; *p; ++p)
+        if (*p == '.') dot = p;
+    if (dot && dot != base) n = (size_t)(dot - path);
+    for (size_t i = 0; i < n; ++i) {
+        char c = path[i] == '\\' ? '/' : path[i];
+#ifdef _WIN32
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+#endif
+        out[i] = c;
+    }
+    out[n] = '\0';
+    return n;
 }
 
 // Roster slot whose effective path is `path`, or -1 when it is off-roster.
+// Same rule as psxrecomp's disc_roster_index(): a path-key match wins; a
+// relocated image binds by file-name stem only when exactly one slot has that
+// stem. An ambiguous stem is no disc identity at all.
 static int lm_disc_index_for_path(const LauncherModel* m, const char* path) {
     if (!m || m->num_discs <= 0 || !path || !path[0]) return -1;
-    for (int i = 0; i < m->num_discs; ++i)
-        if (lm_path_eq(launcher_model_disc_path(m, i), path)) return i;
-    return -1;
+    char want[512], have[512];
+    if (lm_path_key(path, want, sizeof(want)))
+        for (int i = 0; i < m->num_discs; ++i)
+            if (lm_path_key(launcher_model_disc_path(m, i), have, sizeof(have)) &&
+                strcmp(want, have) == 0)
+                return i;
+    char sw[128], sh[128];
+    if (!lm_path_stem(path, sw, sizeof(sw))) return -1;
+    int match = -1;
+    for (int i = 0; i < m->num_discs; ++i) {
+        if (!lm_path_stem(launcher_model_disc_path(m, i), sh, sizeof(sh)) ||
+            strcmp(sw, sh) != 0)
+            continue;
+        if (match != -1) return -1;
+        match = i;
+    }
+    return match;
 }
 
 // Bind rom_full to the roster after any ROM change. Either the new path IS a
@@ -233,6 +271,7 @@ static int lm_memcard_enabled_from_host(int v) {
     return v > 0 ? 1 : 0;   /* 1 on, -1 off */
 }
 static void lm_inspect_tpak(LauncherModel* m, int slot);    // fwd; host tpak_inspect callback
+static FILE* lm_fopen_utf8(const char* path, const char* mode);
 static void lm_persist_setup_sidecars(LauncherModel* m);    // fwd; called from launcher_model_finish_setup
 static void lm_persist_cart_rom(const LauncherModel* m);
 static int lm_running_exe_dir(char* out, size_t cap);
@@ -362,6 +401,45 @@ static void lm_warn_non_utf8_code_page(void) {
 }
 #endif
 
+/* The title's own writable folder: the folder of the host's settings file, with
+ * its last separator. A bare file name ("config.ini") has no folder part, so it
+ * resolves to the current folder -- taken now, as an absolute path, so a later
+ * chdir cannot move where covers and icons land. "" when there is no settings
+ * file or the folder cannot be had. */
+static void lm_user_dir_from_config(const char* cfg, char* out, size_t cap) {
+    const char* slash = cfg ? strrchr(cfg, '/') : NULL;
+    const char* back = cfg ? strrchr(cfg, '\\') : NULL;
+    size_t n;
+    out[0] = '\0';
+    if (!cfg || !cfg[0]) return;
+    if (back && (!slash || back > slash)) slash = back;
+    if (slash) {
+        n = (size_t)(slash - cfg + 1);
+        if (n < cap) { memcpy(out, cfg, n); out[n] = '\0'; }
+        return;
+    }
+#if defined(_WIN32)
+    {
+        wchar_t wide[1024];
+        const DWORD w = GetCurrentDirectoryW(1024, wide);
+        if (!w || w >= 1024 ||
+            !WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)cap, NULL, NULL)) {
+            out[0] = '\0';
+            return;
+        }
+    }
+#else
+    if (!getcwd(out, cap)) { out[0] = '\0'; return; }
+#endif
+    n = strlen(out);
+    if (n && n + 1 < cap && out[n - 1] != '/' && out[n - 1] != '\\') {
+        out[n] = '/';
+        out[n + 1] = '\0';
+    } else if (!n || n + 1 >= cap) {
+        out[0] = '\0';
+    }
+}
+
 void launcher_model_init(LauncherModel* m,
                          const RecompLauncherCSettings* io,
                          const RecompLauncherCGameInfo* game,
@@ -379,11 +457,15 @@ void launcher_model_init(LauncherModel* m,
         m->msu1_supported       = game->msu1_supported != 0;
         m->msu1_note            = game->msu1_note;
         m->msu1_patch_path      = game->msu1_patch_path;
-        m->saves_supported      = game->sram_path != NULL;
+        m->saves_supported      = game->sram_path != NULL || game->native_save_path != NULL;
         m->sram_path            = game->sram_path;
+        m->native_save_path_cb  = game->native_save_path;
+        m->native_save_path_ctx = game->native_save_path_ctx;
         m->has_solar_sensor     = game->has_solar_sensor != 0;
     m->in_session           = game->in_session != 0;
+    m->has_mouse_button_binds = game->has_mouse_button_binds != 0;
     m->has_open_launcher_hotkey = game->has_open_launcher_hotkey != 0;
+    m->has_screenshot_hotkey = game->has_screenshot_hotkey != 0;
         m->has_integer_scale    = game->has_integer_scale != 0;
         m->hdpack_supported     = game->hdpack_supported != 0;
         m->password_save_path   = game->password_save_path;
@@ -395,6 +477,9 @@ void launcher_model_init(LauncherModel* m,
         m->zapper               = game->zapper != 0;
         /* 0 = unset (caller predates the field) -> assume 2 players. */
         m->player_count         = game->num_players ? clampi(game->num_players, 1, LNG_MAX_PLAYERS) : 2;
+        m->controller_port_mask = game->controller_port_mask & ((1u << LNG_MAX_PLAYERS) - 1u);
+        m->fixed_controller     = game->fixed_controller;
+        m->memcard_slots        = game->memcard_slots;
         m->rom_cache_path       = game->rom_cache_path;
         m->expected_crc         = game->expected_crc;
         m->has_expected_crc     = game->has_expected_crc;
@@ -407,6 +492,12 @@ void launcher_model_init(LauncherModel* m,
         m->rom_help             = game->rom_help;
         m->rom_describe         = game->rom_describe;
         m->rom_describe_ctx     = game->rom_describe_ctx;
+        /* A reader and its release function are one contract. */
+        if (game->rom_read && game->rom_read_free) {
+            m->rom_read = game->rom_read;
+            m->rom_read_free = game->rom_read_free;
+            m->rom_read_ctx = game->rom_read_ctx;
+        }
 
         m->pad_mode_supported   = game->pad_mode_supported != 0;
         m->pad_mode_selectable  = game->pad_mode_selectable != 0;
@@ -418,6 +509,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_window_size      = game->has_window_size != 0;
         m->has_renderer         = game->has_renderer != 0;
         m->has_supersampling    = game->has_supersampling != 0;
+        m->has_automatic_quality = game->has_automatic_quality != 0;
         m->has_antialiasing     = game->has_antialiasing != 0;
         m->has_texture_filter   = game->has_texture_filter != 0;
         if (game->texture_filter_labels && game->texture_filter_values &&
@@ -433,9 +525,15 @@ void launcher_model_init(LauncherModel* m,
         m->num_rom_patterns     = m->rom_patterns ? game->num_rom_patterns : 0;
         m->rom_filter_desc      = game->rom_filter_desc;
         m->has_frame_interp     = game->has_frame_interp != 0;
+        const int interp_max = game->frame_interp_max_fps > 0 ? game->frame_interp_max_fps : 240;
+        m->interp_fps_count = 1;
+        while (m->interp_fps_count < kInterpFpsCount &&
+               kInterpFpsTable[m->interp_fps_count] <= interp_max)
+            ++m->interp_fps_count;
         m->has_spu_hq           = game->has_spu_hq != 0;
         m->has_rewind_depth     = game->has_rewind_depth != 0;
         m->has_vsync            = game->has_vsync != 0;
+        m->has_vsync_vrr        = game->has_vsync_vrr != 0;
         m->has_skip_fmv         = game->has_skip_fmv != 0;
         m->has_turbo_loads      = game->has_turbo_loads != 0;
         // game->has_fullscreen_toggle is deliberately NOT read: the Fullscreen
@@ -471,6 +569,7 @@ void launcher_model_init(LauncherModel* m,
         m->num_languages        = game->num_languages;
         m->disc_verify_cb       = game->disc_verify;      // real disc verdict (PSX), or NULL
         m->import_sbi_cb        = game->import_sbi;
+        m->card_manager = game->card_manager;
         m->memcard_inspect_cb   = game->memcard_inspect;  // real memcard summary (PSX), or NULL
         m->bios_verify_cb       = game->bios_verify;
         m->persist_setup_cb     = game->persist_setup;
@@ -542,6 +641,8 @@ void launcher_model_init(LauncherModel* m,
         m->fmv_timing_busy_status = game->fmv_timing_busy_status;
         m->fmv_timing_success_status = game->fmv_timing_success_status;
         m->boxart_path          = game->boxart_path;      // NULL => default boxart.tga
+        lm_user_dir_from_config(game->config_path, m->user_dir, sizeof(m->user_dir));
+        m->cover_url_template   = game->cover_url_template;
         m->aspect_labels        = game->aspect_labels;    // NULL => built-in 4:3/16:9/21:9
         m->num_aspect_labels    = game->num_aspect_labels;
         m->aspect_experimental  = game->aspect_experimental != 0;
@@ -555,6 +656,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_virtual_stylus   = game->has_virtual_stylus != 0;
         m->settings_bindings    = game->settings_bindings != 0;
         m->assist_binding_labels = game->assist_binding_labels;
+        m->assist_pad_only = game->assist_pad_only != 0;
         m->assist_binding_count =
             clampi(game->assist_binding_count, 0,
                    RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS);
@@ -573,6 +675,7 @@ void launcher_model_init(LauncherModel* m,
             game->assist_fast_forward_divisor <= 1000 ? game->assist_fast_forward_divisor : 1;
         m->tpak_slots           = clampi(game->tpak_slots, 0, RECOMP_LAUNCHER_MAX_TPAKS);
         m->tpak_inspect_cb      = game->tpak_inspect;
+        m->require_tpak_files   = game->require_tpak_files != 0;
         m->audio_device_labels  = game->audio_device_labels;
         m->num_audio_devices    = game->num_audio_devices;
         m->renderer_labels      = game->renderer_labels;
@@ -583,15 +686,21 @@ void launcher_model_init(LauncherModel* m,
         m->num_internal_resolutions   = game->num_internal_resolutions;
         m->internal_resolution_note   = game->internal_resolution_note;
         m->has_render_pipeline         = game->has_render_pipeline != 0;
+        m->frame_generation_hidden     = game->frame_generation_hidden != 0;
         m->linear_filter_hidden        = game->linear_filter_hidden != 0;
         m->renderer_note        = game->renderer_note;
         m->hide_rebind          = game->hide_rebind != 0;
         m->has_mouse_controls   = game->has_mouse_controls != 0;
+        m->has_native_mouse = game->has_native_mouse != 0;
+        m->has_native_guncon = game->has_native_guncon != 0;
+        m->has_native_negcon = game->has_native_negcon != 0;
         m->has_gyro_controls    = game->has_gyro_controls != 0;
         m->has_sharp_filter     = game->has_sharp_filter != 0;
         m->has_affine_filter    = game->has_affine_filter != 0;
         m->has_frame_blend      = game->has_frame_blend != 0;
         m->has_run_ahead        = game->has_run_ahead != 0;
+        m->has_record_replay    = game->has_record_replay != 0;
+        m->record_replay_tooltip = game->record_replay_tooltip;
         m->has_shader           = game->has_shader != 0;
         m->netplay_supported    = game->netplay_supported != 0 && game->netplay != NULL;
         m->netplay              = game->netplay;
@@ -605,6 +714,7 @@ void launcher_model_init(LauncherModel* m,
         m->rom_patch_required_sha1 = game->rom_patch_required_sha1;
 #if RECOMP_UI_ENABLE_MODS
         m->mods                 = game->mods;
+        m->verified_rom_changed_cb = game->verified_rom_changed_cb;
 #else
         /* The provider ABI is always present for stable consumer structs, but
          * a normal launcher build must not expose or mutate mods. */
@@ -657,10 +767,14 @@ void launcher_model_init(LauncherModel* m,
         m->assist_fast_forward_min, m->assist_fast_forward_max);
     if (game && game->assist_default_key_bind &&
         game->assist_default_pad_bind) {
+        /* Host arrays contain only the advertised number of entries. The
+         * unused model slots were zeroed at initialization. */
+        const size_t defaults_bytes =
+            (size_t)m->assist_binding_count * sizeof(m->default_assist_key_bind[0]);
         memcpy(m->default_assist_key_bind, game->assist_default_key_bind,
-               sizeof m->default_assist_key_bind);
+               defaults_bytes);
         memcpy(m->default_assist_pad_bind, game->assist_default_pad_bind,
-               sizeof m->default_assist_pad_bind);
+               defaults_bytes);
         for (int i = 0; i < m->assist_binding_count; ++i) {
             if (m->s.assist_key_bind[i] == 0)
                 m->s.assist_key_bind[i] = m->default_assist_key_bind[i];
@@ -690,6 +804,10 @@ void launcher_model_init(LauncherModel* m,
         if (m->s.run_ahead > RECOMP_LAUNCHER_RUN_AHEAD_MAX)
             m->s.run_ahead = RECOMP_LAUNCHER_RUN_AHEAD_MAX;
     }
+    /* A console without the checkbox, or resuming a running session, never
+     * hands a recording request back. */
+    m->s.record_replay =
+        launcher_model_record_replay_available(m) && m->s.record_replay > 0 ? 1 : 0;
     memset(&m->s.netplay_launch, 0, sizeof(m->s.netplay_launch));
     if (!m->s.netplay_player_name[0] && m->netplay && m->netplay->player_name) {
         safe_copy(m->s.netplay_player_name, sizeof(m->s.netplay_player_name),
@@ -754,6 +872,9 @@ void launcher_model_init(LauncherModel* m,
     // ---- infer the SystemProfile this game belongs to (panel composition +
     // per-system specs) from the ABI caps launcher_profile_apply() already set ----
     m->profile = launcher_system_infer(game);
+    m->has_start_from = m->profile && ((const SystemProfile*)m->profile)->start_from;
+    m->start_count = 0;
+    m->start_selected = -1;
     if (m->profile && m->profile->controller.max_players > 0) {
         /* num_players is a per-game capability, while max_players is the
          * console ceiling. Raising the ABI storage width must never make a
@@ -782,6 +903,9 @@ void launcher_model_init(LauncherModel* m,
         for (int p = 0; p < LNG_MAX_PLAYERS; ++p) {
             if (!m->pad_mode_selectable) {
                 m->s.pad_mode[p] = m->locked_pad_mode;
+            } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                       launcher_model_negcon_mode_available(m)) {
+                /* A host-supported PS1 port type extends the profile list. */
             } else if (pm_spec && pm_spec->modes && pm_spec->mode_count > 0) {
                 // Custom mode list (Genesis 3-Button/6-Button): any listed
                 // mode value is valid; anything else snaps to the first
@@ -793,6 +917,10 @@ void launcher_model_init(LauncherModel* m,
             } else if (m->s.pad_mode[p] == 0) {
                 /* Hybrid is mod-only and never selectable: migrate any stale
                  * persisted value. The mod requests it at runtime instead. */
+                m->s.pad_mode[p] = 1;
+            } else if (m->s.pad_mode[p] == RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
+                       !launcher_model_negcon_mode_available(m)) {
+                /* The neGcon exists only on PSX. */
                 m->s.pad_mode[p] = 1;
             }
             /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
@@ -819,9 +947,13 @@ void launcher_model_init(LauncherModel* m,
              *
              * Leaving the locked mode intact costs nothing while the keyboard
              * is driving the seat, and is already right the moment the player
-             * attaches a real pad. */
+             * attaches a real pad.
+             *
+             * A keyboard neGcon stays a neGcon: the keyboard drives it
+             * (stick binds twist it, Cross/Square keys press I/II). */
             if (m->pad_mode_selectable &&
                 m->s.player_src[p] == 1 &&
+                m->s.pad_mode[p] != RECOMP_LAUNCHER_PAD_MODE_NEGCON &&
                 !(pm_spec && pm_spec->modes && pm_spec->mode_count > 0))
                 m->s.pad_mode[p] = 2;
         }
@@ -877,12 +1009,12 @@ void launcher_model_init(LauncherModel* m,
     launcher_model_apply_renderer_settings(m);
     if (m->has_frame_interp) {
         int ok = 0;
-        for (int i = 0; i < kInterpFpsCount; ++i)
+        for (int i = 0; i < m->interp_fps_count; ++i)
             if (kInterpFpsTable[i] == m->s.frame_interp_fps) { ok = 1; break; }
         if (!ok) m->s.frame_interp_fps = 0;
     }
     if (m->has_vsync &&
-        (m->s.vsync < 1 || m->s.vsync > RECOMP_LAUNCHER_VSYNC_COUNT)) {
+        (m->s.vsync < 1 || m->s.vsync > (m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE))) {
         // 0 = a host that predates the field, or a fresh config. Tear-free is
         // the safe default; a player who wants the latency picks Off.
         m->s.vsync = RECOMP_LAUNCHER_VSYNC_ON;
@@ -959,6 +1091,13 @@ void launcher_model_init(LauncherModel* m,
     m->setup_wizard_open = false;
     m->setup_page = 1;
     m->setup_tc_auto = true;
+    /* Only Windows has the portable cmake/clang download; elsewhere the build
+     * tools are the system's own. */
+#if defined(_WIN32)
+    m->setup_tc_native = false;
+#else
+    m->setup_tc_native = true;
+#endif
     m->setup_tc_ready = false;
     m->setup_tc_update_available = false;
     m->setup_tc_update_skipped = false;
@@ -966,6 +1105,7 @@ void launcher_model_init(LauncherModel* m,
     m->setup_tc_remote_ver[0] = '\0';
     m->setup_tc_zip[0] = '\0';
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_confirm_open = false;
     m->bios_pending_path[0] = '\0';
     m->setup_wizard_suspended_for_bios = false;
@@ -1084,10 +1224,11 @@ void launcher_model_init(LauncherModel* m,
             }
         }
         if (m->setup_wizard_open) {
-            const int need_tc_page =
-                !m->setup_tc_ready ||
-                (m->setup_tc_update_available && !m->setup_tc_update_skipped);
-            m->setup_page = need_tc_page ? 0 : 1;
+            const bool needs_tools =
+                m->prepare_required_before_continue &&
+                (!m->setup_tc_ready ||
+                 (m->setup_tc_update_available && !m->setup_tc_update_skipped));
+            m->setup_page = needs_tools ? 0 : 1;
         } else {
             m->setup_page = 1;
         }
@@ -1159,6 +1300,15 @@ void launcher_model_select_disc(LauncherModel* m, int idx) {
     if (idx < 0 || idx >= m->num_discs) return;
     if (idx == m->disc_selected) return;
     m->disc_selected = idx;
+    /* A save state belongs to the disc it was made on: with another disc to
+     * boot, the start is from power-on again. */
+    {
+        const LauncherStartEntry* e =
+            launcher_model_start_entry(m, launcher_model_start_selected(m));
+        if (e && e->kind == LNG_START_STATE && e->disc > 0 &&
+            e->disc != launcher_model_disc_number(m, idx))
+            m->start_selected = -1;
+    }
     /* set_rom re-runs the disc verdict against the newly mounted image and
      * calls back into lm_bind_disc_selection, which writes s.disc_index. */
     launcher_model_set_rom(m, launcher_model_disc_path(m, idx));
@@ -1586,6 +1736,18 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
         return;
     }
     m->setup_error[0] = '\0';
+    /* A disc was chosen: the wrong-disc sentence it gets is a new one for the
+     * dashboard, also when the same wrong disc was chosen again and the words
+     * are the same. No frame is drawn between the two in which the sentence
+     * was absent, so the text that was shown is forgotten here
+     * (launcher_model_disc_note_reveal). */
+    m->disc_note_revealed[0] = '\0';
+    m->disc_note_reveal_frames = 0;
+    /* Setup's refusal belongs to one file. Selecting that same file again
+     * keeps it while the host still answers "bad" (decided after the check
+     * below); any other file ends it. */
+    const bool same_refused_file = m->disc_refused_by_setup && m->rom_present &&
+                                   path && strcmp(m->rom_full, path) == 0;
     m->rom_present = path && path[0] != '\0';
     safe_copy(m->rom_full, sizeof(m->rom_full), m->rom_present ? path : "");
     m->rom_sha1_hex[0] = '\0';
@@ -1612,8 +1774,22 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     m->rom_crc32_hex[0] = '\0';
     m->rom_identified[0] = '\0';
     m->rom_detail[0] = '\0';
-    const int disc_verify = m->profile && m->profile->verify.mode == 1;
-    if (m->rom_present) {
+    const int disc_verify = m->profile && (m->profile->verify.mode == 1 ||
+        (m->profile->id && !strcmp(m->profile->id, "ps2")));
+    if (m->rom_present && !disc_verify && m->rom_read) {
+        uint8_t* bytes = NULL;
+        size_t len = 0;
+        char error[sizeof(m->rom_detail)] = {0};
+        int ok = m->rom_read(m->rom_read_ctx, m->rom_full, &bytes, &len,
+                             error, sizeof(error));
+        error[sizeof(error) - 1] = '\0';
+        if (ok && bytes && len) {
+            snprintf(m->rom_size, sizeof(m->rom_size), "%.2f MB (%zu Mbit)",
+                     (double)len / (1024.0 * 1024.0), (len / 131072));
+            lm_identify_rom(m, bytes, len);
+        } else lm_set_rom_unreadable(m, error[0] ? error : "This file could not be read.");
+        if (bytes) m->rom_read_free(m->rom_read_ctx, bytes);
+    } else if (m->rom_present) {
         FILE* f = fopen(m->rom_full, "rb");
         const bool opened = f != NULL;
         if (f) {
@@ -1647,6 +1823,14 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
     lm_bind_disc_selection(m);
 
     run_verify(m);
+    m->disc_refused_by_setup = same_refused_file && m->verify.verdict == 3;
+    if (m->verified_rom_changed_cb) {
+        const char* verified = launcher_model_rom_verified(m) ? m->rom_full : NULL;
+        if (!m->verified_rom_changed_cb(verified) && verified) {
+            lm_set_rom_unreadable(m, "The selected file could not be read again.");
+            m->verified_rom_changed_cb(NULL);
+        }
+    }
     update_msu1_patch_available(m);
     /* A host whose BIOS lookup sees the image answers again for this one. */
     if (m->has_bios && m->bios_verify_for_rom_cb) launcher_model_refresh_bios_status(m);
@@ -1675,6 +1859,9 @@ static void run_verify(LauncherModel* m) {
             m->verify.iso_ok  = dv.iso_ok != 0;
             m->verify.verdict = dv.verdict;
             m->verify.sbi_status = dv.sbi_status;
+            m->verify.serial_status = dv.serial_status;
+            safe_copy(m->verify.expected_serials, sizeof(m->verify.expected_serials),
+                      dv.expected_serials);
             m->verify.track_count = dv.track_count;
             m->verify.netplay_ok = dv.netplay_ok;
             safe_copy(m->verify.disc_fp, sizeof(m->verify.disc_fp), dv.disc_fp);
@@ -1701,6 +1888,79 @@ static void run_verify(LauncherModel* m) {
         m->verify.iso_ok  = false;
         m->verify.verdict = 0;   // none
     }
+}
+
+bool launcher_model_disc_serial_ok(const LauncherModel* m) {
+    if (!m || !m->verify.serial[0]) return false;
+    return m->verify.serial_status != RECOMP_SERIAL_NOT_LISTED;
+}
+
+bool launcher_model_disc_serial_refused(const LauncherModel* m) {
+    return m && m->rom_present && m->verify.verdict == 3 &&
+           m->verify.serial_status == RECOMP_SERIAL_NOT_LISTED;
+}
+
+const char* launcher_model_disc_note(const LauncherModel* m, char* buf, size_t cap,
+                                     bool* wrong_disc) {
+    if (wrong_disc) *wrong_disc = false;
+    if (!buf || !cap) return "";
+    buf[0] = '\0';
+    if (!m || !m->rom_present) return buf;
+    const VerifyResult* v = &m->verify;
+    const bool read = v->serial[0] != '\0';
+    const bool known = v->expected_serials[0] != '\0';
+    /* A host that says "not listed" and gives neither a serial nor what the
+     * build needs leaves nothing to print: the old note below stands. */
+    if (v->serial_status == RECOMP_SERIAL_NOT_LISTED && (read || known)) {
+        if (wrong_disc) *wrong_disc = true;
+        if (read && known)
+            snprintf(buf, cap, "This disc is %s. This build needs %s.",
+                     v->serial, v->expected_serials);
+        else if (read)
+            snprintf(buf, cap, "This disc is %s. This build is made for another disc.",
+                     v->serial);
+        else
+            snprintf(buf, cap, "No serial was found on this disc. This build needs %s.",
+                     v->expected_serials);
+        return buf;
+    }
+    if (m->netplay_supported && v->netplay_detail[0] && !v->netplay_ok)
+        safe_copy(buf, cap, v->netplay_detail);
+    return buf;
+}
+
+bool launcher_model_disc_note_reveal(LauncherModel* m) {
+    char note[sizeof(m->disc_note_revealed)];
+    bool wrong_disc = false;
+    if (!m) return false;
+    launcher_model_disc_note(m, note, sizeof(note), &wrong_disc);
+    if (!wrong_disc || !note[0]) {
+        m->disc_note_revealed[0] = '\0';
+        m->disc_note_reveal_frames = 0;
+        return false;
+    }
+    if (strcmp(note, m->disc_note_revealed) != 0) {
+        safe_copy(m->disc_note_revealed, sizeof(m->disc_note_revealed), note);
+        m->disc_note_reveal_frames = LNG_DISC_NOTE_REVEAL_FRAMES;
+    }
+    if (m->disc_note_reveal_frames > 0) {
+        m->disc_note_reveal_frames--;
+        return true;
+    }
+    return false;
+}
+
+float launcher_model_scroll_into_view(float item_top, float item_bottom,
+                                      float view_top, float view_bottom, float margin) {
+    if (item_bottom + margin > view_bottom) {
+        const float down = item_bottom + margin - view_bottom;
+        const float room = item_top - margin - view_top;   /* before the top leaves */
+        if (room <= 0.0f) return 0.0f;
+        return down < room ? down : room;
+    }
+    if (item_top - margin < view_top)
+        return item_top - margin - view_top;
+    return 0.0f;
 }
 
 const char* launcher_model_rom_path(const LauncherModel* m) {
@@ -1750,7 +2010,9 @@ void launcher_model_request_restore_defaults(LauncherModel* m) {
 
 void launcher_model_restore_defaults(LauncherModel* m) {
     if (!launcher_model_can_restore_defaults(m)) return;
+    const int record_replay = m->s.record_replay;   /* a session choice, kept */
     m->s = m->default_settings;
+    m->s.record_replay = record_replay;
     {
         int d = m->s.rewind_depth;
         if (d != 50 && d != 100 && d != 150 && d != 200)
@@ -1770,13 +2032,14 @@ void launcher_model_cancel_restore_defaults(LauncherModel* m) {
 }
 
 void launcher_model_cycle_scale(LauncherModel* m) {
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = (m->s.window_scale >= LNG_WINDOW_SCALE_MAX)
                             ? 1 : m->s.window_scale + 1;
     if (m->s.window_scale < 1) m->s.window_scale = 1;
 }
 
 void launcher_model_set_scale(LauncherModel* m, int scale) {
-    if (!m) return;
+    if (!m || m->s.fullscreen != 0) return;
     m->s.window_scale = clampi(scale, 1, LNG_WINDOW_SCALE_MAX);
 }
 
@@ -1814,6 +2077,93 @@ void launcher_model_toggle_affine_filter(LauncherModel* m) {
 void launcher_model_toggle_frame_blend(LauncherModel* m) {
     if (!m || !m->has_frame_blend) return;
     m->s.frame_blend = !m->s.frame_blend;
+}
+
+int launcher_model_start_from_available(const LauncherModel* m) {
+    return m && m->has_start_from ? 1 : 0;
+}
+
+void launcher_model_set_start_entries(LauncherModel* m, const LauncherStartEntry* entries,
+                                      int count, const LauncherStartNotes* notes) {
+    if (!m) return;
+    if (!entries || count < 0) count = 0;
+    if (count > LNG_START_MAX) count = LNG_START_MAX;
+    if (count) memcpy(m->start_entries, entries, (size_t)count * sizeof(entries[0]));
+    m->start_count = count;
+    m->start_selected = -1;
+    if (notes) m->start_notes = *notes;
+    else memset(&m->start_notes, 0, sizeof(m->start_notes));
+}
+
+int launcher_model_start_count(const LauncherModel* m) {
+    return launcher_model_start_from_available(m) ? m->start_count : 0;
+}
+
+const LauncherStartEntry* launcher_model_start_entry(const LauncherModel* m, int idx) {
+    if (idx < 0 || idx >= launcher_model_start_count(m)) return NULL;
+    return &m->start_entries[idx];
+}
+
+int launcher_model_start_selected(const LauncherModel* m) {
+    if (!m || m->start_selected < 0 || m->start_selected >= launcher_model_start_count(m))
+        return -1;
+    return m->start_selected;
+}
+
+void launcher_model_select_start(LauncherModel* m, int idx) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, idx);
+    if (!m) return;
+    if (!e || (e->kind != LNG_START_STATE && e->kind != LNG_START_REPLAY)) {
+        m->start_selected = -1;
+        return;
+    }
+    if (e->kind == LNG_START_STATE && e->disc > 0)
+        for (int d = 0; d < m->num_discs; ++d)
+            if (launcher_model_disc_number(m, d) == e->disc)
+                launcher_model_select_disc(m, d);   /* may reset the choice: set it after */
+#ifdef RECOMP_LAUNCHER_HAS_RECORD_REPLAY
+    /* A recording starts at power-on, so it does not go with this start. */
+    m->s.record_replay = 0;
+#endif
+    m->start_selected = idx;
+}
+
+void launcher_model_start_sync(LauncherModel* m) {
+    if (!m) return;
+#ifdef RECOMP_LAUNCHER_HAS_RECORD_REPLAY
+    if (m->s.record_replay) m->start_selected = -1;
+#endif
+}
+
+int launcher_model_start_handover(const LauncherModel* m, int* slot, const char** path) {
+    const LauncherStartEntry* e = launcher_model_start_entry(m, launcher_model_start_selected(m));
+    if (slot) *slot = -1;
+    if (path) *path = NULL;
+    if (e && e->kind == LNG_START_REPLAY && e->path[0]) {
+        if (path) *path = e->path;
+        return LNG_START_REPLAY;
+    }
+    if (!e || e->kind != LNG_START_STATE || e->slot < 0) return LNG_START_POWER_ON;
+    if (slot) *slot = e->slot;
+    return LNG_START_STATE;
+}
+
+bool launcher_model_record_replay_available(const LauncherModel* m) {
+    return m && m->has_record_replay && !m->in_session;
+}
+
+const char* launcher_model_record_replay_tooltip(const LauncherModel* m) {
+    return m && m->record_replay_tooltip && m->record_replay_tooltip[0]
+        ? m->record_replay_tooltip : NULL;
+}
+
+void launcher_model_toggle_record_replay(LauncherModel* m) {
+    if (!launcher_model_record_replay_available(m)) return;
+    m->s.record_replay = !m->s.record_replay;
+}
+
+const char* launcher_model_user_dir(const LauncherModel* m) {
+    return m ? m->user_dir : "";
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {
@@ -2152,7 +2502,8 @@ void launcher_model_set_vsync(LauncherModel* m, int value) {
     if (!m || !m->has_vsync) return;
     if (value != RECOMP_LAUNCHER_VSYNC_OFF &&
         value != RECOMP_LAUNCHER_VSYNC_ON &&
-        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE)
+        value != RECOMP_LAUNCHER_VSYNC_ADAPTIVE &&
+        !(value == RECOMP_LAUNCHER_VSYNC_VRR && m->has_vsync_vrr))
         return;
     m->s.vsync = value;
 }
@@ -2195,6 +2546,11 @@ const char* launcher_model_renderer_label(const LauncherModel* m) {
 void launcher_model_cycle_supersampling(LauncherModel* m) {
     int v = clampi(m->s.supersampling ? m->s.supersampling : 1, 1, 4);
     m->s.supersampling = (v % 4) + 1;
+}
+
+void launcher_model_toggle_automatic_quality(LauncherModel* m) {
+    if (m && m->has_automatic_quality)
+        m->s.automatic_quality = !m->s.automatic_quality;
 }
 
 bool launcher_model_render_pipeline_offered(const LauncherModel* m) {
@@ -2435,10 +2791,11 @@ void launcher_model_toggle_frame_interp(LauncherModel* m) {
 }
 
 void launcher_model_cycle_interp_fps(LauncherModel* m) {
+    if (!m || m->interp_fps_count <= 1) return;
     int idx = 0;
-    for (int i = 0; i < kInterpFpsCount; ++i)
+    for (int i = 0; i < m->interp_fps_count; ++i)
         if (kInterpFpsTable[i] == m->s.frame_interp_fps) { idx = i; break; }
-    m->s.frame_interp_fps = kInterpFpsTable[(idx + 1) % kInterpFpsCount];
+    m->s.frame_interp_fps = kInterpFpsTable[(idx + 1) % m->interp_fps_count];
 }
 
 const char* launcher_model_interp_fps_label(const LauncherModel* m) {
@@ -2497,16 +2854,18 @@ const char* launcher_model_rewind_interval_label(const LauncherModel* m) {
 // settings file carries it) cannot lose it just by opening this panel.
 void launcher_model_cycle_vsync(LauncherModel* m) {
     if (!m || !m->has_vsync) return;
+    const int count = m->has_vsync_vrr ? RECOMP_LAUNCHER_VSYNC_VRR : RECOMP_LAUNCHER_VSYNC_ADAPTIVE;
     int cur = m->s.vsync;
-    if (cur < 1 || cur > RECOMP_LAUNCHER_VSYNC_COUNT)
+    if (cur < 1 || cur > count)
         cur = RECOMP_LAUNCHER_VSYNC_ON;
-    m->s.vsync = (cur % RECOMP_LAUNCHER_VSYNC_COUNT) + 1;
+    m->s.vsync = (cur % count) + 1;
 }
 
 const char* launcher_model_vsync_label(const LauncherModel* m) {
     switch (m ? m->s.vsync : RECOMP_LAUNCHER_VSYNC_ON) {
         case RECOMP_LAUNCHER_VSYNC_OFF:      return "Off";
         case RECOMP_LAUNCHER_VSYNC_ADAPTIVE: return "Adaptive";
+        case RECOMP_LAUNCHER_VSYNC_VRR:      return "VRR";
         default:                             return "On";
     }
 }
@@ -2595,6 +2954,7 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
     m->setup_bios_ok = false;
     m->setup_bios_warn = false;
     m->setup_bios_needs_regen = false;
+    m->bundled_bios_offered = true;
     m->bios_not_needed = false;
     m->bios_pick_rejected = false;
     m->setup_bios_detail[0] = '\0';
@@ -2603,7 +2963,12 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
         return;
     }
     RecompLauncherCBiosVerify bv;
-    const int r = lm_bios_verify(m, m->s.bios_path, &bv);
+    int r = lm_bios_verify(m, "", &bv);
+    if (r > 0)
+        m->bundled_bios_offered = bv.ok != 0 || bv.not_needed != 0;
+    /* Host verification also updates its run report. Ask about the chosen
+     * file last, and never ask again from the draw-time offer query. */
+    if (m->s.bios_path[0]) r = lm_bios_verify(m, m->s.bios_path, &bv);
     /* Empty path = the host's own choice: the BIOS this build ships with
      * (OpenBIOS / bundled), or a host lookup (a required system file). Host
      * bios_verify("", ...) may refuse that for titles that require a retail
@@ -2658,6 +3023,16 @@ bool launcher_model_bios_applies(const LauncherModel* m) {
     return m && m->has_bios && !m->bios_not_needed;
 }
 
+bool launcher_model_bundled_bios_offered(const LauncherModel* m) {
+    return m && m->bundled_bios_offered;
+}
+
+bool launcher_model_setup_bios_blocks_generate(const LauncherModel* m) {
+    if (!m || !m->has_bios) return false;
+    if (launcher_model_bundled_bios_offered(m)) return false;
+    return !(m->setup_bios_ok || m->setup_bios_needs_regen);
+}
+
 bool launcher_model_bios_missing(const LauncherModel* m) {
     return launcher_model_bios_applies(m) && !m->setup_bios_ok;
 }
@@ -2694,7 +3069,7 @@ static void lm_write_sidecar_in_dir(const char* dir, const char* name,
 static void lm_persist_cart_rom(const LauncherModel* m) {
     char absolute[1024], path[1100], exe_dir[1024];
     const char* cache;
-    if (m->setup_wizard_supported || m->num_discs > 1 ||
+    if (m->host_persists_paths || m->setup_wizard_supported || m->num_discs > 1 ||
         (m->profile && m->profile->verify.mode == 1) ||
         !lm_path_readable(m->rom_full)) return;
     if (launcher_model_rom_has_fingerprint(m) &&
@@ -3263,7 +3638,41 @@ bool launcher_model_can_launch(const LauncherModel* m) {
     }
     if (m->has_bios && !m->setup_bios_ok) return false;
     if (m->setup_preparing) return false;
+    if (launcher_model_tpak_blocking_port(m) >= 0) return false;
     return true;
+}
+
+void launcher_model_launch_request(LauncherModel* m) {
+    if (m && m->launch_pending == LNG_LAUNCH_IDLE)
+        m->launch_pending = LNG_LAUNCH_ANNOUNCE;
+}
+
+bool launcher_model_launch_announced(const LauncherModel* m) {
+    return m && m->launch_pending != LNG_LAUNCH_IDLE;
+}
+
+bool launcher_model_launch_due(LauncherModel* m) {
+    if (!m) return false;
+    if (m->launch_pending == LNG_LAUNCH_ANNOUNCE) {
+        /* This frame draws "Launching...". The work waits for the next one, so
+         * that the greyed button is on screen while it runs. */
+        m->launch_pending = LNG_LAUNCH_RUN;
+        return false;
+    }
+    if (m->launch_pending == LNG_LAUNCH_RUN && m->action == LNG_ACTION_NONE) {
+        /* Handed out once: a caller that asks again must not start the work
+         * twice. finish() ends the request. */
+        m->launch_pending = LNG_LAUNCH_WORKING;
+        return true;
+    }
+    return false;
+}
+
+void launcher_model_launch_finish(LauncherModel* m, bool launched) {
+    if (!m) return;
+    /* Refused: back to PLAY. Launched: the window is about to close; keep the
+     * greyed label for whatever frames remain. */
+    m->launch_pending = launched ? LNG_LAUNCH_WORKING : LNG_LAUNCH_IDLE;
 }
 
 bool launcher_model_netplay_disc_ok(const LauncherModel* m) {
@@ -3303,20 +3712,26 @@ enum {
     PREP_JOB_TOOLCHAIN = 2,
     PREP_JOB_PGO = 3,
     PREP_JOB_FMV_TIMING = 4,
-    PREP_JOB_BIOS = 5
+    PREP_JOB_BIOS = 5,
+    PREP_JOB_MOD_RESOURCE = 6
 };
 
 typedef struct {
     LauncherModel* m;
     char source[512];
     char out_path[512];
-    char err[256];
+    char err[LNG_SETUP_ERROR_CAP];   /* as much as the wizard can show (setup_error) */
     char progress_msg[256];
     char zip_path[512];
+    char mod_package[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_feature[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_resource[RECOMP_LAUNCHER_MOD_ID_MAX];
+    char mod_source[RECOMP_LAUNCHER_MOD_PATH_MAX];
     float progress_pct; /* <0 indeterminate; else 0..1 */
     int  kind;          /* PREP_JOB_* */
     int  download;      /* toolchain: non-zero => allow network fetch */
     int  result;        /* 0 fail, 1 ok */
+    int  import_queued; /* UI-thread only: start after provider reads finish */
     volatile int done;
     volatile int progress_dirty;
 } PrepJob;
@@ -3355,7 +3770,15 @@ static void* prep_thread_main(void* arg);
 #endif
 
 static int prep_spawn_thread(LauncherModel* m) {
+    /* Every job starts here. Whatever error it ends with is a new one for the
+     * wizard, also when its words are the same as the last one's: while a job
+     * runs the wizard draws only the progress window, so it never sees the
+     * cleared text, and the same refusal twice in a row was scrolled into
+     * view the first time only (launcher_model_setup_error_reveal). */
+    m->setup_error_revealed[0] = '\0';
+    m->setup_error_reveal_frames = 0;
 #if defined(_WIN32)
+    prep_lock_init(); /* initialize once on the UI thread before worker/poll race */
     HANDLE th = CreateThread(NULL, 0, prep_thread_main, &g_prep_job, 0, NULL);
     if (!th) {
         m->setup_preparing = false;
@@ -3386,7 +3809,12 @@ static void* prep_thread_main(void* arg) {
     j->out_path[0] = '\0';
     j->err[0] = '\0';
     j->result = 0;
-    if (j->kind == PREP_JOB_TOOLCHAIN) {
+    if (j->kind == PREP_JOB_MOD_RESOURCE) {
+        const RecompLauncherCModProvider* mods = j->m->mods;
+        j->result = mods->feature_resource_import(
+            mods->ctx, j->mod_package, j->mod_feature, j->mod_resource,
+            j->mod_source, j->source, prep_progress_cb, j, j->err, sizeof(j->err));
+    } else if (j->kind == PREP_JOB_TOOLCHAIN) {
         if (j->m && j->m->ensure_toolchain_with_progress_cb) {
             j->result = j->m->ensure_toolchain_with_progress_cb(
                             j->download,
@@ -3448,7 +3876,9 @@ static void* prep_thread_main(void* arg) {
     } else {
         safe_copy(j->err, sizeof(j->err), "No prepare callback.");
     }
+    prep_lock();
     j->done = 1;
+    prep_unlock();
 #if defined(_WIN32)
     return 0;
 #else
@@ -3627,7 +4057,8 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
         m->setup_page = 1;
         m->setup_error[0] = '\0';
         safe_copy(m->setup_status, sizeof(m->setup_status),
-                  "Using existing portable toolchain.");
+                  m->setup_tc_native ? "Using existing build tools."
+                                     : "Using existing portable toolchain.");
         return;
     }
     if (!m->ensure_toolchain_with_progress_cb) {
@@ -3645,7 +4076,9 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     g_prep_job.kind = PREP_JOB_TOOLCHAIN;
     g_prep_job.progress_pct = -1.0f;
     /* download: 0 = zip only, 1 = fetch if missing, 2 = force latest update */
-    if (m->setup_tc_auto)
+    if (m->setup_tc_native)
+        g_prep_job.download = 0;   /* native tools are checked, never fetched */
+    else if (m->setup_tc_auto)
         g_prep_job.download = want_update ? 2 : 1;
     else
         g_prep_job.download = 0;
@@ -3656,9 +4089,12 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     m->setup_prepare_fraction = -1.0f;
     m->setup_error[0] = '\0';
     safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title),
-              want_update ? "Updating build tools…" : "Installing build tools…");
+              m->setup_tc_native ? "Checking build tools…"
+              : want_update ? "Updating build tools…" : "Installing build tools…");
     safe_copy(m->setup_status, sizeof(m->setup_status),
-              m->setup_tc_auto
+              m->setup_tc_native
+                  ? "Checking for CMake, Ninja, Python 3 and Clang or GCC…"
+              : m->setup_tc_auto
                   ? (want_update ? "Downloading toolchain update…"
                                  : "Downloading portable cmake/clang…")
                   : "Installing toolchain from zip…");
@@ -3691,6 +4127,88 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     prep_spawn_thread(m);
 }
 
+void launcher_model_import_mod_resource(LauncherModel* m, const char* package_id,
+                                       const char* feature_id, const char* resource_id,
+                                       const char* source_path) {
+    if (!m || m->setup_preparing || !m->mods || !m->mods->feature_resource_import)
+        return;
+    const char* image = launcher_model_effective_rom_path(m);
+    if (!image || !image[0]) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "Select your game image before importing content.");
+        return;
+    }
+    if (!package_id || !feature_id || !resource_id || !source_path || !source_path[0] ||
+        strlen(package_id) >= sizeof(g_prep_job.mod_package) ||
+        strlen(feature_id) >= sizeof(g_prep_job.mod_feature) ||
+        strlen(resource_id) >= sizeof(g_prep_job.mod_resource) ||
+        strlen(source_path) >= sizeof(g_prep_job.mod_source) ||
+        strlen(image) >= sizeof(g_prep_job.source)) {
+        safe_copy(m->mod_status, sizeof(m->mod_status), "The selected resource path is too long or invalid.");
+        return;
+    }
+    memset(&g_prep_job, 0, sizeof(g_prep_job));
+    g_prep_job.m = m;
+    g_prep_job.kind = PREP_JOB_MOD_RESOURCE;
+    g_prep_job.progress_pct = -1.0f;
+    safe_copy(g_prep_job.source, sizeof(g_prep_job.source), image);
+    safe_copy(g_prep_job.mod_source, sizeof(g_prep_job.mod_source), source_path);
+    safe_copy(g_prep_job.mod_package, sizeof(g_prep_job.mod_package), package_id);
+    safe_copy(g_prep_job.mod_feature, sizeof(g_prep_job.mod_feature), feature_id);
+    safe_copy(g_prep_job.mod_resource, sizeof(g_prep_job.mod_resource), resource_id);
+    m->setup_preparing = true;
+    m->setup_prepare_fraction = -1.0f;
+    m->setup_prepare_pulse = 0;
+    m->setup_error[0] = 0;
+    safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title), "Importing game content");
+    safe_copy(m->setup_status, sizeof(m->setup_status), "Checking your files and preparing content...");
+    g_prep_job.import_queued = 1;
+}
+
+void launcher_model_start_pending_mod_import(LauncherModel* m) {
+    if (!m || !m->setup_preparing || g_prep_job.m != m ||
+        !g_prep_job.import_queued) return;
+    g_prep_job.import_queued = 0;
+    if (!prep_spawn_thread(m))
+        safe_copy(m->mod_status, sizeof(m->mod_status), m->setup_error);
+}
+
+bool launcher_model_setup_error_reveal(LauncherModel* m) {
+    if (!m) return false;
+    if (!m->setup_error[0]) {
+        m->setup_error_revealed[0] = '\0';
+        m->setup_error_reveal_frames = 0;
+        return false;
+    }
+    if (strcmp(m->setup_error, m->setup_error_revealed) != 0) {
+        safe_copy(m->setup_error_revealed, sizeof(m->setup_error_revealed), m->setup_error);
+        m->setup_error_reveal_frames = LNG_SETUP_ERROR_REVEAL_FRAMES;
+    }
+    if (m->setup_error_reveal_frames > 0) {
+        m->setup_error_reveal_frames--;
+        return true;
+    }
+    return false;
+}
+
+/* A prepare failed. The host may now judge the selected file differently: a
+ * setup host answers "bad" for a file its own disc check refused, and the
+ * panel must not say "Disc verified" above that refusal. So the disc check
+ * runs again. A failure that is not a refusal of the file (a build that
+ * failed, tools that are missing) leaves the host's answer as it was, and so
+ * the verdict.
+ *
+ * disc_refused_by_setup: the "bad" is setup's, not the game program's. It is
+ * so when this check turned a verdict that was not "bad" into "bad", and it
+ * stays so while a later failure leaves the verdict "bad". A file the game
+ * program itself calls bad (no header, another serial) never gets it. */
+static void lm_recheck_disc_after_failed_prepare(LauncherModel* m) {
+    const int  before = m->verify.verdict;
+    const bool was_refused = m->disc_refused_by_setup;
+    run_verify(m);
+    m->disc_refused_by_setup =
+        m->verify.verdict == 3 && (was_refused || before != 3);
+}
+
 void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!m || !m->setup_preparing) return;
     m->setup_prepare_pulse += 0.02f;
@@ -3707,7 +4225,7 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     const int done = g_prep_job.done && g_prep_job.m == m;
     const int kind = g_prep_job.kind;
     char out_path[512];
-    char err[256];
+    char err[LNG_SETUP_ERROR_CAP];   /* as much as the wizard can show (setup_error) */
     int result = 0;
     if (done) {
         result = g_prep_job.result;
@@ -3720,6 +4238,15 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
     if (!done) return;
     m->setup_preparing = false;
     m->setup_prepare_fraction = -1.0f;
+
+    if (kind == PREP_JOB_MOD_RESOURCE) {
+        m->setup_progress_title[0] = 0;
+        m->setup_status[0] = 0;
+        safe_copy(m->mod_status, sizeof(m->mod_status),
+                  result ? "Content imported. Changes apply on PLAY."
+                         : (err[0] ? err : "Content import failed; previous selection retained."));
+        return;
+    }
 
     if (kind == PREP_JOB_TOOLCHAIN) {
         m->setup_progress_title[0] = '\0';
@@ -3840,7 +4367,12 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
         safe_copy(m->setup_error, sizeof(m->setup_error),
                   err[0] ? err : "Disc prepare failed.");
         lm_restore_setup_wizard_after_bios(m, 1);
+        lm_recheck_disc_after_failed_prepare(m);
     }
+}
+
+bool launcher_model_disc_refused_by_setup(const LauncherModel* m) {
+    return m && m->rom_present && m->disc_refused_by_setup && m->verify.verdict == 3;
 }
 
 // Re-inspect one memory-card slot via the host callback (if any), caching the
@@ -3890,6 +4422,11 @@ void launcher_model_set_memcard_path(LauncherModel* m, int slot, const char* pat
     lm_inspect_memcard(m, slot);   // refresh real block usage/validity for the new path
 }
 
+int launcher_model_memcard_slot_count(const LauncherModel* m, int profile_slots) {
+    if (m->memcard_slots > 0 && m->memcard_slots < profile_slots) return m->memcard_slots;
+    return profile_slots;
+}
+
 void launcher_model_toggle_memcard(LauncherModel* m, int slot) {
     if (slot < 0 || slot > 1) return;
     m->s.memcard_enabled[slot] = m->s.memcard_enabled[slot] ? 0 : 1;
@@ -3935,11 +4472,74 @@ int launcher_model_netplay_room_max_players(const LauncherModel* m,
 int launcher_model_visible_player_count(const LauncherModel* m) {
     if (!m) return 1;
     int n = m->player_count > 0 ? m->player_count : 1;
+    if (n==1 && m->has_native_mouse && (m->s.player_src[0]==RECOMP_LAUNCHER_SRC_MOUSE ||
+        m->s.player_src[1]==RECOMP_LAUNCHER_SRC_MOUSE)) n=2;
     if (n > LNG_MAX_PLAYERS) n = LNG_MAX_PLAYERS;
     if (launcher_model_multitap_available(m) && !m->s.multitap_enabled) {
         if (n > 2) n = 2;
     }
     return n;
+}
+
+int launcher_model_player_tabs(const LauncherModel* m) {
+    if (!m || m->lock_device) return 0;
+    int n = 0;
+    if (m->controller_port_mask) {
+        for (unsigned mask = m->controller_port_mask; mask; mask &= mask - 1u)
+            ++n;
+    } else {
+        n = launcher_model_visible_player_count(m);
+    }
+    return n >= 2 ? n : 0;
+}
+
+int launcher_model_controller_port(const LauncherModel* m, int tab) {
+    if (tab < 0) return -1;
+    if (!m || !m->controller_port_mask)
+        return tab < launcher_model_visible_player_count(m) ? tab : -1;
+    for (int port = 0; port < LNG_MAX_PLAYERS; ++port) {
+        if ((m->controller_port_mask & (1u << port)) && tab-- == 0) return port;
+    }
+    return -1;
+}
+
+const RecompLauncherCFixedController* launcher_model_fixed_controller(
+    const LauncherModel* m, int port) {
+    const RecompLauncherCFixedController* device = m ? m->fixed_controller : NULL;
+    return device && device->port == port && device->name && device->name[0] ? device : NULL;
+}
+
+int launcher_model_player_tab(const LauncherModel* m) {
+    const int n = launcher_model_player_tabs(m);
+    if (n < 1 || m->player_tab < 0) return 0;
+    return m->player_tab < n ? m->player_tab : n - 1;
+}
+
+void launcher_model_set_player_tab(LauncherModel* m, int player) {
+    if (m) m->player_tab = clampi(player, 0, LNG_MAX_PLAYERS - 1);
+}
+
+int launcher_model_dashboard_tabbed(const LauncherModel* m) {
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    return prof && prof->controller.player_tabs ? 1 : 0;
+}
+
+int launcher_model_card_tabs(const LauncherModel* m) {
+    if (!launcher_model_dashboard_tabbed(m)) return 0;
+    const SystemProfile* prof = (const SystemProfile*)m->profile;
+    if (prof->save.kind != SAVE_MEMCARD) return 0;
+    return launcher_model_memcard_slot_count(
+        m, prof->save.slots > 0 && prof->save.slots <= 2 ? prof->save.slots : 2);
+}
+
+int launcher_model_card_tab(const LauncherModel* m) {
+    const int n = launcher_model_card_tabs(m);
+    if (n < 1 || m->card_tab < 0) return 0;
+    return m->card_tab < n ? m->card_tab : n - 1;
+}
+
+void launcher_model_set_card_tab(LauncherModel* m, int slot) {
+    if (m) m->card_tab = clampi(slot, 0, 1);
 }
 
 int launcher_model_multitap_analog_available(const LauncherModel* m) {
@@ -3986,13 +4586,27 @@ void launcher_model_new_memcard(LauncherModel* m, int slot, const char* path) {
 
 // ---- N64 Transfer Pak slots (mirrors the memcard slot pattern) -----------------
 
+bool launcher_model_tpak_file_readable(const char* path) {
+    if (!path || !*path) return false;
+    FILE* file = lm_fopen_utf8(path, "rb");
+    if (!file) return false;
+    const bool readable = fgetc(file) != EOF;
+    fclose(file);
+    return readable;
+}
+
+static void lm_refresh_tpak_files(LauncherModel* m, int slot) {
+    if (!m->require_tpak_files) return;
+    m->tpak_rom_readable[slot] = launcher_model_tpak_file_readable(m->s.tpak_rom_path[slot]);
+    m->tpak_save_readable[slot] = launcher_model_tpak_file_readable(m->s.tpak_save_path[slot]);
+}
+
 // Refresh one slot's cartridge facts through the host's tpak_inspect callback.
-// Clears to "not inspected" when there's no callback, no cartridge, or the
-// callback declines — the panel then shows the bare file name, neutral tint.
 static void lm_inspect_tpak(LauncherModel* m, int slot) {
     if (slot < 0 || slot >= RECOMP_LAUNCHER_MAX_TPAKS) return;
     memset(&m->tpak_info[slot], 0, sizeof(m->tpak_info[slot]));
     m->tpak_inspected[slot] = false;
+    lm_refresh_tpak_files(m, slot);
     if (!m->tpak_inspect_cb || !m->s.tpak_rom_path[slot][0]) return;
     RecompLauncherCTpak out; memset(&out, 0, sizeof(out));
     if (m->tpak_inspect_cb(m->s.tpak_rom_path[slot],
@@ -4001,6 +4615,24 @@ static void lm_inspect_tpak(LauncherModel* m, int slot) {
         m->tpak_info[slot] = out;
         m->tpak_inspected[slot] = true;
     }
+}
+
+void launcher_model_refresh_tpak_files(LauncherModel* m) {
+    if (!m || !m->require_tpak_files || m->in_session) return;
+    const int ports = launcher_model_pak_ports(m);
+    for (int port = 0; port < ports; ++port)
+        if (launcher_model_tpak_enabled(m, port)) lm_refresh_tpak_files(m, port);
+}
+
+int launcher_model_tpak_blocking_port(const LauncherModel* m) {
+    if (!m || !m->require_tpak_files || m->in_session) return -1;
+    const int ports = launcher_model_pak_ports(m);
+    for (int port = 0; port < ports; ++port) {
+        if (launcher_model_tpak_enabled(m, port) &&
+            (!m->tpak_rom_readable[port] || !m->tpak_save_readable[port]))
+            return port;
+    }
+    return -1;
 }
 
 // How many controller ports on this system carry an accessory (pak) slot.
@@ -4032,6 +4664,9 @@ int launcher_model_pak_ports(const LauncherModel* m) {
 
 void launcher_model_set_tpak_rom(LauncherModel* m, int slot, const char* path) {
     if (slot < 0 || slot >= launcher_model_pak_ports(m)) return;
+    if (m->require_tpak_files && m->s.tpak_rom_path[slot][0] &&
+        strcmp(m->s.tpak_rom_path[slot], path ? path : "") != 0)
+        m->s.tpak_save_path[slot][0] = '\0';
     safe_copy(m->s.tpak_rom_path[slot], sizeof(m->s.tpak_rom_path[slot]), path ? path : "");
     if (m->s.tpak_rom_path[slot][0]) m->s.tpak_enabled[slot] = 1;  // inserting = wanting it on
     lm_inspect_tpak(m, slot);
@@ -4051,12 +4686,39 @@ void launcher_model_set_tpak_save(LauncherModel* m, int slot, const char* path) 
     lm_inspect_tpak(m, slot);
 }
 
+static unsigned n64_pak_options = RECOMP_LAUNCHER_PAK_TRANSFER;
+static int* n64_pak_choices;
+
+void recomp_launcher_set_n64_pak_options(unsigned options, int* choices) {
+    n64_pak_options = choices ? options : RECOMP_LAUNCHER_PAK_TRANSFER;
+    n64_pak_choices = choices;
+}
+
+unsigned launcher_model_n64_pak_options(void) {
+    return n64_pak_options;
+}
+
 bool launcher_model_tpak_enabled(const LauncherModel* m, int slot) {
     if (slot < 0 || slot >= launcher_model_pak_ports(m)) return false;
+    if (n64_pak_choices) return n64_pak_choices[slot] == RECOMP_LAUNCHER_PAK_TRANSFER;
     int e = m->s.tpak_enabled[slot];
     if (e > 0) return true;
     if (e < 0) return false;
     return m->s.tpak_rom_path[slot][0] != '\0';   // unset: on iff a cart is inserted
+}
+
+int launcher_model_n64_pak_kind(const LauncherModel* m, int port) {
+    if (port < 0 || port >= launcher_model_pak_ports(m)) return 0;
+    if (n64_pak_choices) return n64_pak_choices[port];
+    return launcher_model_tpak_enabled(m, port) ? RECOMP_LAUNCHER_PAK_TRANSFER : 0;
+}
+
+void launcher_model_set_n64_pak_kind(LauncherModel* m, int port, int kind) {
+    if (port < 0 || port >= launcher_model_pak_ports(m)) return;
+    if (launcher_model_n64_pak_kind(m, port) == kind) return;
+    if (n64_pak_choices) n64_pak_choices[port] = kind;
+    else m->s.tpak_enabled[port] = kind ? 1 : -1;
+    if (kind == RECOMP_LAUNCHER_PAK_TRANSFER) lm_refresh_tpak_files(m, port);
 }
 
 void launcher_model_toggle_tpak(LauncherModel* m, int slot) {
@@ -4077,31 +4739,148 @@ const char* launcher_model_audio_device_label(const LauncherModel* m) {
 // ---- SRAM save management (mirrors the legacy launcher's Import/Clear) --------
 // Both back up any existing save to "<sram>.bak" first (never a destructive op
 // without a recoverable copy), matching the old launcher's behavior.
-static bool lm_copy_file(const char* src, const char* dst) {
-    FILE* in = fopen(src, "rb");
-    if (!in) return false;
-    FILE* out = fopen(dst, "wb");
-    if (!out) { fclose(in); return false; }
+#if defined(_WIN32)
+static wchar_t* lm_native_save_path_wide(const char* path) {
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
+    if (!count) { errno = EINVAL; return NULL; }
+    wchar_t* wide = (wchar_t*)malloc((size_t)count * sizeof(wchar_t));
+    if (!wide) { errno = ENOMEM; return NULL; }
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, count)) {
+        free(wide); errno = EINVAL; return NULL;
+    }
+    return wide;
+}
+#endif
+static FILE* lm_fopen_utf8(const char* path, const char* mode) {
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(path);
+    if (!wide) return NULL;
+    wchar_t wide_mode[4] = {0};
+    size_t count = strlen(mode);
+    if (count >= 4) { free(wide); errno = EINVAL; return NULL; }
+    for (size_t i = 0; i < count; ++i) wide_mode[i] = (wchar_t)mode[i];
+    FILE* file = _wfopen(wide, wide_mode);
+    free(wide);
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+static int lm_remove_utf8(const char* path) {
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(path);
+    if (!wide) return -1;
+    int result = _wremove(wide);
+    free(wide);
+    return result;
+#else
+    return remove(path);
+#endif
+}
+long launcher_native_save_size(const char* path) {
+    if (!path || !*path) return -1;
+    FILE* file = lm_fopen_utf8(path, "rb");
+    if (!file) return -1;
+    long size = fseek(file, 0, SEEK_END) ? -1 : ftell(file);
+    fclose(file);
+    return size;
+}
+static bool lm_copy_open_files(FILE* in, FILE* out) {
     char buf[8192]; size_t n; bool ok = true;
     while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
         if (fwrite(buf, 1, n, out) != n) { ok = false; break; }
-    fclose(in); fclose(out);
+    if (ferror(in)) ok = false;
+    if (fclose(in)) ok = false;
+    if (fclose(out)) ok = false;
     return ok;
+}
+static bool lm_copy_file(const char* src, const char* dst) {
+    FILE* in = lm_fopen_utf8(src, "rb");
+    if (!in) return false;
+    FILE* out = lm_fopen_utf8(dst, "wb");
+    if (!out) { fclose(in); return false; }
+    return lm_copy_open_files(in, out);
+}
+
+// A sibling staging file is exclusively created. The current save is never
+// opened for writing, and only a completely read/flushed/closed copy commits.
+static bool lm_import_file_atomic(const char* src, const char* dst) {
+    char temp[600];
+    int length = snprintf(temp, sizeof(temp), "%s.import.tmp", dst);
+    if (length < 0 || (size_t)length >= sizeof(temp)) return false;
+    FILE* in = lm_fopen_utf8(src, "rb");
+    if (!in) return false;
+    FILE* out = NULL;
+#if defined(_WIN32)
+    wchar_t* wide = lm_native_save_path_wide(temp);
+    if (wide) {
+        int fd = _wopen(wide, _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY,
+                        _S_IREAD | _S_IWRITE);
+        if (fd >= 0) {
+            out = _fdopen(fd, "wb");
+            if (!out) { _close(fd); _wremove(wide); }
+        }
+        free(wide);
+    }
+#else
+    out = fopen(temp, "wbx");
+#endif
+    if (!out) { fclose(in); return false; }
+    if (!lm_copy_open_files(in, out)) { lm_remove_utf8(temp); return false; }
+    // Stage first: src may itself be the current save's backup (or an alias).
+    // Backing up before this point would destroy the requested input.
+    char bak[600];
+    length = snprintf(bak, sizeof(bak), "%s.bak", dst);
+    if (length < 0 || (size_t)length >= sizeof(bak)) {
+        lm_remove_utf8(temp); return false;
+    }
+    errno = 0;
+    FILE* existing = lm_fopen_utf8(dst, "rb");
+    if (existing) {
+        if (fclose(existing) || !lm_copy_file(dst, bak)) {
+            lm_remove_utf8(temp); return false;
+        }
+    } else if (errno != ENOENT) {
+        lm_remove_utf8(temp); return false;
+    }
+    bool committed = false;
+#if defined(_WIN32)
+    wchar_t* from = lm_native_save_path_wide(temp);
+    wchar_t* to = lm_native_save_path_wide(dst);
+    if (from && to)
+        committed = MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    free(from); free(to);
+#else
+    committed = rename(temp, dst) == 0;
+#endif
+    if (!committed) lm_remove_utf8(temp);
+    return committed;
+}
+
+const char* launcher_model_native_save_path(const LauncherModel* m) {
+    if (!m) return NULL;
+    return m->native_save_path_cb
+        ? m->native_save_path_cb(m->native_save_path_ctx, launcher_model_rom_path(m))
+        : m->sram_path;
 }
 
 void launcher_model_import_sram(LauncherModel* m, const char* src) {
-    if (!m->sram_path || !m->sram_path[0] || !src || !src[0]) return;
-    char bak[600]; snprintf(bak, sizeof(bak), "%s.bak", m->sram_path);
-    FILE* existing = fopen(m->sram_path, "rb");
-    if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); }  // back up first
-    lm_copy_file(src, m->sram_path);
+    const char* path = launcher_model_native_save_path(m);
+    if (!path || !path[0] || !src || !src[0]) return;
+    if (!strcmp(src, path)) return;
+    if (!lm_import_file_atomic(src, path)) return;
 }
 
 void launcher_model_clear_sram(LauncherModel* m) {
-    if (!m->sram_path || !m->sram_path[0]) return;
-    char bak[600]; snprintf(bak, sizeof(bak), "%s.bak", m->sram_path);
-    FILE* existing = fopen(m->sram_path, "rb");
-    if (existing) { fclose(existing); lm_copy_file(m->sram_path, bak); remove(m->sram_path); }
+    const char* path = launcher_model_native_save_path(m);
+    if (!path || !path[0]) return;
+    char bak[600]; int length = snprintf(bak, sizeof(bak), "%s.bak", path);
+    if (length < 0 || (size_t)length >= sizeof(bak)) return;
+    FILE* existing = lm_fopen_utf8(path, "rb");
+    if (existing) {
+        if (fclose(existing) || !lm_copy_file(path, bak)) return;
+        lm_remove_utf8(path);
+    }
 }
 
 void launcher_model_toggle_msu1(LauncherModel* m) {
@@ -4527,6 +5306,8 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
     if (!m->pad_mode_supported || !m->pad_mode_selectable) return;
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     if (!pad_mode_is_psx_legacy(m)) return;
+    /* A neGcon is the device in the port, whichever host input drives it. */
+    if (m->s.pad_mode[player] == RECOMP_LAUNCHER_PAD_MODE_NEGCON) return;
     if (m->s.player_src[player] == 1)
         m->s.pad_mode[player] = 2;   // D-Pad / digital (no sticks)
     else if (m->s.player_src[player] == 2)
@@ -4535,13 +5316,22 @@ static void apply_default_pad_mode_for_source(LauncherModel* m, int player) {
 
 void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
     if (!m->pad_mode_supported || !m->pad_mode_selectable) return;   // gated/locked
-    player = clampi(player, 0, 1);
+    player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const ControllerSpec* spec = prof ? &prof->controller : NULL;
+    if (mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON && launcher_model_negcon_mode_available(m)) {
+        m->s.pad_mode[player] = mode;
+        return;
+    }
     if (spec && spec->modes && spec->mode_count > 0) {
         // Custom mode list (Genesis): accept listed mode values only.
         for (int i = 0; i < spec->mode_count; ++i)
             if (spec->modes[i].mode == mode) { m->s.pad_mode[player] = mode; return; }
+        return;
+    }
+    /* neGcon (PSX): any input source may drive it, the keyboard included. */
+    if (mode == RECOMP_LAUNCHER_PAD_MODE_NEGCON) {
+        if (launcher_model_negcon_mode_available(m)) m->s.pad_mode[player] = mode;
         return;
     }
     /* Keyboard has no sticks — Analog is unavailable. */
@@ -4551,11 +5341,17 @@ void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
     m->s.pad_mode[player] = mode;
 }
 
+int launcher_model_negcon_mode_available(const LauncherModel* m) {
+    /* The neGcon is a PSX controller; other profiles have no such pad type. */
+    const SystemProfile* prof=m?(const SystemProfile*)m->profile:NULL;
+    return m && m->has_native_negcon && prof && prof->id && !strcmp(prof->id,"psx");
+}
+
 int launcher_model_active_button_count(const LauncherModel* m, int player) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     int bc = prof ? prof->controller.button_count : LNG_BTN_COUNT;
     if (prof && prof->controller.modes && prof->controller.mode_count > 0) {
-        player = clampi(player, 0, 1);
+        player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
         for (int i = 0; i < prof->controller.mode_count; ++i)
             if (prof->controller.modes[i].mode == m->s.pad_mode[player]) {
                 bc = prof->controller.modes[i].button_count;
@@ -4567,9 +5363,27 @@ int launcher_model_active_button_count(const LauncherModel* m, int player) {
     return bc;
 }
 
+int launcher_model_mouse_source_available(const LauncherModel* m) {
+    /* The PS1 Mouse is a PSX port device; no other profile has one. */
+    const SystemProfile* prof = m ? (const SystemProfile*)m->profile : NULL;
+    return (m && m->has_native_mouse && prof && prof->id && strcmp(prof->id, "psx") == 0) ? 1 : 0;
+}
+
+int launcher_model_guncon_source_available(const LauncherModel* m) {
+    const SystemProfile* prof=m?(const SystemProfile*)m->profile:NULL;
+    return m && m->has_native_guncon && prof && prof->id && !strcmp(prof->id,"psx");
+}
+int launcher_model_source_is_pointer(int kind) {
+    return kind==RECOMP_LAUNCHER_SRC_MOUSE || kind==RECOMP_LAUNCHER_SRC_GUNCON;
+}
 void launcher_model_cycle_player_src(LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = (m->s.player_src[player] + 1) % 3;  // None/Kbd/Pad
+    for (int i=0;i<5;++i) {
+        m->s.player_src[player]=(m->s.player_src[player]+1)%5;
+        if (m->s.player_src[player]==RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m)) continue;
+        if (m->s.player_src[player]==RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m)) continue;
+        break;
+    }
     apply_default_pad_mode_for_source(m, player);
 }
 
@@ -4609,8 +5423,20 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
                                uint32_t pad_id, const char* pad_name,
                                const char* pad_guid) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    m->s.player_src[player] = clampi(kind, 0, 2);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        kind = 0;
+    if (kind == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        kind = 0;
+    kind = clampi(kind, 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    m->s.player_src[player] = kind;
     if (kind == 2) {
+        /* A deliberate SNES picker move transfers this physical controller.
+         * Same-model pads have separate instances and remain independent. */
+        if (m->profile && m->profile->id && !strcmp(m->profile->id,"snes"))
+            for (int other=0;other<LNG_MAX_PLAYERS;++other)
+                if (other!=player && m->s.player_src[other]==2 &&
+                    m->s.player_gamepad_instance[other]==pad_id+1)
+                    launcher_model_set_source(m,other,0,0,NULL,NULL);
         m->player_pad_id[player] = pad_id;
         m->s.player_gamepad_instance[player] = pad_id + 1;
         safe_copy(m->player_pad_name[player], sizeof(m->player_pad_name[player]),
@@ -4625,6 +5451,82 @@ void launcher_model_set_source(LauncherModel* m, int player, int kind,
         m->s.player_gamepad_guid[player][0] = '\0';
     }
     apply_default_pad_mode_for_source(m, player);
+}
+
+// ---- PS1 Mouse + pad --------------------------------------------
+// Mouse titles often want a pad in the other console port for the same player
+// (Syndicate Wars keeps pause and view rotation on the pad; Quake II moves on
+// the pad and aims with the mouse). A one-player title shows one card, so the
+// second port has no card of its own: the Player 1 card owns both ports while
+// either holds the mouse. Seats stay ports (seat 0 = port 1, seat 1 = port 2),
+// so the host needs nothing new: it already round-trips every seat.
+
+int launcher_model_mouse_pair_available(const LauncherModel* m) {
+    return launcher_model_mouse_source_available(m) && LNG_MAX_PLAYERS >= 2 &&
+           m->player_count == 1;
+}
+
+int launcher_model_mouse_pair_port(const LauncherModel* m) {
+    if (!launcher_model_mouse_pair_available(m)) return 0;
+    if (m->s.player_src[0] == RECOMP_LAUNCHER_SRC_MOUSE) return 1;
+    if (m->s.player_src[1] == RECOMP_LAUNCHER_SRC_MOUSE) return 2;
+    return 0;
+}
+
+int launcher_model_mouse_pair_pad_seat(const LauncherModel* m) {
+    const int port = launcher_model_mouse_pair_port(m);
+    return port == 1 ? 1 : port == 2 ? 0 : -1;
+}
+
+/* Swap everything that belongs to a seat's device between seats 0 and 1. */
+static void swap_seats_0_1(LauncherModel* m) {
+    int t;
+    char g[sizeof(m->s.player_gamepad_guid[0])];
+    char n[sizeof(m->player_pad_name[0])];
+    uint32_t id;
+    t = m->s.player_src[0]; m->s.player_src[0] = m->s.player_src[1]; m->s.player_src[1] = t;
+    t = m->s.pad_mode[0];   m->s.pad_mode[0]   = m->s.pad_mode[1];   m->s.pad_mode[1]   = t;
+    t = m->s.deadzone[0];   m->s.deadzone[0]   = m->s.deadzone[1];   m->s.deadzone[1]   = t;
+    memcpy(g, m->s.player_gamepad_guid[0], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[0], m->s.player_gamepad_guid[1], sizeof(g));
+    memcpy(m->s.player_gamepad_guid[1], g, sizeof(g));
+    memcpy(n, m->player_pad_name[0], sizeof(n));
+    memcpy(m->player_pad_name[0], m->player_pad_name[1], sizeof(n));
+    memcpy(m->player_pad_name[1], n, sizeof(n));
+    id = m->player_pad_id[0]; m->player_pad_id[0] = m->player_pad_id[1]; m->player_pad_id[1] = id;
+    id = m->s.player_gamepad_instance[0]; m->s.player_gamepad_instance[0] = m->s.player_gamepad_instance[1]; m->s.player_gamepad_instance[1] = id;
+}
+
+void launcher_model_set_mouse_pair_port(LauncherModel* m, int port) {
+    const int cur = launcher_model_mouse_pair_port(m);
+    if (!cur || (port != 1 && port != 2) || port == cur) return;
+    swap_seats_0_1(m);
+}
+
+void launcher_model_set_primary_source(LauncherModel* m, int kind,
+                                       uint32_t pad_id, const char* pad_name,
+                                       const char* pad_guid) {
+    if (!launcher_model_mouse_pair_available(m)) {
+        launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+        return;
+    }
+    const int port = launcher_model_mouse_pair_port(m);
+    if (kind == RECOMP_LAUNCHER_SRC_MOUSE) {
+        if (port) return;   /* already the mouse player */
+        /* The keyboard or pad Player 1 had becomes the pad in port 2, unless
+         * port 2 already has a device. */
+        if (m->s.player_src[1] == 0 && m->s.player_src[0] != 0) swap_seats_0_1(m);
+        launcher_model_set_source(m, 0, RECOMP_LAUNCHER_SRC_MOUSE, 0, NULL, NULL);
+        return;
+    }
+    /* Leaving the mouse: the pick goes to port 1. The mouse leaves its port;
+     * a pad kept in port 2 stays there (a one-player title reads it only
+     * after a live port swap), unless it is the very pad just picked. */
+    if (port == 2) launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
+    launcher_model_set_source(m, 0, kind, pad_id, pad_name, pad_guid);
+    if (kind == 2 && pad_guid && pad_guid[0] && m->s.player_src[1] == 2 &&
+        strcmp(m->s.player_gamepad_guid[1], pad_guid) == 0)
+        launcher_model_set_source(m, 1, 0, 0, NULL, NULL);
 }
 
 // ---- mouse controls --------------------------------------------------------
@@ -4772,7 +5674,8 @@ void launcher_model_set_captured_pad(LauncherModel* m, int encoded_binding) {
     if (m->capture_assist) {
         if (m->capture_btn >= 0 &&
             m->capture_btn < m->assist_binding_count)
-            m->s.assist_pad_bind[m->capture_btn] = encoded_binding;
+            m->s.assist_pad_bind[m->capture_btn] =
+                m->assist_pad_only && encoded_binding == 0 ? -1 : encoded_binding;
     } else {
         int buttons = launcher_model_active_button_count(m, m->cfg_player);
         if (m->capture_btn >= 0 && m->capture_btn < buttons)
@@ -4800,8 +5703,9 @@ void launcher_model_reset_player_bindings(LauncherModel* m, int player) {
 }
 void launcher_model_reset_assist_bindings(LauncherModel* m) {
     if (!m) return;
-    memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
-           sizeof m->s.assist_key_bind);
+    if (!m->assist_pad_only)
+        memcpy(m->s.assist_key_bind, m->default_assist_key_bind,
+               sizeof m->s.assist_key_bind);
     memcpy(m->s.assist_pad_bind, m->default_assist_pad_bind,
            sizeof m->s.assist_pad_bind);
 }
@@ -4837,7 +5741,7 @@ void launcher_model_cancel_camera_capture(LauncherModel* m) {
 }
 
 const char* launcher_model_scale_label(const LauncherModel* m) {
-    static char buf[8];
+    static char buf[16];
     int s = m->s.window_scale < 1 ? 1 : m->s.window_scale;
     snprintf(buf, sizeof(buf), "%dx", s);
     return buf;
@@ -4851,7 +5755,11 @@ const char* launcher_model_freq_label(const LauncherModel* m) {
 
 const char* launcher_model_player_src_label(const LauncherModel* m, int player) {
     player = clampi(player, 0, LNG_MAX_PLAYERS - 1);
-    int src = clampi(m->s.player_src[player], 0, 2);
+    int src = clampi(m->s.player_src[player], 0, RECOMP_LAUNCHER_SRC_GUNCON);
+    if (src == RECOMP_LAUNCHER_SRC_MOUSE && !launcher_model_mouse_source_available(m))
+        src = 0;
+    if (src == RECOMP_LAUNCHER_SRC_GUNCON && !launcher_model_guncon_source_available(m))
+        src = 0;
     if (src == 2) {
         // Never show the generic "Gamepad" placeholder when we have a concrete
         // pad name (or at least a GUID-backed label filled by sync/hydrate).

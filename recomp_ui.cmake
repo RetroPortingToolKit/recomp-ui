@@ -7,7 +7,8 @@
 #     recomp_target_launcher_ui(<host_target> CONSOLE <console-id>
 #                                              [BOXART <path-to-boxart.tga>]
 #                                              [BOXART_NAME <dest-basename.tga>]
-#                                              [PAD <pad.tga>] [BRAND <brand.tga>])
+#                                              [PAD <pad.tga>] [BRAND <brand.tga>]
+#                                              [THEME <colors.ini>])
 #
 # This is the console-agnostic extraction of the SNES-recomp "launcher_ng"
 # Dear ImGui launcher: same UI, same behavior, generic C ABI
@@ -96,6 +97,9 @@ function(_recomp_ui_utf8_manifest TGT)
         endif()
     endforeach()
     set(_manifest "${RECOMP_UI_ROOT}/windows/recomp_utf8.manifest")
+    # Resource scripts interpret backslashes as escapes. A caller's native
+    # Windows cache path can otherwise break the next configure/build.
+    file(TO_CMAKE_PATH "${_manifest}" _manifest)
     if(MSVC)
         target_sources(${TGT} PRIVATE "${_manifest}")
     else()
@@ -143,7 +147,7 @@ function(recomp_target_launcher_ui TGT)
     cmake_parse_arguments(
         RUI
         "HOST_IMGUI"
-        "CONSOLE;BOXART;BOXART_NAME;PAD;BRAND;IMGUI_DIR;LANGUAGE"
+        "CONSOLE;BOXART;BOXART_NAME;PAD;BRAND;THEME;IMGUI_DIR;LANGUAGE"
         ""
         ${ARGN})
 
@@ -210,8 +214,11 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/launcher_debug.c
         ${RUI_SRC}/common/launcher_debug_tcp.c
         ${RUI_SRC}/common/launcher_binds.c
+        ${RUI_SRC}/common/kb_profiles.c        # named keyboard profiles (every console with a keyboard bind card)
         ${RUI_SRC}/common/pad_binds.c          # per-GUID input.ini store (all consoles)
         ${RUI_SRC}/common/launcher_udp_port.c  # host-lobby UDP port probe / auto-pick
+        ${RUI_SRC}/common/launcher_cover.c     # the cover button: fetch with the system curl, check, save
+        ${RUI_SRC}/common/launcher_icon.c      # a desktop icon file from the cover or from a save's icon
         ${RUI_SRC}/common/recomp_runtime_ui.c # renderer-agnostic in-game overlay
         ${RUI_SRC}/common/recomp_runtime_settings.c # shared cross-ecosystem setting catalog
         ${RUI_SRC}/common/recomp_frame_blend.c # shared presentation blend (Settings.frame_blend)
@@ -219,6 +226,10 @@ function(recomp_target_launcher_ui TGT)
         ${RUI_SRC}/common/recomp_flash_guard.c # shared photosensitivity flash filter
         ${RUI_SRC}/common/launcher_boot_timing.c  # PSX_LAUNCHER_BOOT_TIMING / LNG_BOOT_TIMING
         ${RUI_SRC}/common/launcher_ng_capi.c   # implements recomp_launcher_run_window()
+        ${RUI_SRC}/common/launcher_theme_overrides.c # per-game colors (THEME)
+        ${RUI_SRC}/common/launcher_assets_dir.c # assets_dir contract: base dir vs assets folder
+        ${RUI_SRC}/common/launcher_launch_options.c
+        ${RUI_SRC}/common/launcher_mod_text_path.c
         ${RUI_SRC}/common/launcher_i18n.cpp
         ${RUI_SRC}/common/launcher_mod_visibility.c # which mod features/packages the player sees
         # color emoji for chat: scanner + per-platform rasterizers (each
@@ -231,7 +242,9 @@ function(recomp_target_launcher_ui TGT)
         # console-specific helpers (src/consoles/<id>/) — always compiled, only
         # reached when the active SystemProfile opts into the capability
         ${RUI_SRC}/consoles/psx/memcard_format.c   # PS1 blank memory-card image writer
+        ${RUI_SRC}/consoles/psx/psx_start_from.cpp # "Start from": a title's save states
         ${RUI_SRC}/consoles/psx/psx_binds.c        # PSX-native keybind persistence bridge
+        ${RUI_SRC}/consoles/psx/psx_kb_profiles.c  # PSX adapter of the named keyboard profiles
         ${RUI_SRC}/consoles/psx/psx_pad_binds.c    # PSX button table over common/pad_binds.c
         ${RUI_SRC}/consoles/psx/psx_menu_provider.cpp       # psxrecomp in-game menu provider (psx_menu_host.h)
         ${RUI_SRC}/consoles/psx/psx_menu_provider_imgui.cpp # its SDL input + ImGui presentation
@@ -327,7 +340,7 @@ function(recomp_target_launcher_ui TGT)
     # build without either simply keeps the outline emoji glyphs — no option to
     # remember, no missing-dependency failure.
     if(WIN32)
-        target_link_libraries(${TGT} PRIVATE d2d1 dwrite windowscodecs ole32)
+        target_link_libraries(${TGT} PRIVATE d2d1 dwrite windowscodecs ole32 comdlg32)
     elseif(NOT ANDROID)
         find_package(Freetype QUIET)
         if(TARGET Freetype::Freetype)
@@ -382,12 +395,21 @@ function(recomp_target_launcher_ui TGT)
                     ${RUI_BOXART} $<TARGET_FILE_DIR:${TGT}>/assets/img/${RUI_BOXART_DEST}
             VERBATIM)
     endif()
-    # Per-console brand mark (top-left, next to the game title): overrides the
-    # default brand_mark.tga (e.g. the PlayStation shapes for PSX). 32-bit TGA.
+    # Game brand mark (top-left, next to the game title): staged as
+    # brand_game.tga, which the launcher prefers over the profile's own mark
+    # (e.g. the PlayStation shapes for PSX). 32-bit TGA.
     if(RUI_BRAND AND EXISTS ${RUI_BRAND})
         add_custom_command(TARGET ${TGT} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${RUI_BRAND} $<TARGET_FILE_DIR:${TGT}>/assets/img/brand_mark.tga
+                    ${RUI_BRAND} $<TARGET_FILE_DIR:${TGT}>/assets/img/brand_game.tga
+            VERBATIM)
+    endif()
+    # Game colors over the console theme ([colors] INI, launcher_theme_overrides.h),
+    # staged as assets/theme_game.ini and loaded by the launcher.
+    if(RUI_THEME AND EXISTS ${RUI_THEME})
+        add_custom_command(TARGET ${TGT} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${RUI_THEME} $<TARGET_FILE_DIR:${TGT}>/assets/theme_game.ini
             VERBATIM)
     endif()
 endfunction()

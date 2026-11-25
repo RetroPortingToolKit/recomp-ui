@@ -8,6 +8,10 @@
 // Optional read-only cover images, one folder per disc serial
 // (<artwork root>/<serial>/). The launcher never writes into these folders.
 namespace launcher_artwork {
+inline std::string utf8_bytes(const std::filesystem::path& path) {
+    auto text=path.u8string();
+    return {reinterpret_cast<const char*>(text.data()),text.size()};
+}
 namespace fs = std::filesystem;
 struct Catalog { std::vector<fs::path> images; };
 inline std::string lower(std::string s) {
@@ -36,7 +40,7 @@ inline fs::path folder(const fs::path& home,const std::string& serial) {
     return fs::absolute(home/serial).lexically_normal();
 }
 inline int rank(const fs::path& p) {
-    auto name=lower(p.filename().u8string());
+    auto name=lower(utf8_bytes(p.filename()));
     if(name.find("front")!=std::string::npos)return 0;
     if(name.find("back")!=std::string::npos)return 1;
     if(name.find("disc")!=std::string::npos)return 2;
@@ -50,7 +54,7 @@ inline Catalog scan(const fs::path& home,const std::string& serial) {
         while(!ec && it!=end) {
             const auto p=it->path();
             if(!it->is_symlink(ec) && it->is_regular_file(ec)) {
-                auto ext=lower(p.extension().u8string());
+                auto ext=lower(utf8_bytes(p.extension()));
                 if((ext==".png" || ext==".jpg" || ext==".jpeg" || ext==".tga") &&
                     it->file_size(ec)<=32*1024*1024 && !ec)c.images.push_back(p);
             }

@@ -18,6 +18,7 @@
 
 #include "launcher_model.h"
 #include "launcher_input.h"   // LauncherPad for prepare_psx_launch
+#include "kb_profiles.h"   // RUI_KBP_NAME_MAX, RuiKbpResult
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,6 +71,9 @@ void launcher_binds_refresh(LauncherModel* m);
 // string. No-op on consoles without a pad-bind store.
 void launcher_binds_set_pad_button(LauncherModel* m, int player, int b,
                                    int kind, int code, int axis_dir);
+// GBA supports a second physical source per action; other stores accept slot 0.
+void launcher_binds_set_pad_button_slot(LauncherModel* m, int player, int b,
+                                        int slot, int kind, int code, int axis_dir);
 
 // Reset one player's keyboard bindings to defaults and persist.
 // (N64: resets the whole device TABLE the player's source selects.)
@@ -110,6 +114,35 @@ void launcher_binds_save_psx_gamepad(LauncherModel* m, int player /*1-based*/);
 // Save Profile with a KEYBOARD input source: flush this player's keyboard map
 // to keybinds.ini (captures already persist; this is the explicit commit).
 void launcher_binds_save_psx_keyboard(LauncherModel* m, int player /*1-based*/);
+// Named keyboard profiles (kb_profiles.h): one player's keys under a name, in
+// a folder of the user that every game of the console reads; "Default" is
+// built in and protected. Offered for every console whose keyboard map is in a
+// store the launcher reads and writes: PSX, PS2, NES, Genesis, Game Boy / Color,
+// N64 and the generic keybinds.ini consoles (SNES, GBA, 3DO ...). Not for a
+// host that keeps its bindings in its own settings (GameInfo.settings_bindings).
+// save_as, load, rename and delete return a RuiKbpResult. load refreshes the
+// bind display strings.
+int launcher_binds_kb_profiles_supported(const LauncherModel* m, int player /*1-based*/);
+const char* launcher_binds_kb_profiles_dir(const LauncherModel* m);
+int launcher_binds_kb_profile_list(
+        LauncherModel* m, char names[][RUI_KBP_NAME_MAX + 1], int max);
+// The name of the profile that holds the player's keys now; 0 and "" when none
+// does. Kept until the keys or a profile change, so it may be asked every frame.
+int launcher_binds_kb_profile_in_use(LauncherModel* m, int player /*1-based*/,
+                                     char* out, int cap);
+// A hash of the player's keys, to see that they changed.
+uint32_t launcher_binds_kb_keys_stamp(const LauncherModel* m, int player /*1-based*/);
+int launcher_binds_kb_profile_save_as(LauncherModel* m, int player /*1-based*/,
+                                      const char* name, int replace);
+int launcher_binds_kb_profile_load(LauncherModel* m, int player /*1-based*/,
+                                   const char* name);
+int launcher_binds_kb_profile_rename(LauncherModel* m, const char* from, const char* to);
+int launcher_binds_kb_profile_delete(LauncherModel* m, const char* name);
+// Load from file: replace this player's keys from a keyboard file picked
+// anywhere (a profile, or another game's bind file of the same format).
+// 1 on success, 0 if refused; the keys are then unchanged.
+int launcher_binds_load_keyboard_file(LauncherModel* m, int player /*1-based*/,
+                                      const char* src);
 // Rename the selected gamepad (custom display name for the GUID).
 void launcher_binds_rename_psx_gamepad(LauncherModel* m, int player /*1-based*/,
                                        const char* name);
@@ -155,6 +188,9 @@ void launcher_binds_set_zapper(int mouse_enabled, int crosshair);
 void launcher_binds_refresh_camera(LauncherModel* m);
 void launcher_binds_set_camera(LauncherModel* m, int action, int scancode);
 void launcher_binds_reset_camera(LauncherModel* m);
+/* PSX's legacy host actions execute config.ini [KeyMap], independently of
+ * the gameplay keyboard store. Other hosts consume assist_key_bind directly. */
+void launcher_binds_set_assist_key(LauncherModel* m, int action, int scancode);
 
 // Surgically set "Key = value" inside [section] of `path`, preserving every
 // other line (comments, blank lines, unrelated sections). Creates the file

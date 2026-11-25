@@ -66,7 +66,10 @@ Moved to mods in this change: screen model, scanlines (+ strength), smoothing
 (linear present), texture filtering, FMV filtering, enhanced audio
 (high-quality SPU), rewind (+ buffer, interval), perspective textures (PGXP
 Precision), dynamic resolution and internal resolution (Internal Resolution
-mod, Auto included). Removed outright: Graphics preset, Sample rate (the
+mod, Auto, minimum resolution and supersample factor included). Post Processing
+owns FXAA, bloom and custom shaders. PGXP offers independent geometry and
+perspective correction choices; CRT Filter offers explicit Raw output.
+Removed outright: Graphics preset, Sample rate (the
 runtime opens audio at its built-in rate; Volume stays), the Quick Settings
 dashboard card.
 
@@ -77,8 +80,10 @@ dashboard card.
 Frame interpolation, Skip FMVs, the aspect (View mode) row and Turbo loads
 are already off for PSX (mod-owned: `has_frame_interp`, `has_skip_fmv` and
 `aspect_mask` are 0, and Turbo loads draws no row). The Render thread /
-Present thread / Smooth motion rows are drawn only on the legacy Display
-branch, which PSX does not use.
+Present thread controls are available on the PSX Display branch for OpenGL.
+They stay in Settings, alongside the available renderer APIs and VSync
+(including VRR when the host supports it). Failed interpolation, presentation
+rate and Smooth motion controls remain hidden for PSX.
 
 ### Game Boy / Game Boy Color (gb, gbc) -- mod system: not established
 

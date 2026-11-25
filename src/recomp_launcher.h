@@ -8,9 +8,11 @@
 
 #ifndef RECOMP_LAUNCHER_H
 #define RECOMP_LAUNCHER_H
+#include "recomp_card_manager.h"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* Mod support is framework-available but developer opt-in. The integration
  * helper defines this from its default-OFF RECOMP_UI_ENABLE_MODS CMake option.
@@ -35,10 +37,25 @@ extern "C" {
 #define RECOMP_LAUNCHER_MAX_PLAYERS 8
 /* Host may #ifdef this when reading player_gamepad_guid[] from settings. */
 #define RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_GUID 1
+/* player_src value 3: the port holds a mouse device driven by the host
+ * pointer (PSX: the Sony PS1 Mouse). Offered only by profiles that support it
+ * (launcher_model_mouse_source_available); hosts #ifdef the macro so an older
+ * launcher is never handed a value it would clamp to Gamepad. */
+#define RECOMP_LAUNCHER_HAS_MOUSE_SOURCE 1
+#define RECOMP_LAUNCHER_HAS_NATIVE_MOUSE_CAP 1
+#define RECOMP_LAUNCHER_HAS_NEGCON_MODE 1
+#define RECOMP_LAUNCHER_PAD_MODE_NEGCON 3
+#define RECOMP_LAUNCHER_HAS_GUNCON_SOURCE 1
+#define RECOMP_LAUNCHER_SRC_GUNCON 4
+#define RECOMP_LAUNCHER_HAS_NATIVE_PERIPHERAL_CAPS 1
+#define RECOMP_LAUNCHER_SRC_MOUSE 3
 /* Host may #ifdef this when reading multitap_enabled from settings. */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ENABLED 1
 /* Host may #ifdef this when reading multitap_analog (DualShock-on-tap hack). */
 #define RECOMP_LAUNCHER_HAS_MULTITAP_ANALOG 1
+/* Host may #ifdef this when setting GameInfo.has_record_replay and reading
+ * Settings.record_replay (the "Record replay" checkbox). */
+#define RECOMP_LAUNCHER_HAS_RECORD_REPLAY 1
 /* Host may #ifdef this when reading Settings.rewind_depth. */
 #define RECOMP_LAUNCHER_HAS_REWIND_DEPTH 1
 /* Host may #ifdef this when reading Settings.rewind_interval. */
@@ -55,7 +72,8 @@ extern "C" {
  * rom_describe (RecompLauncherCRomRevision). */
 #define RECOMP_LAUNCHER_HAS_ROM_REVISIONS 1
 #define RECOMP_LAUNCHER_MAX_BINDINGS 24
-#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 8
+#define RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS 16
+#define RECOMP_LAUNCHER_HAS_MOD_RESOURCE_IMPORT 1
 
 /* Portable encoding used by host-owned controller bindings. Button and axis
  * numbers are SDL's standard game-controller indices; zero remains unbound. */
@@ -80,6 +98,8 @@ extern "C" {
 /* Spectator seats a host may open, a separate pool on top of the players --
  * so a full room can still be watched. */
 #define RECOMP_LAUNCHER_NETPLAY_MAX_SPECTATORS 4
+
+#define RECOMP_LAUNCHER_HAS_AUTOMATIC_QUALITY 1
 
 typedef struct RecompLauncherCSettings RecompLauncherCSettings;
 
@@ -968,7 +988,9 @@ typedef enum RecompLauncherCModOptionType {
      * host should surface why via last_error). Appended additively; only
      * games whose providers supply a TEXT option ever render one. */
     RECOMP_MOD_OPTION_TEXT = 3,
+    RECOMP_MOD_OPTION_BINDING = 4,
 } RecompLauncherCModOptionType;
+#define RECOMP_LAUNCHER_HAS_MOD_OPTION_TEXT 1
 
 typedef struct RecompLauncherCModPackage {
     char id[RECOMP_LAUNCHER_MOD_ID_MAX];
@@ -1062,6 +1084,11 @@ typedef struct RecompLauncherCModOption {
      * UI only has to grey the control out -- it never cross-references
      * options itself. Example: ticking "Instant" makes the speed box inert. */
     int  disabled;
+    /* Additive presentation hints; zero preserves the existing widgets. */
+    int  slider;
+    int  allow_wheel;
+    /* Decimal slider display; stored values remain integers. Zero means 1. */
+    int64_t display_divisor;
 } RecompLauncherCModOption;
 
 typedef struct RecompLauncherCModChoice {
@@ -1105,9 +1132,20 @@ typedef struct RecompLauncherCModResource {
     char file_description[128];
     int required;
     int verified;
-    /* "file" (default) or "directory". Appended for source compatibility. */
+    /* "file" (default), "directory", "file-or-directory" (both pickers),
+     * or "managed" for converter-owned output. Managed resources remain in
+     * provider enumeration, identity and replay metadata. Launchers omit their
+     * controls and never prompt for them; import the original media through its
+     * separate selectable resource. Appended for source compatibility. */
     char format[64];
+    /* Import this file through feature_resource_import on a background job.
+     * Ordinary path selections leave this zero. */
+    int import_on_select;
 } RecompLauncherCModResource;
+
+static inline int recomp_mod_resource_is_managed(const RecompLauncherCModResource* resource) {
+    return resource && strcmp(resource->format, "managed") == 0;
+}
 
 typedef struct RecompLauncherCModProvider {
     void* ctx;
@@ -1225,12 +1263,31 @@ typedef struct RecompLauncherCModProvider {
      * "Show in Quick Mods" switch. Appended for ABI stability. */
     int (*feature_set_quick)(void* ctx, const char* package_id,
                              const char* feature_id, int quick);
+    /* Optional cooperative preboot preparation. report returns zero after
+     * cancellation; the provider must check it between bounded work units and
+     * before publishing its selection. Text is copied by the launcher and is
+     * borrowed only for the callback. fraction < 0 requests an indefinite bar.
+     * Appended for statically paired source compatibility. No binary ABI claim. */
+    int (*commit_with_progress)(void* ctx, const char* image_path,
+        int (*report)(void* report_ctx, float fraction, const char* text),
+        void* report_ctx);
+    /* Optional expensive owner-input conversion, run away from the UI thread.
+     * The UI blocks other provider operations until completion. Implementations
+     * must retain the previous selection on failure. No shell is involved.
+     * image_path is a snapshot of the selected game image, never replaced by
+     * the import result. Only resources with import_on_select use this hook. */
+    int (*feature_resource_import)(void* ctx, const char* package_id,
+                                   const char* feature_id, const char* resource_id,
+                                   const char* path, const char* image_path,
+                                   void (*progress)(void*, float, const char*),
+                                   void* progress_user, char* error, size_t error_size);
 } RecompLauncherCModProvider;
 #define RECOMP_LAUNCHER_HAS_QUICK_MODS 1
 /* RecompLauncherCModFeature carries forces_vsync_off. */
 #define RECOMP_LAUNCHER_HAS_MOD_VSYNC_OFF 1
 #define RECOMP_LAUNCHER_HAS_WORKER_MOD_COMMIT 1
 #define RECOMP_LAUNCHER_HAS_PREPARED_MOD_COMMIT 1
+#define RECOMP_LAUNCHER_HAS_MOD_PREPARATION_PROGRESS 1
 
 // Plain-C mirror of the launcher's internal settings (bools as int).
 struct RecompLauncherCSettings {
@@ -1249,7 +1306,7 @@ struct RecompLauncherCSettings {
     int  skip_launcher;     // bool: boot straight to the game next time
     int  msu1_enabled;      // bool
     char msu1_dir[512];
-    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital)
+    int  pad_mode[RECOMP_LAUNCHER_MAX_PLAYERS];    // per player: 0=Hybrid, 1=Analog(DualShock), 2=D-Pad(digital), 3=neGcon (PSX, RECOMP_LAUNCHER_PAD_MODE_NEGCON)
     int  aspect_index;      // 0 = 4:3, 1 = 16:9, 2 = 21:9
 
     // ---- deeper PSX-style settings (capability-gated; see RecompLauncherCGameInfo
@@ -1262,7 +1319,7 @@ struct RecompLauncherCSettings {
     int  texture_filter;      // 0 = nearest, 1 = bilinear
     int  screen_kind;         // 0 raw, 1 CRT, 2 composite, 3 trinitron
     int  frame_interp;        // bool
-    int  frame_interp_fps;    // 0=display, else 90/120/144/165/240
+    int  frame_interp_fps;    // 0=display, else a target the host supports
     int  spu_hq;              // bool
     int  auto_skip_fmv;       // bool
     int  turbo_loads;         // bool
@@ -1298,12 +1355,8 @@ struct RecompLauncherCSettings {
     // tpak_enabled: 0 = unset (host predates the field / fresh config) -> the
     // model defaults a slot WITH a rom to enabled; use -1 for explicit off.
     //
-    // This field is ALSO what the launcher's per-port pak-kind dropdown reads
-    // and writes (launcher_imgui.cpp, draw_pak_card): enabled == Transfer Pak
-    // in the port, disabled == empty port. There is deliberately no separate
-    // kind field, because two fields for one fact can disagree. Adding a
-    // second pak kind (Controller Pak) is what forces a real pak_kind[] array
-    // here — see the note above draw_pak_card before adding one.
+    // This is also the legacy Transfer Pak / None setting for hosts that
+    // do not pass explicit per-port choices to the accessory picker.
     char tpak_rom_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     char tpak_save_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     int  tpak_enabled[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -1593,6 +1646,16 @@ struct RecompLauncherCSettings {
      * row.) */
     /* Used only by hosts declaring assist_fast_forward_divisor > 1. */
     int  fast_forward_toggle_mode;
+    /* Host-owned policy: resolution/SSAA may be reduced to keep up. */
+    int  automatic_quality;
+
+    /* "Record replay" (GameInfo.has_record_replay consoles): 1 = the host
+     * records the next session as a replay from power-on, for automated
+     * testing. A per-launch choice, not a preference: hosts seed it from
+     * their own session state and should not persist it, so a tick is never
+     * left on by accident. 0 = off (the default, and what a zero-initialized
+     * host predating this field gets). Appended for ABI stability. */
+    int  record_replay;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
 
@@ -1607,7 +1670,8 @@ struct RecompLauncherCSettings {
 #define RECOMP_LAUNCHER_VSYNC_ON       1
 #define RECOMP_LAUNCHER_VSYNC_OFF      2
 #define RECOMP_LAUNCHER_VSYNC_ADAPTIVE 3
-#define RECOMP_LAUNCHER_VSYNC_COUNT    3
+#define RECOMP_LAUNCHER_VSYNC_VRR      4
+#define RECOMP_LAUNCHER_VSYNC_COUNT    4
 
 /* Values for RecompLauncherSettings.fmv_filter (1-based; 0 = unset). */
 #define RECOMP_LAUNCHER_FMV_FILTER_NEAREST  1
@@ -1630,6 +1694,11 @@ struct RecompLauncherCSettings {
 // internal types. Mirror what the legacy launcher computed inline.
 #define RECOMP_LAUNCHER_HAS_SBI_STATUS 1
 enum { RECOMP_SBI_NA = 0, RECOMP_SBI_MISSING = 1, RECOMP_SBI_OK = 2 };
+/* Whether the disc's serial is one this build lists. Hosts #ifdef on this to
+ * stay source-compatible with older recomp-ui that lacks the fields. A host
+ * that does not say (0) gets the old Serial row: a tick for any serial read. */
+#define RECOMP_LAUNCHER_HAS_SERIAL_STATUS 1
+enum { RECOMP_SERIAL_UNSAID = 0, RECOMP_SERIAL_LISTED = 1, RECOMP_SERIAL_NOT_LISTED = 2 };
 typedef struct RecompLauncherCDiscVerify {
     char serial[16];   // e.g. "SCUS-94423"; "" = unknown/unread
     char region[8];    // e.g. "NTSC-U"; "" = unknown
@@ -1642,6 +1711,11 @@ typedef struct RecompLauncherCDiscVerify {
     char netplay_detail[160];
     int sbi_status; // RECOMP_SBI_*; zero means no requirement recorded by host.
     int profile_handoff; // host verified another shipped backend; close without committing edits
+    /* Appended for ABI (memset 0 = a host that does not say). With
+     * RECOMP_SERIAL_NOT_LISTED, `serial` holds what was read from the disc
+     * ("" when nothing was read), never the serial the build expects. */
+    int  serial_status;         // RECOMP_SERIAL_*
+    char expected_serials[96];  // what this build lists, e.g. "SLES-03396"; "" if unknown
 } RecompLauncherCDiscVerify;
 
 /* Host BIOS check for the first-run setup wizard (has_bios games). */
@@ -1720,6 +1794,34 @@ typedef struct RecompLauncherCRomRevision {
     int         supported;   /* 1 = this build runs it */
     const char* note;        /* shown when this one is picked; NULL: none */
 } RecompLauncherCRomRevision;
+
+#define RECOMP_LAUNCHER_HAS_VERIFIED_ROM_CHANGED 1
+typedef struct RecompLauncherCDeviceTest {
+    int running;
+    float level;             // normalized 0..1, optional live input meter
+    char message[512];       // optional host-owned test feedback
+    char level_label[128];   // optional measured level / clipping feedback
+} RecompLauncherCDeviceTest;
+
+typedef struct RecompLauncherCFixedController {
+    int port;                 // zero-based physical controller port
+    const char* name;
+    const char* status;       // optional host device status
+    const char* hint;         // optional player instructions
+    const char* image_path;   // optional launcher artwork, relative to bundle
+    // The host owns the labels and selection during recomp_launcher_run_window.
+    // A choice changes an input of the fixed device, never its physical port.
+    const char* choice_label;
+    const char* const* choices;
+    int choice_count;
+    int* selected_choice;
+    // Optional host input test. action: 0 poll, 1 start, 2 stop. The host
+    // owns capture and reports errors; the UI never opens an input device.
+    void* test_context;
+    void (*test_input)(void* context, int action, int selected_choice,
+                       RecompLauncherCDeviceTest* state);
+    int* input_gain_db;      // optional host-owned input boost, 0..30 dB
+} RecompLauncherCFixedController;
 
 typedef struct RecompLauncherCGameInfo {
     const char*    name;
@@ -2444,7 +2546,101 @@ typedef struct RecompLauncherCGameInfo {
     int                linear_filter_hidden;
     /* Development hosts may share a physical pad; normal pickers stay exclusive. */
     int allow_shared_gamepad;
+    /* Optional two-card editor, borrowed for the launcher session. */
+    const RecompCardManager* card_manager;
+    /* Additional VSync choice supported by the host. Zero keeps On/Off/Adaptive. */
+    int                has_vsync_vrr;
+    /* Keep failed or mod-owned frame generation out of the pipeline settings. */
+    int                frame_generation_hidden;
+
+    /* Memory-card slots the game uses (SAVE_MEMCARD), capped by the console
+     * profile: 1 hides slot 2 for a title that only talks to port 1. 0 = unset
+     * (callers that predate the field) keeps the profile's count. Appended for
+     * ABI stability. */
+    int                memcard_slots;
+    /* Optional current native-save target, queried for the selected ROM and
+     * staged mod choices before display/import/clear. Borrowed UTF-8 result
+     * valid until the next query; null disables save operations. Never opens
+     * dialogs or commits mods. Null callback retains sram_path unchanged. */
+    const char* (*native_save_path)(void* ctx, const char* rom_path);
+    void* native_save_path_ctx;
+    /* Optional cartridge byte reader. Decode without changing the selected
+     * path; the host must use identical decoding when launching that path.
+     * On success return 1 and a nonempty buffer. Release it with rom_read_free
+     * after identification (also on failure if non-null). Callbacks never open
+     * dialogs. Null keeps the existing raw-file path; disc hosts ignore this.
+     * Appended for source compatibility with older hosts. */
+    int (*rom_read)(void* ctx, const char* path, uint8_t** bytes, size_t* len,
+                    char* error, size_t error_size);
+    void (*rom_read_free)(void* ctx, uint8_t* bytes);
+    void* rom_read_ctx;
+    /* Native port device implemented by the host; independent of mouse-to-stick. */
+    int has_native_mouse;
+    int has_native_guncon;
+    int has_native_negcon;
+    /* Opt-in Graphics control; hosts own persistence and live quality. */
+    int                has_automatic_quality;
+    /* Dashboard footer checkbox for Settings.record_replay. 0 => no checkbox,
+     * so a console without a replay recorder keeps today's footer. Appended
+     * for ABI stability. */
+    int has_record_replay;
+    /* Optional hover text for the "Record replay" checkbox, UTF-8, host-owned
+     * and localised by the host; must outlive the launcher. Null or empty
+     * shows a neutral built-in default. Appended for ABI stability. */
+    const char* record_replay_tooltip;
+    /* PlayStation only. Where the launcher's Fetch cover button gets a cover
+     * from: an https address template with the disc serial as "{serial}",
+     * e.g. "https://example.org/covers/{serial}.jpg" (serial as "SLUS-04321").
+     * Letters, digits and / . - _ only, apart from the placeholder. Borrowed
+     * for the life of the launcher. NULL/""/unusable: the host names no
+     * source, there is NO built-in one, and the button is not shown. The
+     * button is also not shown once the title has box art (its own, or a
+     * fetched launcher-cover.jpg). Appended for source compatibility. */
+    const char*        cover_url_template;
+    /* Show named host shortcuts as controller-only rows when keyboard
+     * shortcuts already have their own editor. Capture, clear, defaults and
+     * persistence still use assist_pad_bind; zero preserves existing hosts.
+     * Appended for source/ABI stability. */
+    int assist_pad_only;
+    /* Show Screenshot in the ordinary hotkey editor only when the host
+     * implements capture. Zero retains existing hosts. Appended for ABI stability. */
+    int has_screenshot_hotkey;
+    /* Optional notification after cartridge validation. NULL clears it. */
+    int (*verified_rom_changed_cb)(const char* path);
+    /* The host reads Mouse1 through Mouse5 in its single-slot input map.
+     * Zero leaves existing keyboard-only hosts unchanged. */
+    int has_mouse_button_binds;
+    /* Optional ceiling for the frame interpolation choices. Zero retains the
+     * standard choices through 240 Hz. */
+    int frame_interp_max_fps;
+    /* A selected Transfer Pak requires a readable cartridge and battery save. */
+    int require_tpak_files;
+    /* Dashboard ports in ascending physical order. Zero uses num_players and
+     * the system's normal controller layout. Bit 0 is physical port 1. */
+    unsigned controller_port_mask;
+    /* Optional fixed device shown in place of one controller card. Borrowed
+     * throughout the launcher call. The host enforces the runtime binding. */
+    const RecompLauncherCFixedController* fixed_controller;
 } RecompLauncherCGameInfo;
+
+enum {
+    RECOMP_LAUNCHER_PAK_TRANSFER = 1,
+    RECOMP_LAUNCHER_PAK_RUMBLE = 2,
+};
+
+// Supply the supported accessory flags and per-port choices for the next
+// launcher window. The four choices use 0 for None and otherwise a Pak flag.
+// Keep the array valid until the window returns. Pass NULL to restore the
+// legacy Transfer Pak picker.
+void recomp_launcher_set_n64_pak_options(unsigned options, int* choices);
+#define RECOMP_LAUNCHER_HAS_MOUSE_BUTTON_BINDS 1
+#define RECOMP_LAUNCHER_HAS_SCREENSHOT_HOTKEY 1
+#define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
+#define RECOMP_LAUNCHER_HAS_ROM_READER 1
+#define RECOMP_LAUNCHER_HAS_NATIVE_SAVE_PATH_PROVIDER 1
+#define RECOMP_LAUNCHER_HAS_VSYNC_VRR 1
+#define RECOMP_LAUNCHER_HAS_FRAME_GENERATION_HIDDEN 1
+#define RECOMP_LAUNCHER_HAS_CARD_MANAGER 1
 /* RecompLauncherCGameInfo carries linear_filter_hidden. */
 #define RECOMP_LAUNCHER_HAS_LINEAR_FILTER_HIDDEN 1
 #define RECOMP_LAUNCHER_HAS_ARTWORK_GALLERY 1
@@ -2453,6 +2649,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_TEXTURE_FILTER_CATALOG 1
 #define RECOMP_LAUNCHER_HAS_FRACTIONAL_FAST_FORWARD 1
 #define RECOMP_LAUNCHER_HAS_SHARED_GAMEPAD 1
+#define RECOMP_LAUNCHER_HAS_MEMCARD_SLOTS 1
 #define RECOMP_LAUNCHER_HAS_NETPLAY_VIEW 1
 #define RECOMP_LAUNCHER_HAS_ROM_PATTERNS 1
 /* Hosts #ifdef on this to stay source-compatible with older recomp-ui that
@@ -2467,6 +2664,7 @@ typedef struct RecompLauncherCGameInfo {
 #define RECOMP_LAUNCHER_HAS_IN_SESSION 1
 /* Host may #ifdef this when setting assist_direct_pad_bind_action. */
 #define RECOMP_LAUNCHER_HAS_DIRECT_ASSIST_BIND 1
+#define RECOMP_LAUNCHER_HAS_PAD_ONLY_SHORTCUTS 1
 
 /* recomp_launcher_run_window return codes */
 #define RECOMP_LAUNCHER_RESULT_LAUNCH       0
@@ -2489,6 +2687,13 @@ typedef struct RecompLauncherCGameInfo {
 // Either way it writes "<record>.status" -- {"ok":true} or
 // {"ok":false,"why":"..."} -- for the process that wrote the record.
 //
+// assets_dir: where the launcher finds its artwork/fonts/etc. Either the assets
+// folder itself (any name; the long-standing contract) or the base directory
+// that CONTAINS an `assets/` folder, e.g. the exe dir. If <assets_dir>/assets
+// is a directory it is taken as the base; otherwise assets_dir is the assets
+// folder. Trailing separators are ignored. NULL/"" = next to the executable.
+// UTF-8. See src/common/launcher_assets_dir.h.
+//
 // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),
 //          1 = QUIT (caller should exit; *io still holds the edits),
 //          2 = UNAVAILABLE (assets/GL failed — caller boots as if skipped),
@@ -2499,6 +2704,55 @@ int recomp_launcher_run_window(const char* window_title,
                              const char* assets_dir,
                              const char* initial_rom,
                              char* out_rom_path, size_t out_rom_path_len);
+
+/* Optional host adoption: consume only launcher switches before the host's
+ * own argument parser. Stop at --; leave every other argument in order.
+ * Last launcher switch wins. These helpers never edit/persist Settings. */
+#define RECOMP_LAUNCHER_HAS_LAUNCH_OPTIONS 1
+enum {
+    RECOMP_LAUNCHER_CLI_DEFAULT = 0,
+    RECOMP_LAUNCHER_CLI_SHOW = 1,
+    RECOMP_LAUNCHER_CLI_SKIP = 2
+};
+int recomp_launcher_parse_cli_args(int* argc, char** argv);
+int recomp_launcher_cli_should_skip(int mode, int saved_skip_launcher);
+/* Copied process-local metadata; set before opening the launcher, NULL clears.
+ * Existing hosts remain unchanged until they supply their game build version. */
+void recomp_launcher_set_game_version(const char* version);
+const char* recomp_launcher_get_game_version(void);
+
+/* Additive, fixed-layout extension: existing provider/option structs are not
+ * enlarged. Register only TEXT options, before opening the UI; feature_id is
+ * NULL/empty for package-level options. IDs/filters are copied, provider is an
+ * identity key borrowed until unregister. Register NULL to remove one entry;
+ * unregister before destroying/reusing a provider. All calls are on the UI
+ * thread, or while the launcher is closed. V1's layout will not be extended.
+ * Filters affect Browse only; providers validate/persist all chosen/typed
+ * values through their ordinary setters. Paths retain MOD_VALUE_MAX's limit. */
+#define RECOMP_LAUNCHER_HAS_MOD_TEXT_PATH_V1 1
+#define RECOMP_LAUNCHER_TEXT_PATH_PATTERNS 8
+typedef struct RecompLauncherCModTextPathV1 {
+    char filter_description[128];
+    int pattern_count;
+    char patterns[RECOMP_LAUNCHER_TEXT_PATH_PATTERNS][64];
+} RecompLauncherCModTextPathV1;
+int recomp_launcher_register_mod_text_path_v1(
+    const RecompLauncherCModProvider* provider, const char* package_id,
+    const char* feature_id, const char* option_id,
+    const RecompLauncherCModTextPathV1* metadata);
+int recomp_launcher_get_mod_text_path_v1(
+    const RecompLauncherCModProvider* provider, const char* package_id,
+    const char* feature_id, const char* option_id,
+    RecompLauncherCModTextPathV1* out);
+void recomp_launcher_unregister_mod_text_paths(
+    const RecompLauncherCModProvider* provider);
+/* Owner-thread integration: phase0 before draw services model actions while
+ * no preparation worker owns the provider;
+ * phase1 after GL rendering/before swap permits requested capture only.
+ * Opaque model/platform pointers are borrowed during callback only. */
+typedef void (*RecompLauncherCHostFrame)(void*,void*,void*,unsigned);
+void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context);
+void recomp_launcher_set_window_hidden(int hidden);
 
 /* Valid after run_window returns RECOMP_LAUNCHER_RESULT_RELAUNCH. Copies the
  * executable path produced by rebuild_with_progress. Returns 1 on success. */
