@@ -14049,12 +14049,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     }
 
                     char label[320];
-                    std::snprintf(label, sizeof(label), "%s\n%s%s%s",
-                                  feature.name,
-                                  feature.package_name[0] ? feature.package_name
-                                                          : feature.package_id,
-                                  feature.package_version[0] ? "  " : "",
-                                  feature.package_version);
+                    const bool show_package = feature.package_name[0] &&
+                        std::strcmp(feature.package_name, feature.name) != 0;
+                    std::snprintf(label, sizeof(label), "%s%s%s", feature.name,
+                                  show_package ? "\n" : "",
+                                  show_package ? feature.package_name : "");
                     if (ImGui::Selectable(
                             label, m->mod_selected == item.index, 0,
                             ImVec2(0, px(44)))) {
