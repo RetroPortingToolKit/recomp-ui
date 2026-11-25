@@ -16645,8 +16645,10 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             int btn = (int)ev.button.button;      /* SDL: 1 L, 2 M, 3 R, 4/5 side */
             if (btn >= 1 && btn <= RUI_MOUSE_BIND_COUNT) {
                 const int code = RUI_MOUSE_BIND_BASE + btn;
-                if (m->capture_assist)
+                if (m->capture_assist) {
                     launcher_model_set_captured_key(m, code);
+                    launcher_binds_set_assist_key(m, m->capture_btn, code);
+                }
                 else if (alt_store)
                     launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                    m->capture_slot, code);
