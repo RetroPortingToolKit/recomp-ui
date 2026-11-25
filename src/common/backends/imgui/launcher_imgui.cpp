@@ -5748,7 +5748,8 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
     const SystemProfile* audio_prof = (const SystemProfile*)m->profile;
-    if (!audio_prof || !audio_prof->hide_audio_freq) {
+    // A zero rate means the host drives audio automatically (no configurable rate).
+    if (m->s.audio_freq > 0 && (!audio_prof || !audio_prof->hide_audio_freq)) {
         const float fw = settings_cycle_w(m, "Sample rate", th,
             launcher_model_cycle_freq, launcher_model_freq_label);
         row_label_right("Sample rate", th, fw);
