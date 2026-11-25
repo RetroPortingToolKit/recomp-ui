@@ -388,6 +388,9 @@ typedef struct {
                            RecompLauncherCTpak* out);
     RecompLauncherCTpak tpak_info[RECOMP_LAUNCHER_MAX_TPAKS];
     bool tpak_inspected[RECOMP_LAUNCHER_MAX_TPAKS];
+    bool require_tpak_files;
+    bool tpak_rom_readable[RECOMP_LAUNCHER_MAX_TPAKS];
+    bool tpak_save_readable[RECOMP_LAUNCHER_MAX_TPAKS];
 
     // ---- audio output device picker (GameInfo.audio_device_labels) --------
     const char* const* audio_device_labels;   // borrowed; NULL/0 => no device row
@@ -1420,6 +1423,10 @@ void launcher_model_setup_start_bios_regen(LauncherModel* m);
 bool launcher_model_can_finish_setup(const LauncherModel* m);
 // True when BIOS (if required) and ROM/disc are ready to launch (incl. fingerprint).
 bool launcher_model_can_launch(const LauncherModel* m);
+/* Zero-based first Transfer Pak blocking Play, or -1. */
+int launcher_model_tpak_blocking_port(const LauncherModel* m);
+void launcher_model_refresh_tpak_files(LauncherModel* m);
+bool launcher_model_tpak_file_readable(const char* path);
 // Dashboard Mods entry requires a fully verified disc and no regional handoff.
 bool launcher_model_can_open_mods(const LauncherModel* m);
 

@@ -2576,6 +2576,8 @@ typedef struct RecompLauncherCGameInfo {
     /* Optional ceiling for the frame interpolation choices. Zero retains the
      * standard choices through 240 Hz. */
     int frame_interp_max_fps;
+    /* A selected Transfer Pak requires a readable cartridge and battery save. */
+    int require_tpak_files;
 } RecompLauncherCGameInfo;
 
 enum {

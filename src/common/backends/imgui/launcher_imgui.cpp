@@ -23,7 +23,6 @@
 #include "launcher_artwork.h"
 #include "launcher_audio_buffer.h"
 #include "launcher_quick_mods.h"
-#include "launcher_icons.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
 #include "mouse_bindings.h"
@@ -410,12 +409,6 @@ LauncherTexture g_wordmark;
 // (gray GB shell), [1] red, [2] blue, [3] yellow, [4] green. Loaded only for a
 // tpak game; real GB cart PNGs from the legacy launchers (assets/consoles/n64).
 LauncherTexture g_cart[5];
-// The Transfer Pak ACCESSORY itself, empty cart slot (see draw_pak_card).
-// recomp-ui does not ship this art yet: assets/consoles/n64/img/tpak_empty.tga
-// is absent, so this texture stays id==0 and image_fit reserves the box
-// without drawing. That is deliberate — the pak card names the accessory, and
-// substituting the bare GB cartridge shell would picture the wrong object.
-LauncherTexture g_tpak;
 // Disc-verdict icons (verify.mode==1 systems, e.g. PSX) — keyed by
 // VerifyResult.verdict (0 none,1 ok,2 warn,3 bad); see draw_verdict_block().
 LauncherTexture g_verdict_ok, g_verdict_warn, g_verdict_bad, g_verdict_none;
@@ -3561,15 +3554,6 @@ void panel_save_draw(LauncherModel* m, const LauncherTheme* th) {
 // one-card-per-port stack that briefly followed it.
 static const char* elide_left(const char* s, float max_w, char* out, size_t cap);  // fwd (defined below)
 
-// Real GB-cartridge art for a Transfer Pak slot, picked by the host-reported
-// cart kind (1 red / 2 blue / 3 yellow / 4 green); the gray empty shell for an
-// empty slot or a recognized-but-uncolored cart. Falls back to a blank box if
-// the art didn't load. `box` is the logical fit size.
-void draw_tpak_cart(int cart_kind, bool present, float box) {
-    const int idx = (present && cart_kind >= 1 && cart_kind <= 4) ? cart_kind : 0;
-    image_fit(g_cart[idx], box, box);   // image_fit Dummies when the texture is absent
-}
-
 static const char* rui_basename(const char* path) {
     const char* base = path;
     for (const char* q = path; *q; ++q)
@@ -3655,138 +3639,77 @@ void pak_kind_picker(LauncherModel* m, int port, float w) {
     ImGui::PopID();
 }
 
-// PAK_TRANSFER's body. Left to right / top to bottom:
-//   [ Transfer Pak art ]  [cart chip] cartridge name
-//        (accessory)      trainer line
-//                         [ Insert / Change cartridge... ]
-//                         [ Remove ]
-//   Battery save
-//   …/red.srm
-//   [ Browse save... ] [ Use default ]
-//
-// The accessory art (g_tpak) is the Transfer Pak ITSELF with an empty cart
-// slot; the small chip beside the name is the GB cartridge, tinted by the
-// host's cart_kind. They are two separate pictures on purpose: recomp-ui has
-// no composited "Transfer Pak with cart X inserted" art, and drawing the bare
-// GB cart in place of the accessory would be showing the player a different
-// object than the one the dropdown names.
-//
-// The caller owns the panel chrome and the ImGui id scope (the panel pushes the
-// port), so this body is pure content and serves both the dashboard panel and
-// the Controller page.
 static void pak_body_transfer(LauncherModel* m, const LauncherTheme& th, int port) {
-    // Cap the body's working width. The panel this sits in is as wide as the
-    // whole controller row, and a "Change cartridge..." button stretched across
-    // 1300px reads as a banner, not a button. Everything below measures from
-    // `cw`, never from GetContentRegionAvail(), so the section keeps card-like
-    // proportions in a full-width panel and still shrinks on a narrow window.
-    float cw = ImGui::GetContentRegionAvail().x;
-    if (cw > px(420.0f)) cw = px(420.0f);
+    const float width = std::min(ImGui::GetContentRegionAvail().x, px(340.0f));
+    const float gap = px(th.spacing_sm);
+    const float button_width = (width - gap) * 0.5f;
+    const ImVec2 button_size(button_width, px(32.0f));
+    const bool has_cart = m->s.tpak_rom_path[port][0] != '\0';
+    const bool has_save = m->s.tpak_save_path[port][0] != '\0';
+    const bool cart_ready = has_cart && (!m->require_tpak_files || m->tpak_rom_readable[port]);
+    const auto& info = m->tpak_info[port];
+    const int art = m->tpak_inspected[port] ? std::clamp(info.cart_kind, 0, 4) : 0;
+    image_fit_centered(g_cart[art], 120, 78, width);
 
-    const bool has_cart  = m->s.tpak_rom_path[port][0] != '\0';
-    const bool inspected = m->tpak_inspected[port];
-    const RecompLauncherCTpak* info = &m->tpak_info[port];
+    const char* name = !has_cart ? ui_text("No cartridge")
+                       : info.cart_label[0] ? info.cart_label
+                       : rui_basename(m->s.tpak_rom_path[port]);
+    char elided[160];
+    elide_left(name, width, elided, sizeof(elided));
+    ImGui::TextColored(col(cart_ready ? th.text : th.text_muted), "%s", elided);
+    if (has_cart && !cart_ready)
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text("Cartridge file unavailable"));
 
-    const float start_x = ImGui::GetCursorPosX();
-    const float top_y   = ImGui::GetCursorPosY();
-    const float art_w   = px(88.0f), art_h = px(112.0f);
-    const float rc_x    = start_x + art_w + px(12.0f);
-    float       rc_w    = cw - (art_w + px(12.0f));
-    if (rc_w < px(80.0f)) rc_w = px(80.0f);
-    const float line_h  = ImGui::GetTextLineHeight();
-
-    // The accessory. image_fit reserves the full box and Dummies it out when
-    // the texture is absent, which is what happens today: recomp-ui ships no
-    // Transfer Pak picture (see the g_tpak load site). The body then draws
-    // with an empty space where the art goes rather than borrowing another
-    // object's picture — honestly missing beats plausibly wrong.
-    image_fit(g_tpak, 88.0f, 112.0f);
-
-    // Cartridge chip + name on the right column's first line.
-    ImGui::SetCursorPos(ImVec2(rc_x, top_y));
-    draw_tpak_cart(info->cart_kind, has_cart && inspected, 28.0f);
-    {
-        const float name_x = rc_x + px(32.0f);
-        const float name_w = rc_w - px(32.0f);
-        const char* label = !has_cart ? "Empty"
-                            : (inspected && info->cart_label[0])
-                                ? info->cart_label
-                                : rui_basename(m->s.tpak_rom_path[port]);
-        char elided[128];
-        elide_left(label, name_w, elided, sizeof(elided));
-        ImGui::SetCursorPos(ImVec2(name_x, top_y + px(2.0f)));
-        ImGui::PushStyleColor(ImGuiCol_Text, col(has_cart ? th.text : th.text_muted));
-        ImGui::TextUnformatted(elided);
-        ImGui::PopStyleColor();
-
-        // Trainer facts come from the HOST's tpak_inspect callback. Without a
-        // callback (or before a cart is picked) there is nothing to state, so
-        // the line says so instead of inventing a trainer.
-        char sub[96];
-        if (!has_cart)                                   snprintf(sub, sizeof(sub), "No cartridge");
-        else if (inspected && info->trainer_name[0] && info->trainer_id[0])
-            snprintf(sub, sizeof(sub), "%s  \xC2\xB7  ID %s", info->trainer_name, info->trainer_id);
-        else if (inspected && info->trainer_name[0])     snprintf(sub, sizeof(sub), "%s", info->trainer_name);
-        else                                             snprintf(sub, sizeof(sub), "No save data");
-        char sub_elided[128];
-        elide_left(sub, name_w, sub_elided, sizeof(sub_elided));
-        ImGui::SetCursorPos(ImVec2(name_x, top_y + px(2.0f) + line_h + px(4.0f)));
-        ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
-        ImGui::TextUnformatted(sub_elided);
-        ImGui::PopStyleColor();
-    }
-
-    // Cartridge actions, still in the right column beside the accessory art.
-    ImGui::SetCursorPos(ImVec2(rc_x, top_y + px(48.0f)));
-    if (ImGui::Button(ui_text(has_cart ? "Change cartridge..." : "Insert cartridge..."),
-                      ImVec2(rc_w, px(28.0f)))) {
+    ImGui::PushID("cartridge");
+    if (ImGui::Button(ui_text("Browse"), button_size)) {
         ui_pick_file(m, "Select Game Boy cartridge", {"*.gb", "*.gbc"},
                      "Game Boy cartridge (.gb .gbc)",
                      [m, port](const char* path) {
                          if (path) launcher_model_set_tpak_rom(m, port, path);
                      });
     }
-    if (has_cart) {
-        ImGui::SetCursorPos(ImVec2(rc_x, top_y + px(80.0f)));
-        if (ImGui::Button(ui_text("Remove"), ImVec2(rc_w, px(26.0f)))) {
-            launcher_model_clear_tpak(m, port);
-            // clear_tpak resets tpak_enabled to 0 (unset), which the resolver
-            // reads as off once the ROM path is gone — i.e. the dropdown would
-            // silently fall back to None and this section would vanish under
-            // the player's hand. Removing the CARTRIDGE does not remove the
-            // PAK, so restate the kind the player picked.
-            launcher_model_set_n64_pak_kind(m, port, PAK_TRANSFER);
-        }
+    ImGui::SameLine(0, gap);
+    ImGui::BeginDisabled(!has_cart && !has_save);
+    if (ImGui::Button(ui_text("Clear"), button_size)) {
+        launcher_model_clear_tpak(m, port);
+        launcher_model_set_n64_pak_kind(m, port, PAK_TRANSFER);
     }
+    ImGui::EndDisabled();
+    ImGui::PopID();
 
-    // Resume below the art, full width.
-    ImGui::SetCursorPos(ImVec2(start_x, top_y + art_h + px(10.0f)));
-
-    if (has_cart) {
-        // Battery save. The picker filters *.srm (owner's ask). Note that .sav
-        // is the more common Game Boy battery-save extension — see the panel's
-        // notes in the change report; widening this list is a one-word edit.
-        ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));
-        ImGui::TextUnformatted(ui_text("Battery save"));
-        ImGui::PopStyleColor();
-        const char* sv = m->s.tpak_save_path[port][0]
-                           ? rui_basename(m->s.tpak_save_path[port])
-                           : "Default (runtime chooses)";
-        char elided[160];
-        elide_left(sv, cw, elided, sizeof(elided));
-        ImGui::TextUnformatted(elided);
-        const float bw = (cw - px(th.spacing_sm)) * 0.5f;
-        if (ImGui::Button(ui_text("Browse save..."), ImVec2(bw, px(26.0f)))) {
-            ui_pick_file(m, "Select battery save", {"*.srm"},
-                         "Game Boy battery save (.srm)",
-                         [m, port](const char* path) {
-                             if (path) launcher_model_set_tpak_save(m, port, path);
-                         });
-        }
-        ImGui::SameLine(0, px(th.spacing_sm));
-        if (ImGui::Button(ui_text("Use default"), ImVec2(bw, px(26.0f))))
-            launcher_model_set_tpak_save(m, port, "");
+    ImGui::Dummy(ImVec2(0, px(6.0f)));
+    ImGui::TextUnformatted(ui_text("Battery save"));
+    const char* save = has_save ? rui_basename(m->s.tpak_save_path[port])
+                               : ui_text("No save selected");
+    elide_left(save, width, elided, sizeof(elided));
+    ImGui::TextColored(col(th.text_muted), "%s", elided);
+    if (has_save && m->require_tpak_files && !m->tpak_save_readable[port])
+        ImGui::TextColored(col(th.text_muted), "%s", ui_text("Battery save file unavailable"));
+    if (info.trainer_name[0]) {
+        char trainer[96];
+        if (info.trainer_id[0])
+            snprintf(trainer, sizeof(trainer), "%s  \xC2\xB7  ID %s", info.trainer_name, info.trainer_id);
+        else
+            snprintf(trainer, sizeof(trainer), "%s", info.trainer_name);
+        elide_left(trainer, width, elided, sizeof(elided));
+        ImGui::TextColored(col(th.text_muted), "%s", elided);
     }
+    ImGui::PushID("battery-save");
+    ImGui::BeginDisabled(!cart_ready);
+    if (ImGui::Button(ui_text("Browse"), button_size)) {
+        ui_pick_file(m, "Select battery save", {"*.sav", "*.srm"},
+                     "Game Boy battery save (.sav .srm)",
+                     [m, port](const char* path) {
+                         if (path) launcher_model_set_tpak_save(m, port, path);
+                     });
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine(0, gap);
+    ImGui::BeginDisabled(!has_save);
+    if (ImGui::Button(ui_text("Clear"), button_size))
+        launcher_model_set_tpak_save(m, port, "");
+    ImGui::EndDisabled();
+    ImGui::PopID();
 }
 
 // "PLAYER 3 - TRANSFER PAK" for a section heading. eyebrow_tracked letter-spaces
@@ -13078,6 +13001,8 @@ static void request_mod_commit_launch(LauncherModel* m) {
  * mod plan, ask the host to launch. It blocks until done; the mod commit of a
  * host can read a whole disc image. Returns true when the launch was asked. */
 static bool launch_play_now(LauncherModel* m) {
+    launcher_model_refresh_tpak_files(m);
+    if (launcher_model_tpak_blocking_port(m) >= 0) return false;
     if (!launcher_model_prepare_rom_patch(m)) {
         /* The effective image could not be prepared. Send the user to
          * the page that owns the patch selection instead of launching
@@ -14726,56 +14651,6 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (rui_nav_rehome_to_play())
         ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
-    /* Utilities beside PLAY: hand the selected image to Steam and drop a
-     * desktop shortcut. Both act on the ROM chosen above, so they only appear
-     * when it can actually be launched. */
-    if (!m->in_session && m->view != LNG_VIEW_NETPLAY_MODE && launcher_model_can_launch(m)) {
-        static char util_status[192];
-        const char *game = (m->game_name && m->game_name[0]) ? m->game_name : "Legend Of Zelda NES";
-        const float util_w = px(176.0f);
-        const float util_gap = px(10.0f);
-        float util_x = play_x - util_w - util_gap;
-        if (m->netplay_supported &&
-            (m->view == LNG_VIEW_DASHBOARD || m->view == LNG_VIEW_SETTINGS ||
-             m->view == LNG_VIEW_CONTROLLER))
-            util_x -= px(170.0f) + px(12.0f);
-        /* Narrow windows would push them over the card edge; drop them instead. */
-        const bool util_fit = (util_x - util_w - util_gap) > origin.x + px(8.0f);
-        const char *rom = launcher_model_effective_rom_path(m);
-        char rom_arg[1024];
-        snprintf(rom_arg, sizeof rom_arg, "\"%s\"", rom ? rom : "");
-
-        if (util_fit) {
-        ImGui::SetCursorScreenPos(ImVec2(util_x - util_w - util_gap, cta_y));
-        if (ImGui::Button(ui_text("DESKTOP ICON"), ImVec2(util_w, play_h))) {
-            char err[256];
-            if (launcher_desktop_shortcut(NULL, rom_arg, game, err, sizeof err))
-                snprintf(util_status, sizeof util_status, "%s", ui_text("Desktop shortcut created."));
-            else
-                snprintf(util_status, sizeof util_status, "%s: %s", ui_text("Desktop shortcut failed"), err);
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", ui_text("Create a desktop shortcut for the selected image."));
-
-        ImGui::SetCursorScreenPos(ImVec2(util_x, cta_y));
-        if (ImGui::Button(ui_text("ADD TO STEAM"), ImVec2(util_w, play_h))) {
-            char err[256];
-            if (launcher_steam_shortcut(NULL, rom_arg, game, NULL, err, sizeof err))
-                snprintf(util_status, sizeof util_status,
-                         ui_text("Added to Steam. Restart Steam to see it."));
-            else
-                snprintf(util_status, sizeof util_status, "%s: %s", ui_text("Steam error"), err);
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", ui_text("Add the selected image to your Steam library (close Steam first)."));
-
-        if (util_status[0]) {
-            ImGui::SetCursorScreenPos(ImVec2(util_x - util_w - util_gap,
-                                             cta_y + play_h + px(4.0f)));
-            ImGui::TextColored(col(th.text_muted), "%s", util_status);
-        }
-        }
-    }
     if (m->in_session) {
         /* Opened from a running game: closing the window resumes it, so
          * leaving the game needs a button of its own. Netplay cannot start
@@ -14804,6 +14679,7 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 
     ImGui::SetCursorScreenPos(ImVec2(play_x, cta_y));
     const bool can_play = launcher_model_can_launch(m);
+    const int blocked_tpak = launcher_model_tpak_blocking_port(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
     /* From the click until the window closes the button is greyed and reads
      * "Launching...": the launch work runs two frames later, in the frame
@@ -14842,6 +14718,9 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
         } else if (m->profile && m->profile->verify.mode == 1 &&
                    (m->verify.verdict == 0 || m->verify.verdict == 3)) {
             ImGui::SetTooltip("Select a verified %s first", noun);
+        } else if (blocked_tpak >= 0) {
+            ImGui::SetTooltip("Select a cartridge and battery save for Player %d's Transfer Pak",
+                              blocked_tpak + 1);
         } else if (m->setup_preparing) {
             ImGui::SetTooltip("Wait for the current setup job to finish");
         } else if (m->rom_detail[0]) {
@@ -16920,7 +16799,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     }
     // Transfer Pak cartridge art (only a console with accessory ports needs
     // it): real GB cart PNGs keyed by cart_kind, empty shell at index 0 (see
-    // g_cart / draw_tpak_cart).
+    // g_cart / pak_body_transfer).
     if (launcher_model_pak_ports(m) > 0) {
         static const char* const kCartFiles[5] = {
             "cart_empty.tga", "cart_red.tga", "cart_blue.tga",
@@ -16930,12 +16809,6 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             g_cart[i] = launcher_texture_load(
                 asset((std::string("assets/img/") + kCartFiles[i]).c_str()).c_str());
         // The Transfer Pak accessory itself (empty cart slot). NOT shipped:
-        // recomp-ui has no such picture, so this load fails and g_tpak stays
-        // id==0 — image_fit then reserves the box and draws nothing, which is
-        // how the pak card degrades honestly until real art is supplied. It is
-        // staged by name (an OPTIONAL entry in cmake/recomp_ui_assets.cmake)
-        // the moment the file exists, with no code change.
-        g_tpak = launcher_texture_load(asset("assets/img/tpak_empty.tga").c_str());
     }
     g_verdict_ok    = launcher_texture_load(asset("assets/img/verdict_ok.tga").c_str());
     g_verdict_warn  = launcher_texture_load(asset("assets/img/verdict_warn.tga").c_str());
@@ -17242,7 +17115,6 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     launcher_texture_free(&g_memcard);
     launcher_texture_free(&g_wordmark);
     for (int i = 0; i < 5; ++i) launcher_texture_free(&g_cart[i]);
-    launcher_texture_free(&g_tpak);
     ImGui_ImplOpenGL3_Shutdown();
     LNG_ImplSDL_Shutdown();
     ImGui::DestroyContext();

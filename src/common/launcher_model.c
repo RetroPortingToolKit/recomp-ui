@@ -271,6 +271,7 @@ static int lm_memcard_enabled_from_host(int v) {
     return v > 0 ? 1 : 0;   /* 1 on, -1 off */
 }
 static void lm_inspect_tpak(LauncherModel* m, int slot);    // fwd; host tpak_inspect callback
+static FILE* lm_fopen_utf8(const char* path, const char* mode);
 static void lm_persist_setup_sidecars(LauncherModel* m);    // fwd; called from launcher_model_finish_setup
 static void lm_persist_cart_rom(const LauncherModel* m);
 static int lm_running_exe_dir(char* out, size_t cap);
@@ -671,6 +672,7 @@ void launcher_model_init(LauncherModel* m,
             game->assist_fast_forward_divisor <= 1000 ? game->assist_fast_forward_divisor : 1;
         m->tpak_slots           = clampi(game->tpak_slots, 0, RECOMP_LAUNCHER_MAX_TPAKS);
         m->tpak_inspect_cb      = game->tpak_inspect;
+        m->require_tpak_files   = game->require_tpak_files != 0;
         m->audio_device_labels  = game->audio_device_labels;
         m->num_audio_devices    = game->num_audio_devices;
         m->renderer_labels      = game->renderer_labels;
@@ -3633,6 +3635,7 @@ bool launcher_model_can_launch(const LauncherModel* m) {
     }
     if (m->has_bios && !m->setup_bios_ok) return false;
     if (m->setup_preparing) return false;
+    if (launcher_model_tpak_blocking_port(m) >= 0) return false;
     return true;
 }
 
@@ -4558,13 +4561,27 @@ void launcher_model_new_memcard(LauncherModel* m, int slot, const char* path) {
 
 // ---- N64 Transfer Pak slots (mirrors the memcard slot pattern) -----------------
 
+bool launcher_model_tpak_file_readable(const char* path) {
+    if (!path || !*path) return false;
+    FILE* file = lm_fopen_utf8(path, "rb");
+    if (!file) return false;
+    const bool readable = fgetc(file) != EOF;
+    fclose(file);
+    return readable;
+}
+
+static void lm_refresh_tpak_files(LauncherModel* m, int slot) {
+    if (!m->require_tpak_files) return;
+    m->tpak_rom_readable[slot] = launcher_model_tpak_file_readable(m->s.tpak_rom_path[slot]);
+    m->tpak_save_readable[slot] = launcher_model_tpak_file_readable(m->s.tpak_save_path[slot]);
+}
+
 // Refresh one slot's cartridge facts through the host's tpak_inspect callback.
-// Clears to "not inspected" when there's no callback, no cartridge, or the
-// callback declines — the panel then shows the bare file name, neutral tint.
 static void lm_inspect_tpak(LauncherModel* m, int slot) {
     if (slot < 0 || slot >= RECOMP_LAUNCHER_MAX_TPAKS) return;
     memset(&m->tpak_info[slot], 0, sizeof(m->tpak_info[slot]));
     m->tpak_inspected[slot] = false;
+    lm_refresh_tpak_files(m, slot);
     if (!m->tpak_inspect_cb || !m->s.tpak_rom_path[slot][0]) return;
     RecompLauncherCTpak out; memset(&out, 0, sizeof(out));
     if (m->tpak_inspect_cb(m->s.tpak_rom_path[slot],
@@ -4573,6 +4590,24 @@ static void lm_inspect_tpak(LauncherModel* m, int slot) {
         m->tpak_info[slot] = out;
         m->tpak_inspected[slot] = true;
     }
+}
+
+void launcher_model_refresh_tpak_files(LauncherModel* m) {
+    if (!m || !m->require_tpak_files || m->in_session) return;
+    const int ports = launcher_model_pak_ports(m);
+    for (int port = 0; port < ports; ++port)
+        if (launcher_model_tpak_enabled(m, port)) lm_refresh_tpak_files(m, port);
+}
+
+int launcher_model_tpak_blocking_port(const LauncherModel* m) {
+    if (!m || !m->require_tpak_files || m->in_session) return -1;
+    const int ports = launcher_model_pak_ports(m);
+    for (int port = 0; port < ports; ++port) {
+        if (launcher_model_tpak_enabled(m, port) &&
+            (!m->tpak_rom_readable[port] || !m->tpak_save_readable[port]))
+            return port;
+    }
+    return -1;
 }
 
 // How many controller ports on this system carry an accessory (pak) slot.
@@ -4604,6 +4639,9 @@ int launcher_model_pak_ports(const LauncherModel* m) {
 
 void launcher_model_set_tpak_rom(LauncherModel* m, int slot, const char* path) {
     if (slot < 0 || slot >= launcher_model_pak_ports(m)) return;
+    if (m->require_tpak_files && m->s.tpak_rom_path[slot][0] &&
+        strcmp(m->s.tpak_rom_path[slot], path ? path : "") != 0)
+        m->s.tpak_save_path[slot][0] = '\0';
     safe_copy(m->s.tpak_rom_path[slot], sizeof(m->s.tpak_rom_path[slot]), path ? path : "");
     if (m->s.tpak_rom_path[slot][0]) m->s.tpak_enabled[slot] = 1;  // inserting = wanting it on
     lm_inspect_tpak(m, slot);
@@ -4655,6 +4693,7 @@ void launcher_model_set_n64_pak_kind(LauncherModel* m, int port, int kind) {
     if (launcher_model_n64_pak_kind(m, port) == kind) return;
     if (n64_pak_choices) n64_pak_choices[port] = kind;
     else m->s.tpak_enabled[port] = kind ? 1 : -1;
+    if (kind == RECOMP_LAUNCHER_PAK_TRANSFER) lm_refresh_tpak_files(m, port);
 }
 
 void launcher_model_toggle_tpak(LauncherModel* m, int slot) {
