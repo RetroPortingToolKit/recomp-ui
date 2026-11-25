@@ -46,6 +46,12 @@ static void check_transfer_pak(LauncherModel* m, const char* rom, const char* ca
     write_text(save, "battery save");
     launcher_model_set_tpak_save(m, port, save);
     require(launcher_model_can_launch(m), "cartridge and battery save enable Play");
+    launcher_model_set_tpak_save(m, port, "");
+    require(strcmp(m->s.tpak_rom_path[port], cart) == 0 &&
+            m->s.tpak_save_path[port][0] == '\0' &&
+            !launcher_model_can_launch(m), "clearing only the battery save preserves the cartridge and blocks Play");
+    launcher_model_set_tpak_save(m, port, save);
+    require(launcher_model_can_launch(m), "reselecting the battery save enables Play");
     launcher_model_commit(m, &settings);
     launcher_model_init(m, &settings, &game, rom);
     require(launcher_model_can_launch(m), "restored Transfer Pak is ready");
