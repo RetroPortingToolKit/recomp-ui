@@ -389,7 +389,7 @@ bool download_icon_button(const char* id, float side, bool enabled,
 }
 // g_th moved to external linkage above the anonymous namespace (see note).
 
-LauncherTexture g_boxart, g_pad, g_pad_analog, g_pad_digital, g_brand, g_memcard;
+LauncherTexture g_boxart, g_pad, g_pad_analog, g_pad_digital, g_brand, g_memcard, g_fixed_controller;
 struct ArtworkGallery {
     std::string serial;
     launcher_artwork::Catalog catalog;
@@ -4406,17 +4406,74 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
 // players on, one tab per player (players 5 to 8 in a second row), opened by a
 // click, by activate on the focused tab, or by L1 / R1. A tab carries the
 // card's own "connected" dot, so nobody has to open every tab to see who has a
-// device. Returns the open player; 0 and no strip for a one-player title.
+// device. Returns the physical port of the open controller card.
 static int draw_player_strip(LauncherModel* m, const LauncherTheme& th) {
     const int n = launcher_model_player_tabs(m);
-    if (!n) return 0;
+    if (!n) return launcher_model_controller_port(m, 0);
     bool assigned[LNG_MAX_PLAYERS];
-    for (int p = 0; p < n; ++p) assigned[p] = m->s.player_src[p] != 0;
+    int ports[LNG_MAX_PLAYERS];
+    for (int t = 0; t < n; ++t) {
+        const int port = launcher_model_controller_port(m, t);
+        ports[t] = port;
+        assigned[t] = launcher_model_fixed_controller(m, port) || m->s.player_src[port] != 0;
+    }
     const int was = launcher_model_player_tab(m);
     const int open = rui_player_tabs(n, was, assigned, ImGui::GetContentRegionAvail().x,
-                                     dash_tabs_look(th), ui_text("Player"));
+                                     dash_tabs_look(th), ui_text("Player"), ports);
     if (open != was) launcher_model_set_player_tab(m, open);
-    return open;
+    return ports[open];
+}
+
+static void draw_fixed_controller(const RecompLauncherCFixedController& device,
+                                  const LauncherTheme& th, float width) {
+    if (begin_panel("fixed_controller", width, false)) {
+        eyebrow(ui_text(device.name));
+        if (g_fixed_controller.id) {
+            image_fit_centered(g_fixed_controller, 120, 78, ImGui::GetContentRegionAvail().x);
+            ImGui::Dummy(ImVec2(0, px(6)));
+        }
+        if (device.choices && device.choice_count > 0 && device.selected_choice) {
+            if (device.choice_label && device.choice_label[0])
+                ImGui::TextColored(col(th.text_muted), "%s", ui_text(device.choice_label));
+            int& selected = *device.selected_choice;
+            selected = std::clamp(selected, 0, device.choice_count - 1);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::BeginCombo("##fixed_device_choice", device.choices[selected])) {
+                for (int i = 0; i < device.choice_count; ++i) {
+                    ImGui::PushID(i);
+                    if (ImGui::Selectable(device.choices[i], i == selected)) selected = i;
+                    if (i == selected) ImGui::SetItemDefaultFocus();
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+        }
+        if (device.status && device.status[0])
+            ImGui::TextColored(col(th.text_muted), "%s", ui_text(device.status));
+        if (device.hint && device.hint[0])
+            ImGui::TextWrapped("%s", ui_text(device.hint));
+        if (device.input_gain_db) {
+            ImGui::Spacing();
+            ImGui::TextColored(col(th.text_muted), "%s", ui_text("Microphone boost"));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::SliderInt("##fixed_input_gain", device.input_gain_db, 0, 30, "+%d dB");
+            *device.input_gain_db = std::clamp(*device.input_gain_db, 0, 30);
+        }
+        if (device.test_input) {
+            RecompLauncherCDeviceTest test{};
+            const int selected = device.selected_choice ? *device.selected_choice : 0;
+            device.test_input(device.test_context, 0, selected, &test);
+            ImGui::Spacing();
+            if (ImGui::Button(test.running ? "Stop microphone test" : "Test microphone"))
+                device.test_input(device.test_context, test.running ? 2 : 1, selected, &test);
+            if (test.running) {
+                ImGui::ProgressBar(std::clamp(test.level, 0.0f, 1.0f), ImVec2(-1, px(10)), "");
+            }
+            if (test.level_label[0]) ImGui::TextColored(col(th.text_muted), "%s", test.level_label);
+            if (test.message[0]) ImGui::TextWrapped("%s", test.message);
+        }
+    }
+    end_panel();
 }
 
 // Player tabs across the top; under them the open player's controller card.
@@ -4432,6 +4489,15 @@ static int draw_player_strip(LauncherModel* m, const LauncherTheme& th) {
 void draw_controllers_row(LauncherModel* m, const LauncherTheme& th) {
     if (m->lock_device) return;   // fixed pad: hide the player controller cards entirely
     const int p = draw_player_strip(m, th);
+    if (const auto* device = launcher_model_fixed_controller(m, p)) {
+        ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
+        const float availw = ImGui::GetContentRegionAvail().x;
+        const float gap = px(th.spacing_md);
+        const bool half = !launcher_model_dashboard_tabbed(m) &&
+            p < launcher_model_pak_ports(m) && availw >= px(300.0f) * 2.0f + gap;
+        draw_fixed_controller(*device, th, half ? (availw - gap) * 0.5f : availw);
+        return;
+    }
     if (launcher_model_dashboard_tabbed(m)) {
         const float availw = ImGui::GetContentRegionAvail().x;
         begin_container("pc_tab", ImVec2(availw, 0), ImGuiChildFlags_AutoResizeY);
@@ -6535,7 +6601,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     ImGui::PopStyleColor();
     ImGui::TextColored(
         col(th.text_muted),
-        m->has_assist_tools
+        "%s", m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
             : m->assist_pad_only && m->assist_tools_note
                 ? m->assist_tools_note : "Press a controller button or chord.");
@@ -8290,7 +8356,8 @@ static void pick_mod_feature_resource(
     const RecompLauncherCModResource& resource,
     std::function<void(const char* path, bool stored)> on_done = nullptr) {
     const auto* mods = m ? m->mods : nullptr;
-    if (!mods || !mods->feature_resource_set_path) return;
+    if (!mods || !mods->feature_resource_set_path ||
+        recomp_mod_resource_is_managed(&resource)) return;
     std::vector<std::string> patterns;
     const std::string remaining = resource.file_patterns;
     size_t start = 0;
@@ -8368,7 +8435,8 @@ static void prompt_missing_mod_resources(LauncherModel* m,
         if (!mods->feature_resource_get(mods->ctx, package_id.c_str(),
                                         feature_id.c_str(), index, &resource))
             continue;
-        if (!resource.required || resource.path[0]) continue;
+        if (!resource.required || resource.path[0] ||
+            recomp_mod_resource_is_managed(&resource)) continue;
         const std::string label = resource.label;
         pick_mod_feature_resource(
             m, package_id.c_str(), feature_id.c_str(), resource,
@@ -13983,12 +14051,11 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                     }
 
                     char label[320];
-                    std::snprintf(label, sizeof(label), "%s\n%s%s%s",
-                                  feature.name,
-                                  feature.package_name[0] ? feature.package_name
-                                                          : feature.package_id,
-                                  feature.package_version[0] ? "  " : "",
-                                  feature.package_version);
+                    const bool show_package = feature.package_name[0] &&
+                        std::strcmp(feature.package_name, feature.name) != 0;
+                    std::snprintf(label, sizeof(label), "%s%s%s", feature.name,
+                                  show_package ? "\n" : "",
+                                  show_package ? feature.package_name : "");
                     if (ImGui::Selectable(
                             label, m->mod_selected == item.index, 0,
                             ImVec2(0, px(44)))) {
@@ -14121,6 +14188,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 mods->ctx, feature.package_id, feature.id,
                                 resource_index, &resource))
                             continue;
+                        if (recomp_mod_resource_is_managed(&resource)) continue;
                         ImGui::PushID(resource.id);
                         if (resource.required) {
                             ImGui::TextUnformatted(resource.label);
@@ -16739,6 +16807,8 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     g_boxart = launcher_texture_load(
         asset(m->boxart_path && m->boxart_path[0] ? m->boxart_path
                                                   : "assets/img/boxart.tga").c_str());
+    if (m->fixed_controller && m->fixed_controller->image_path && m->fixed_controller->image_path[0])
+        g_fixed_controller = launcher_texture_load(asset(m->fixed_controller->image_path).c_str());
     // A cover the player fetched (the cover button) goes in front of it.
     if (cover_applies(m)) cover_show(m);
     // Controller art comes from the active SystemProfile's ControllerSpec —
@@ -17035,6 +17105,13 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
         ImGui::NewFrame();
+        if (m->fixed_controller && m->fixed_controller->test_input &&
+            (m->view != LNG_VIEW_DASHBOARD ||
+             launcher_model_controller_port(m, launcher_model_player_tab(m)) != m->fixed_controller->port)) {
+            RecompLauncherCDeviceTest ignored{};
+            m->fixed_controller->test_input(m->fixed_controller->test_context, 2,
+                m->fixed_controller->selected_choice ? *m->fixed_controller->selected_choice : 0, &ignored);
+        }
         if (launch_commit.job.pending() && (launch_commit.close_requested || p->should_quit))
             launch_commit.job.request_cancel();
         if (launch_commit.job.pending()) draw_launch_commit_progress(*th);
@@ -17102,6 +17179,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
     launcher_boot_timing_mark("rui:input_closed");
     g_artwork.clear();
     launcher_texture_free(&g_boxart);
+    launcher_texture_free(&g_fixed_controller);
     for (StartThumb& t : g_start_thumbs) launcher_texture_free(&t.tex);
     g_start_thumbs.clear();
     launcher_texture_free(&g_pad);

@@ -502,6 +502,8 @@ typedef struct {
     // Dashboard controller cards use launcher_model_visible_player_count()
     // (PSX multitap may hide seats 5+).
     int         player_count;
+    unsigned    controller_port_mask;
+    const RecompLauncherCFixedController* fixed_controller;
     // Memory-card slots the GAME uses (GameInfo.memcard_slots; 0 = profile
     // default). Read through launcher_model_memcard_slot_count().
     int         memcard_slots;
@@ -1239,6 +1241,10 @@ int  launcher_model_visible_player_count(const LauncherModel* m);
  * console. 0 means no strip and one card: a one-player title, or cards
  * hidden by lock_device. */
 int  launcher_model_player_tabs(const LauncherModel* m);
+/* Physical port for a dashboard tab, or -1 for an out-of-range tab. */
+int  launcher_model_controller_port(const LauncherModel* m, int tab);
+const RecompLauncherCFixedController* launcher_model_fixed_controller(
+    const LauncherModel* m, int port);
 /* The open tab, 0-based and always inside the strip: when Multitap is turned
  * off while a later player's tab is open, it reads as the last tab left. */
 int  launcher_model_player_tab(const LauncherModel* m);

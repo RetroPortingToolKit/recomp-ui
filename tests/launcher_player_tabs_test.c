@@ -100,6 +100,34 @@ static void test_hidden_cards(void) {
     free(m);
 }
 
+static void test_sparse_controller_ports(void) {
+    static int selected_microphone;
+    static const char* const microphones[] = { "System default", "USB microphone" };
+    static const RecompLauncherCFixedController vru = {
+        .port = 3, .name = "English VRU", .status = "Microphone available",
+        .hint = "Hold Z to talk", .image_path = "assets/img/vru.png",
+        .choice_label = "Microphone", .choices = microphones, .choice_count = 2,
+        .selected_choice = &selected_microphone,
+    };
+    LauncherModel* m = session(N64, 1, 0);
+    if (!m) return;
+    m->controller_port_mask = (1u << 0) | (1u << 3);
+    m->fixed_controller = &vru;
+    expect_int(launcher_model_player_tabs(m), 2, "sparse N64 ports show two tabs");
+    expect_int(launcher_model_controller_port(m, 0), 0, "first tab is port 1");
+    expect_int(launcher_model_controller_port(m, 1), 3, "second tab is port 4");
+    expect_int(launcher_model_controller_port(m, 2), -1, "only two tabs map to a port");
+    expect_int(launcher_model_fixed_controller(m, 0) == NULL, 1, "port 1 stays configurable");
+    expect_int(launcher_model_fixed_controller(m, 3) == &vru, 1, "port 4 shows the fixed device");
+    *launcher_model_fixed_controller(m, 3)->selected_choice = 1;
+    expect_int(selected_microphone, 1, "fixed card uses the host-owned input choice");
+    expect_int(launcher_model_controller_port(m, 1), 3, "input choice cannot change physical port");
+    launcher_model_set_player_tab(m, 1);
+    expect_int(launcher_model_controller_port(m, launcher_model_player_tab(m)), 3,
+               "opening the second tab selects port 4");
+    free(m);
+}
+
 static void test_open_tab(void) {
     LauncherModel* m = session(PSX, 4, 1);
     if (!m) return;
@@ -189,6 +217,7 @@ int main(void) {
     test_tabs_follow_the_cards();
     test_other_consoles_use_the_same_strip();
     test_hidden_cards();
+    test_sparse_controller_ports();
     test_open_tab();
     test_open_tab_changes_no_setting();
     test_tabbed_dashboard();
