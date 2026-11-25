@@ -3518,8 +3518,12 @@ void draw_source_selectables(LauncherModel* m, int p) {
         std::snprintf(opts[nopt].guid, sizeof(opts[nopt].guid), "%s", g_pads[i].guid);
         const char* nm = (g_pads[i].name[0] && std::strcmp(g_pads[i].name, "Gamepad") != 0)
                              ? g_pads[i].name : "Controller";
+#ifndef __SWITCH__
         if (same) std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s (%d)", nm, same + 1);
         else std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s", nm);
+#else
+        std::snprintf(opts[nopt].name, sizeof(opts[nopt].name), "%s", nm);
+#endif
         opts[nopt].id = g_pads[i].id;
         opts[nopt].live = true;
         ++nopt;
@@ -15166,8 +15170,12 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
      * arming note in the event loop. Keyboard nav is unconditional: a stuck
      * KEY would have to be physically held, and the window would not have
      * focus to receive it. */
+#ifdef __SWITCH__
+    s_pad_nav_armed = true;
+#else
     s_pad_nav_armed = false;
-#if defined(__ANDROID__)
+#endif
+#if defined(__ANDROID__) || defined(__SWITCH__)
     io.ConfigFlags |= ImGuiConfigFlags_IsTouchScreen;
 #endif
     io.IniFilename = nullptr;
@@ -15414,6 +15422,29 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         if (!launch_commit.job.pending()) {
             g_pad_count = launcher_input_poll(
                 g_pads, LNG_MAX_PADS, m->has_gyro_controls ? 1 : 0);
+#ifdef __SWITCH__
+            /* Resolve the default gamepad to a real device immediately.
+             * The SDK uses the same GUID for every slot, so prefer the
+             * remembered physical instance before choosing a free live pad. */
+            for(int seat=0;seat<LNG_MAX_PLAYERS;++seat) {
+                if(m->s.player_src[seat]!=2)continue;
+                int selected=-1;
+                for(int i=0;i<g_pad_count;++i)
+                    if(m->s.player_gamepad_instance[seat]==g_pads[i].id+1)selected=i;
+                if(selected<0)for(int i=0;i<g_pad_count;++i) {
+                    bool used=false;
+                    for(int other=0;other<LNG_MAX_PLAYERS;++other)
+                        if(other!=seat && m->s.player_src[other]==2 &&
+                           m->s.player_gamepad_instance[other]==g_pads[i].id+1)used=true;
+                    if(!used){selected=i;break;}
+                }
+                if(selected>=0 &&
+                   (m->s.player_gamepad_instance[seat]!=g_pads[selected].id+1 ||
+                    std::strcmp(m->player_pad_name[seat],g_pads[selected].name)))
+                    launcher_model_set_source(m,seat,2,g_pads[selected].id,
+                                              g_pads[selected].name,g_pads[selected].guid);
+            }
+#endif
 
             // PSX: keep Input source labels on concrete pad names (live SDL name
             // or saved [gamepads] registry), never the generic "Gamepad" placeholder.
@@ -15491,6 +15522,17 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
             else
                 nav_io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         }
+#if defined(__SWITCH__) && !defined(LNG_SDL3)
+        /* SDL's fixed empty slots must not win ImGui's AutoFirst selection.
+         * launcher_input_poll owns these handles and filters live libnx pads. */
+        SDL_GameController *connected[LNG_MAX_PADS];
+        int connected_count=0;
+        for(int i=0;i<g_pad_count;++i) {
+            SDL_GameController *pad=SDL_GameControllerFromInstanceID((SDL_JoystickID)g_pads[i].id);
+            if(pad)connected[connected_count++]=pad;
+        }
+        ImGui_ImplSDL2_SetGamepadMode(ImGui_ImplSDL2_GamepadMode_Manual,connected,connected_count);
+#endif
         LNG_ImplSDL_NewFrame();
         apply_logical_display(p);   // logical DisplaySize + pixel-density frame
         ImGui::NewFrame();

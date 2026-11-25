@@ -2,6 +2,7 @@
 
 #include "launcher_input.h"
 #include "launcher_platform.h"   // pulls the right SDL header for this build
+#include "launcher_switch.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -192,10 +193,16 @@ int launcher_input_poll(LauncherPad* out, int max, int enable_gyro) {
         // selection survives other pads connecting/disconnecting.
         SDL_JoystickID inst = SDL_JoystickGetDeviceInstanceID(i);
         if (inst < 0) continue;
+#ifdef __SWITCH__
+        if(!launcher_switch_pad((int)inst,NULL,0))continue;
+#endif
 
         out[n].id = (uint32_t)inst;
         const char* nm = SDL_GameControllerNameForIndex(i);
         snprintf(out[n].name, sizeof(out[n].name), "%s", nm ? nm : "Gamepad");
+#ifdef __SWITCH__
+        launcher_switch_pad((int)inst,out[n].name,sizeof(out[n].name));
+#endif
         out[n].guid[0] = '\0';
         {
             SDL_JoystickGUID g = SDL_JoystickGetDeviceGUID(i);
