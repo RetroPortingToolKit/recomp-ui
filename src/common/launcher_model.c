@@ -39,7 +39,7 @@ static const int kFreqCount   = (int)(sizeof(kFreqTable) / sizeof(kFreqTable[0])
 
 static const int kWindowWidths[]    = { 960, 1280, 1600, 1920 };
 static const int kWindowWidthCount  = (int)(sizeof(kWindowWidths) / sizeof(kWindowWidths[0]));
-static const int kInterpFpsTable[]  = { 0, 90, 120, 144, 165, 240 };
+static const int kInterpFpsTable[]  = { 0, 90, 120, 144, 165, 240, 360 };
 static const int kInterpFpsCount    = (int)(sizeof(kInterpFpsTable) / sizeof(kInterpFpsTable[0]));
 static const char* kScreenKindNames[4] = { "Raw", "CRT", "Composite", "Trinitron" };
 
@@ -521,6 +521,11 @@ void launcher_model_init(LauncherModel* m,
         m->num_rom_patterns     = m->rom_patterns ? game->num_rom_patterns : 0;
         m->rom_filter_desc      = game->rom_filter_desc;
         m->has_frame_interp     = game->has_frame_interp != 0;
+        const int interp_max = game->frame_interp_max_fps > 0 ? game->frame_interp_max_fps : 240;
+        m->interp_fps_count = 1;
+        while (m->interp_fps_count < kInterpFpsCount &&
+               kInterpFpsTable[m->interp_fps_count] <= interp_max)
+            ++m->interp_fps_count;
         m->has_spu_hq           = game->has_spu_hq != 0;
         m->has_rewind_depth     = game->has_rewind_depth != 0;
         m->has_vsync            = game->has_vsync != 0;
@@ -999,7 +1004,7 @@ void launcher_model_init(LauncherModel* m,
     launcher_model_apply_renderer_settings(m);
     if (m->has_frame_interp) {
         int ok = 0;
-        for (int i = 0; i < kInterpFpsCount; ++i)
+        for (int i = 0; i < m->interp_fps_count; ++i)
             if (kInterpFpsTable[i] == m->s.frame_interp_fps) { ok = 1; break; }
         if (!ok) m->s.frame_interp_fps = 0;
     }
@@ -2781,10 +2786,11 @@ void launcher_model_toggle_frame_interp(LauncherModel* m) {
 }
 
 void launcher_model_cycle_interp_fps(LauncherModel* m) {
+    if (!m || m->interp_fps_count <= 1) return;
     int idx = 0;
-    for (int i = 0; i < kInterpFpsCount; ++i)
+    for (int i = 0; i < m->interp_fps_count; ++i)
         if (kInterpFpsTable[i] == m->s.frame_interp_fps) { idx = i; break; }
-    m->s.frame_interp_fps = kInterpFpsTable[(idx + 1) % kInterpFpsCount];
+    m->s.frame_interp_fps = kInterpFpsTable[(idx + 1) % m->interp_fps_count];
 }
 
 const char* launcher_model_interp_fps_label(const LauncherModel* m) {
