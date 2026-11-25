@@ -6601,7 +6601,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
     ImGui::PopStyleColor();
     ImGui::TextColored(
         col(th.text_muted),
-        m->has_assist_tools
+        "%s", m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
             : m->assist_pad_only && m->assist_tools_note
                 ? m->assist_tools_note : "Press a controller button or chord.");
