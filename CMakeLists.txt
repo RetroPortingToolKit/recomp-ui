@@ -129,10 +129,17 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
     target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
     target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
-    foreach(_rui_pending_case wait model launch)
+    foreach(_rui_pending_case wait model launch netplay netplay-refused netplay-unavailable netplay-launched netplay-sync-launch)
         add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
     endforeach()
+
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME recomp-ui-netplay-start
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_start_test.py
+                --compiler ${CMAKE_CXX_COMPILER})
+    endif()
 
     # Real desktop/backend evidence is opt-in, not a headless CI requirement.
     add_executable(recomp-ui-worker-commit-probe EXCLUDE_FROM_ALL
@@ -992,6 +999,9 @@ if(BUILD_TESTING)
         src/common/ips_patch.c src/consoles/psx/memcard_format.c)
     target_include_directories(recomp-ui-netplay-view-test PRIVATE src src/common src/consoles/psx)
     add_test(NAME recomp-ui-netplay-view COMMAND $<TARGET_FILE:recomp-ui-netplay-view-test>)
+    add_executable(recomp-ui-netplay-delay-test tests/netplay_delay_test.c)
+    target_include_directories(recomp-ui-netplay-delay-test PRIVATE src/common)
+    add_test(NAME recomp-ui-netplay-delay COMMAND $<TARGET_FILE:recomp-ui-netplay-delay-test>)
     target_include_directories(recomp-ui-launcher-model-cache-test PRIVATE
         src src/common src/consoles/psx)
     # Readers also probe beside their executable. Keep them out of the setup

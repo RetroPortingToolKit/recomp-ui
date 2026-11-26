@@ -14,6 +14,11 @@
 //   cardtab:N                            open memory card N's tab on the dashboard (0-based)
 //   start:N                              choose entry N of "Start from" (0-based; -1 = Power on)
 //   disc:N                               choose the disc to boot of a multi-disc title (0-based)
+//   netplay:host=IP:PORT                 create a private LAN room
+//   netplay:join=IP:PORT,BINDIP:PORT      join a real LAN host
+//   netplay:wait-rtt=MS                  wait for a seated peer's measured RTT
+//   netplay:play                         use the normal host Play action/gate
+//   netplay:wait-start                   await the host's normal launch
 //   size:WxH                             resize the window (tests live reflow)
 //   click:X,Y[,BUTTON]                   synthetic SDL click (default left)
 //   key:escape                           synthetic key press
@@ -53,6 +58,10 @@ bool launcher_debug_active(void);
 void launcher_debug_init(void);
 /* Same driver for an app's loading surface; commands never borrow a model. */
 void launcher_debug_init_script(const char* script);
+/* ImGui's semantic LAN commands use its normal lobby callbacks and Play gate.
+ * Return 0 while the real room is pending, 1 when done, -1 on invalid/refused.
+ * This is only consulted for netplay: commands in an explicit LNG_SCRIPT. */
+void launcher_debug_set_netplay_handler(int (*handler)(LauncherModel*, const char*));
 
 // Advance the script by one frame. Call once per frame AFTER rendering and
 // BEFORE presenting, so `shot:` captures the completed frame. Sets

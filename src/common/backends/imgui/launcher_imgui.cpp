@@ -19,6 +19,7 @@
 #include "launcher_theme_overrides.h"
 #include "launcher_gl.h"
 #include "launcher_input.h"
+#include "launcher_netplay_delay.h"
 #include "launcher_files.h"
 #include "launcher_directory_url.h"
 #include "launcher_artwork.h"
@@ -8608,6 +8609,9 @@ void np_try_launch(LauncherModel* m) {
     }
     if (mod_commit_netplay_launch(m)) {
         m->s.netplay_launch = launch;
+        if (launcher_debug_active())
+            std::fprintf(stderr, "[dbg] netplay-launch delay=%d slot=%d enabled=%d\n",
+                         launch.input_delay, launch.local_slot, launch.enabled);
         if (np->clear_launch_pending) np->clear_launch_pending(np->ctx);
         m->action = LNG_ACTION_LAUNCH;
     }
@@ -8994,20 +8998,9 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
     }
 }
 
-/* Delay-sync only (no rollback / prediction runway). At ~60 Hz, one frame is
- * ~16.67 ms, so one-way RTT coverage is ceil(RTT_ms / 33.33) frames. Add a
- * jitter/TURN pad — Battleship's lower tiers assume prediction absorbs the
- * rest of the path and are too aggressive here. */
+/* Delay-sync needs both the remote input and its returning confirmation. */
 static int np_delay_frames_from_rtt_ms(int rtt_ms) {
-    if (rtt_ms < 0) rtt_ms = 0;
-    /* ceil(rtt / 33.333) via integer ceil: (rtt + 32) / 33, floor at 1. */
-    int one_way_frames = (rtt_ms + 32) / 33;
-    if (one_way_frames < 1) one_way_frames = 1;
-    const int kJitterPad = 3; /* ICE/TURN variance + scheduling slack */
-    int delay = one_way_frames + kJitterPad;
-    if (delay < 3) delay = 3;   /* delay-only floor (above Battleship's D=2) */
-    if (delay > 20) delay = 20;
-    return delay;
+    return launcher_delay_sync_frames_from_rtt_ms(rtt_ms);
 }
 
 /* Rollback D from measured lobby RTT (§59: WAN-aware tiers).
@@ -10685,16 +10678,26 @@ static void np_lobby_snapshot(LauncherModel* m,
          (np->link_lobby_supported && np->link_lobby_supported(np->ctx)));
 }
 
+static bool np_lobby_can_start(const LobbySnapshot& s) {
+    return s.seated_players >= 2 && !s.local_rom_missing &&
+           s.peers_not_ready == 0 && s.peers_missing_files == 0 &&
+           s.local_missing_files == 0;
+}
+
 /* Host pressed Play. */
 static void np_lobby_start(LauncherModel* m,
                            const RecompLauncherCNetplayCallbacks* np) {
     /* Ensure engine match_caps.rollback matches UI before start. */
     if (np->rollback_set)
         (void)np->rollback_set(np->ctx, m->netplay_rollback ? 1 : 0);
+    /* A title/profile may clamp the requested mode. Budget Auto D/P for the
+     * mode that will actually run, even when Settings was never opened. */
+    if (np->rollback_get)
+        m->netplay_rollback = np->rollback_get(np->ctx) != 0;
     const bool use_rb = m->netplay_rollback;
     const int max_rtt = np_lobby_max_peer_rtt_ms(m, np);
-    /* Auto D: rollback uses §59 WAN-aware tiers; delay-sync uses the padded
-     * one-way formula. Manual keeps the match settings panel's value.
+    /* Auto D: rollback uses §59 WAN-aware tiers; delay-sync covers the full
+     * input/confirmation round trip. Manual keeps the settings panel's value.
      *
      * No TURN penalty. force_turn is a delay-floor HINT that does not change
      * online transport (§108: online is always the lobby SFU), and TURN is
@@ -10961,8 +10964,8 @@ static void draw_lobby_match_settings(LauncherModel* m, const LauncherTheme& th,
                         "Forced TURN floors at 6 (lobby RTT underestimates "
                         "the relay path).\n\n"
                         "With delay-sync (Disable Rollback on), auto D covers "
-                        "one-way RTT at 60 Hz plus a 3-frame jitter pad:\n"
-                        "  D = ceil(RTT_ms / 33.3) + 3  (min 3, max 20)\n\n"
+                        "the input/confirmation round trip plus a 3-frame jitter pad:\n"
+                        "  D = ceil(RTT_ms * 60 / 1000) + 3  (min 4, max 20)\n\n"
                         "Too low stalls when packets arrive late. Too high adds "
                         "input lag for everyone.");
                     ImGui::PopTextWrapPos();
@@ -12245,11 +12248,7 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         /* Require two seated players, without waiting for every open seat.
          * Count only visible game slots: a host sitting alone in P2 after a
          * seat swap must not satisfy the start gate. */
-        const bool can_start = s.seated_players >= 2 &&
-                               !s.local_rom_missing &&
-                               s.peers_not_ready == 0 &&
-                               s.peers_missing_files == 0 &&
-                               s.local_missing_files == 0;
+        const bool can_start = np_lobby_can_start(s);
         const char* blocked_why =
             s.seated_players < 2
                 ? "Waiting for another player to join"
@@ -12291,6 +12290,87 @@ static void draw_lobby_footer(LauncherModel* m, const LauncherTheme& th,
         ImGui::TextColored(col(th.text_muted), "Waiting for the host to start…");
     }
     (void)th;
+}
+
+/* Semantic commands for the existing native launcher test script. The room,
+ * RTT samples and Play action are production callbacks, never replayed seats. */
+static int np_debug_lan_command(LauncherModel* m, const char* command) {
+    const auto* np = np_cb(m);
+    if (!np || !command) return -1;
+    if (np->pump) np->pump(np->ctx);
+    if (!std::strncmp(command, "host=", 5)) {
+        if (!np->create || !launcher_model_netplay_disc_ok(m)) return -1;
+        char endpoint[96];
+        if (std::strlen(command + 5) >= sizeof(endpoint)) return -1;
+        std::snprintf(endpoint, sizeof(endpoint), "%s", command + 5);
+        if (!launcher_udp_port_available(launcher_endpoint_port(endpoint))) return -1;
+        if (np->rollback_set) (void)np->rollback_set(np->ctx, m->netplay_rollback ? 1 : 0);
+        if (np->input_prediction_set)
+            (void)np->input_prediction_set(np->ctx, m->netplay_lobby_input_prediction);
+        if (np->input_delay_set)
+            (void)np->input_delay_set(np->ctx, m->netplay_lobby_input_delay);
+        const int max_slots = np_clamp_host_max_players(m);
+        if (np->create(np->ctx, "Native LAN check", endpoint, "", &m->s, 1, max_slots)) return -1;
+        m->netplay_lan_only = m->netplay_local_room = true;
+        m->netplay_lobby_max_slots = max_slots;
+        std::snprintf(m->netplay_host_endpoint, sizeof(m->netplay_host_endpoint), "%s", endpoint);
+        std::fprintf(stderr, "[dbg] netplay-host seated=%d auto=%d\n",
+                     np->in_lobby ? np->in_lobby(np->ctx) : 0, !m->netplay_manual_input_delay);
+        return 1;
+    }
+    if (!std::strncmp(command, "join=", 5)) {
+        if (!np->join || !launcher_model_netplay_disc_ok(m)) return -1;
+        const char* split = std::strchr(command + 5, ',');
+        char room[100], bind[64];
+        if (!split || split == command + 5 || split - (command + 5) > 95 ||
+            std::strlen(split + 1) >= sizeof(bind)) return -1;
+        std::snprintf(room, sizeof(room), "lan:%.*s", (int)(split - (command + 5)), command + 5);
+        std::snprintf(bind, sizeof(bind), "%s", split + 1);
+        if (np->join(np->ctx, room, "", bind)) return -1;
+        m->netplay_local_room = true;
+        m->netplay_lobby_max_slots = np_game_max_players(m, true);
+        std::snprintf(m->netplay_host_endpoint, sizeof(m->netplay_host_endpoint), "%s", room + 4);
+        return 1;
+    }
+    if (std::strncmp(command, "wait-rtt=", 9) &&
+        std::strcmp(command, "play") && std::strcmp(command, "wait-start")) return -1;
+    if (!std::strncmp(command, "wait-rtt=", 9)) {
+        char* end = nullptr;
+        const long minimum = std::strtol(command + 9, &end, 10);
+        if (!end || *end || end == command + 9 || minimum < 0 || minimum > 60000) return -1;
+        if (!np_lobby_seated(m, np)) return 0;
+        int peers = 0, max_rtt = -1;
+        const int count = np->member_count ? np->member_count(np->ctx) : 0;
+        for (int i = 0; i < count; ++i) {
+            RecompLauncherCNetplayMember member{};
+            if (np->member_get && np->member_get(np->ctx, i, &member) && !member.is_local) {
+                ++peers;
+                if (member.latency_ms > max_rtt) max_rtt = member.latency_ms;
+            }
+        }
+        if (!peers || max_rtt < minimum) return 0;
+        std::fprintf(stderr, "[dbg] netplay-room peers=%d rtt_ms=%d auto=%d delay=%d backend_delay=%d\n",
+                     peers, max_rtt, !m->netplay_manual_input_delay,
+                     m->netplay_lobby_input_delay,
+                     np->input_delay_get ? np->input_delay_get(np->ctx) : -1);
+        return 1;
+    }
+    if (!np_lobby_seated(m, np)) return 0;
+    if (!std::strcmp(command, "play")) {
+        LobbySnapshot room;
+        np_lobby_snapshot(m, np, &room);
+        if (!room.is_host) return -1;
+        if (!np_lobby_can_start(room)) return 0;
+        const int rtt = np_lobby_max_peer_rtt_ms(m, np);
+        np_lobby_start(m, np);
+        std::fprintf(stderr, "[dbg] netplay-start rtt_ms=%d auto=%d delay=%d backend_delay=%d rollback=%d\n",
+                     rtt, !m->netplay_manual_input_delay, m->netplay_lobby_input_delay,
+                     np->input_delay_get ? np->input_delay_get(np->ctx) : -1,
+                     m->netplay_rollback);
+        return m->netplay_status[0] ? -1 : 1;
+    }
+    if (!std::strcmp(command, "wait-start")) return 0;
+    return -1;
 }
 
 void np_join_selected(LauncherModel* m) {
@@ -17015,6 +17095,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
         asset("assets/fonts/OpenMoji-black-glyf.ttf");
     float applied_scale = 0.0f;
     launcher_debug_init();
+    launcher_debug_set_netplay_handler(np_debug_lan_command);
     /* The ignore/block list, from beside the executable. Loaded once here
      * rather than lazily on the netplay page: the file is the authority for
      * whether a chat line is drawn, and a page that renders before the first
