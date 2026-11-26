@@ -25,6 +25,11 @@ static int   g_cmd_count = 0;
 static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
+static int (*g_netplay_handler)(LauncherModel*, const char*);
+
+void launcher_debug_set_netplay_handler(int (*handler)(LauncherModel*, const char*)) {
+    g_netplay_handler = handler;
+}
 
 bool launcher_debug_active(void) { return g_active; }
 
@@ -219,6 +224,13 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strncmp(c, "netplay:", 8) == 0) {
+        const int result = g_netplay_handler ? g_netplay_handler(m, c + 8) : -1;
+        if (result == 0) --g_cmd_index; /* membership/RTT, never a wall cutoff */
+        else if (result < 0) {
+            fprintf(stderr, "[dbg] netplay command refused: %s\n", c + 8);
+            return true;
+        }
     } else if (strncmp(c, "mod-select:", 11) == 0) {
         m->mod_selected = atoi(c + 11);
     } else if (strncmp(c, "resource-import:", 16) == 0) {
@@ -336,6 +348,12 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
 
 void launcher_debug_step(LauncherPlatform* p, LauncherModel* m) {
     if (launcher_debug_step_impl(p, m)) m->action = LNG_ACTION_QUIT;
+    /* Complete only the awaited event, whether LAUNCH arrived before this
+     * step or synchronously inside netplay:play. Never execute the next
+     * command over a successful launch; a returned launcher may do that. */
+    if (g_active && m->action == LNG_ACTION_LAUNCH && g_cmd_index < g_cmd_count &&
+        strcmp(g_cmds[g_cmd_index], "netplay:wait-start") == 0)
+        ++g_cmd_index;
 }
 
 bool launcher_debug_step_pending(LauncherPlatform* p) {

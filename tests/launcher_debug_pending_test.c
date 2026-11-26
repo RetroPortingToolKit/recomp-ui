@@ -27,6 +27,14 @@ void launcher_platform_refresh_metrics(LauncherPlatform* p) { (void)p; }
 static void check(int ok, const char* what) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", what); ++failures; }
 }
+static int netplay_calls, netplay_result;
+static int netplay_handler(LauncherModel* model, const char* command) {
+    check(model != NULL, "semantic command receives the live model");
+    check(strcmp(command, "play") == 0, "netplay prefix is stripped exactly");
+    ++netplay_calls;
+    if (netplay_result == 2) { model->action = LNG_ACTION_LAUNCH; return 1; }
+    return netplay_result;
+}
 static void script(const char* text) {
 #ifdef _WIN32
     _putenv_s("LNG_SCRIPT", text);
@@ -59,6 +67,59 @@ int main(int argc, char** argv) {
         model.action = LNG_ACTION_LAUNCH;
         launcher_debug_step(&platform, &model);
         check(model.action == LNG_ACTION_LAUNCH, "script cannot overwrite successful launch");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "netplay-sync-launch") == 0) {
+        script("netplay:play;netplay:wait-start;quit");
+        netplay_result = 2;
+        launcher_debug_set_netplay_handler(netplay_handler);
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_LAUNCH && netplay_calls == 1,
+              "synchronous Play keeps its real launch and consumes its awaited token");
+        model.action = LNG_ACTION_NONE;
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_QUIT && netplay_calls == 1,
+              "the next action waits until the launcher returns");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "netplay-launched") == 0) {
+        script("netplay:wait-start;quit");
+        model.action = LNG_ACTION_LAUNCH;
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_LAUNCH && netplay_calls == 0,
+              "actual launch completes wait-start without clobbering the action");
+        model.action = LNG_ACTION_NONE; /* a normal return to the launcher */
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_QUIT,
+              "completed wait-start cannot hang a returned waiting room");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "netplay") == 0) {
+        script("netplay:play;view:settings;quit");
+        launcher_debug_set_netplay_handler(netplay_handler);
+        check(!launcher_debug_step_pending(&platform) && netplay_calls == 0,
+              "provider-owned model defers semantic netplay commands");
+        launcher_debug_step(&platform, &model);
+        check(netplay_calls == 1 && model.action == LNG_ACTION_NONE,
+              "real room pending retains its command");
+        netplay_result = 1;
+        launcher_debug_step(&platform, &model);
+        check(netplay_calls == 2 && mutations == 0,
+              "completed command advances exactly once");
+        launcher_debug_step(&platform, &model);
+        check(mutations == 1 && model.view == LNG_VIEW_SETTINGS,
+              "next command follows successful completion");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "netplay-refused") == 0 || strcmp(argv[1], "netplay-unavailable") == 0) {
+        script("netplay:play;view:settings");
+        if (strcmp(argv[1], "netplay-refused") == 0) {
+            netplay_result = -1;
+            launcher_debug_set_netplay_handler(netplay_handler);
+        }
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_QUIT && mutations == 0,
+              "refused/unavailable semantic action cannot continue as success");
         return failures ? 1 : 0;
     }
     if (strcmp(argv[1], "model") != 0) return 2;
