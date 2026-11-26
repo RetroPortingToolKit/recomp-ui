@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "common/launcher_model.h"
 
 #include <assert.h>
@@ -152,5 +155,27 @@ int main(void) {
     launcher_model_reset_assist_bindings(&model);
     assert(model.s.assist_pad_bind[0] == pads[0]);
     assert(model.s.assist_key_bind[0] == 99);
+    /* A legacy-key-store host can mix a pad-only shortcut with an unbound
+     * title action. Capturing the latter never edits the former's keys. */
+    game.settings_bindings = 0;
+    game.assist_pad_only = 0;
+    game.assist_key_disabled_mask = 1u;
+    saved.assist_key_bind[0] = 99;
+    launcher_model_init(&model, &saved, &game, NULL);
+    launcher_model_begin_assist_capture(&model, 0, false);
+    assert(!model.capturing);
+    launcher_model_begin_assist_capture(&model, 0, true);
+    launcher_model_set_captured_pad(&model, 0);
+    launcher_model_cancel_capture(&model);
+    assert(model.s.assist_pad_bind[0] == -1);
+    launcher_model_begin_assist_capture(&model, 3, false);
+    assert(model.capturing && model.capture_assist && model.capture_mouse_armed);
+    launcher_model_set_captured_key(&model, 513); /* Mouse1 */
+    launcher_model_cancel_capture(&model);
+    launcher_model_commit(&model, &saved);
+    launcher_model_init(&model, &saved, &game, NULL);
+    assert(model.s.assist_key_bind[0] == 99 && model.s.assist_key_bind[3] == 513);
+    launcher_model_reset_assist_bindings(&model);
+    assert(model.s.assist_key_bind[0] == 99 && model.s.assist_key_bind[3] == 0);
     return 0;
 }
