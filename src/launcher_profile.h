@@ -81,7 +81,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
 
     // --- other systems: identity now, capabilities refined as each is built --
     if (lpr_is(name, "smsgg") || lpr_is(name, "sms") || lpr_is(name, "gg")) {
-        gi->theme = NULL; gi->platform = "MASTER SYSTEM"; gi->rom_noun = "ROM"; return 1;
+        gi->theme = NULL; gi->platform = lpr_is(name,"gg")?"GAME GEAR":"MASTER SYSTEM"; gi->rom_noun = "ROM"; gi->num_players=1; return 1;
     }
     if (lpr_is(name, "vb") || lpr_is(name, "virtualboy")) {
         gi->theme = NULL; gi->platform = "VIRTUAL BOY"; gi->rom_noun = "ROM"; return 1;

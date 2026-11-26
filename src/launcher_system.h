@@ -39,6 +39,7 @@
 #include "consoles/vb/vb_profile.h"
 #include "consoles/cdi/cdi_profile.h"
 #include "consoles/3do/3do_profile.h"
+#include "consoles/smsgg/smsgg_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,7 +62,7 @@ extern "C" {
         kPanelsDashboardCommon, kPanelsSettingsStub, kPanelsControllerCommon,      \
     }
 
-LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
+
 
 #undef LNG_STUB_PROFILE
 
@@ -121,7 +122,7 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
         if (lps_streq_ci(gi->platform, "GAME BOY"))          return &kSystemProfileGb;
         if (lps_streq_ci(gi->platform, "NINTENDO DS"))       return &kSystemProfileNds;
         if (lps_streq_ci(gi->platform, "3DO"))               return &kSystemProfile3do;
-        if (lps_streq_ci(gi->platform, "MASTER SYSTEM"))     return &kSystemProfile_smsgg;
+        if (lps_streq_ci(gi->platform, "GAME GEAR") || lps_streq_ci(gi->platform, "MASTER SYSTEM"))     return &kSystemProfile_smsgg;
         if (lps_streq_ci(gi->platform, "VIRTUAL BOY"))       return &kSystemProfile_vb;
     }
     if (gi && (gi->pad_mode_supported || gi->has_window_size || gi->has_renderer ||
