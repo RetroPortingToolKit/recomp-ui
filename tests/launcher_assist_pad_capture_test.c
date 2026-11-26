@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include "common/launcher_model.h"
 
 #include <assert.h>
