@@ -2621,7 +2621,13 @@ typedef struct RecompLauncherCGameInfo {
     const RecompLauncherCFixedController* fixed_controller;
     /* Named shortcut rows whose keyboard editor is owned elsewhere. */
     unsigned assist_key_disabled_mask;
+    /* Existing native host roles and additional gameplay bindings. Zero
+     * preserves the console profile. Labels are borrowed by the launcher. */
+    int native_player_count;
+    const char* const* virtual_button_labels;
+    int virtual_button_count;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_VIRTUAL_BUTTONS 1
 #define RECOMP_LAUNCHER_HAS_ASSIST_KEY_MASK 1
 
 enum {
