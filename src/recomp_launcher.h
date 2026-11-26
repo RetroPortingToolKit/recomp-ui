@@ -2619,7 +2619,10 @@ typedef struct RecompLauncherCGameInfo {
     /* Optional fixed device shown in place of one controller card. Borrowed
      * throughout the launcher call. The host enforces the runtime binding. */
     const RecompLauncherCFixedController* fixed_controller;
+    /* Named shortcut rows whose keyboard editor is owned elsewhere. */
+    unsigned assist_key_disabled_mask;
 } RecompLauncherCGameInfo;
+#define RECOMP_LAUNCHER_HAS_ASSIST_KEY_MASK 1
 
 enum {
     RECOMP_LAUNCHER_PAK_TRANSFER = 1,

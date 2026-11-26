@@ -6458,6 +6458,9 @@ static bool enabled_camera_controls(const LauncherModel* m) {
 
 const char* settings_key_label(int scancode) {
     if (scancode <= 0) return "(unbound)";
+    static const char* mouse[] = {"Mouse1", "Mouse2", "Mouse3", "Mouse4", "Mouse5"};
+    if (scancode > RUI_MOUSE_BIND_BASE && scancode <= RUI_MOUSE_BIND_BASE + RUI_MOUSE_BIND_COUNT)
+        return mouse[scancode - RUI_MOUSE_BIND_BASE - 1];
     const char* name = SDL_GetScancodeName((SDL_Scancode)scancode);
     return (name && name[0]) ? name : "(unbound)";
 }
@@ -6604,7 +6607,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
         col(th.text_muted),
         "%s", m->has_assist_tools
             ? "Global controls; they only operate while Assist Tools is enabled."
-            : m->assist_pad_only && m->assist_tools_note
+            : m->assist_tools_note
                 ? m->assist_tools_note : "Press a controller button or chord.");
     const bool pad_col = assist_pad_column_available(m);
     if (ImGui::BeginTable(table_id, (m->assist_pad_only ? 1 : 2) + (pad_col ? 1 : 0),
@@ -6627,7 +6630,10 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(m->assist_binding_labels[action]);
-            if (!m->assist_pad_only) {
+            if (!m->assist_pad_only && (m->assist_key_disabled_mask & (1u << action))) {
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextUnformatted("See Hotkeys");
+            } else if (!m->assist_pad_only) {
                 ImGui::TableSetColumnIndex(1);
                 bool capture_key = m->capturing && m->capture_assist &&
                                    !m->capture_pad && m->capture_btn == action;
@@ -6708,7 +6714,7 @@ static void draw_fractional_fast_forward(LauncherModel* m) {
 
 void draw_controller_assist_shortcuts(LauncherModel* m,
                                       const LauncherTheme& th) {
-    if (m->assist_pad_only) {
+    if (m->assist_pad_only || m->assist_key_disabled_mask) {
         draw_assist_binding_editor(m, th, "controller_shortcuts", 0, true);
         return;
     }
@@ -16474,7 +16480,8 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
                     launcher_model_cancel_capture(m);
                     return true;
                 }
-                if (settings_pad_button_is_select(button))
+                if (settings_pad_button_is_select(button) &&
+                    m->capture_btn != m->assist_direct_pad_bind_action)
                     return true;
                 launcher_model_set_captured_pad(
                     m, launcher_model_assist_pad_button_capture_binding(
@@ -16633,7 +16640,7 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
     if (m->capturing && !m->capture_pad) {
         const SystemProfile* mprof = (const SystemProfile*)m->profile;
         const bool alt_store = mprof && mprof->controller.binds_per_input >= 2;
-        const bool mouse_store = m->has_mouse_button_binds && !m->capture_assist;
+        const bool mouse_store = m->has_mouse_button_binds;
         if (ev.type == SDL_EVENT_MOUSE_BUTTON_UP) return true;   /* swallow */
         if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
             if ((!alt_store && !mouse_store) || !m->capture_mouse_armed ||
@@ -16642,7 +16649,11 @@ bool try_capture(LauncherModel* m, const SDL_Event& ev) {
             int btn = (int)ev.button.button;      /* SDL: 1 L, 2 M, 3 R, 4/5 side */
             if (btn >= 1 && btn <= RUI_MOUSE_BIND_COUNT) {
                 const int code = RUI_MOUSE_BIND_BASE + btn;
-                if (alt_store)
+                if (m->capture_assist) {
+                    launcher_model_set_captured_key(m, code);
+                    launcher_binds_set_assist_key(m, m->capture_btn, code);
+                }
+                else if (alt_store)
                     launcher_binds_set_button_slot(m, m->cfg_player + 1, m->capture_btn,
                                                    m->capture_slot, code);
                 else
