@@ -9,6 +9,7 @@
 //
 //   view:dashboard|settings|controller|assist_tools|credits
 //                                          switch view (no clicking required)
+//   activate:play                        use Home's guarded, deferred Play action
 //   player:0|1                           which player the controller view edits
 //   tab:N                                open player N's tab on the dashboard (0-based)
 //   cardtab:N                            open memory card N's tab on the dashboard (0-based)

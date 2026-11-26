@@ -25,6 +25,7 @@ static int   g_cmd_count = 0;
 static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
+static bool  g_wait_launch = false;
 
 bool launcher_debug_active(void) { return g_active; }
 
@@ -33,6 +34,7 @@ void launcher_debug_init_script(const char* s) {
     g_cmd_index = 0;
     g_wait_frames = 0;
     g_active = false;
+    g_wait_launch = false;
     if (!s || !s[0]) return;
 
     snprintf(g_script, sizeof(g_script), "%s", s);
@@ -188,7 +190,10 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
 
     if (g_wait_frames > 0) { --g_wait_frames; return false; }
 
-    if (g_cmd_index >= g_cmd_count) {   // script exhausted -> exit
+    if (g_cmd_index >= g_cmd_count) {
+        /* The semantic Play action uses the visible button's deferred work.
+         * EOF must not cancel that work while a provider owns the model. */
+        if (g_wait_launch && (!m || launcher_model_launch_announced(m))) return false;
         return true;
     }
 
@@ -219,6 +224,14 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strcmp(c, "activate:play") == 0) {
+        if (!m->in_session && launcher_model_can_launch(m) &&
+            !launcher_model_bios_blocks_play(m)) {
+            launcher_model_launch_request(m);
+            g_wait_launch = true;
+        } else {
+            fprintf(stderr, "[dbg] Home Play is currently unavailable\n");
+        }
     } else if (strncmp(c, "mod-select:", 11) == 0) {
         m->mod_selected = atoi(c + 11);
     } else if (strncmp(c, "resource-import:", 16) == 0) {

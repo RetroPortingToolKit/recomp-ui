@@ -129,7 +129,7 @@ if(BUILD_TESTING)
     target_include_directories(recomp-ui-launcher-debug-pending-test PRIVATE src src/common)
     target_compile_definitions(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_DEFS})
     target_link_libraries(recomp-ui-launcher-debug-pending-test PRIVATE ${RUI_SDL_TARGET} ${RUI_GL_LIBS})
-    foreach(_rui_pending_case wait model launch)
+      foreach(_rui_pending_case wait model launch activate blocked)
         add_test(NAME recomp-ui-launcher-debug-pending-${_rui_pending_case}
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
     endforeach()

@@ -7,6 +7,10 @@
 static int mutations, failures;
 static int assist_action = -1;
 static bool assist_gamepad;
+bool launcher_model_can_launch(const LauncherModel* m) { return m->rom_present; }
+bool launcher_model_bios_blocks_play(const LauncherModel* m) { (void)m; return false; }
+bool launcher_model_launch_announced(const LauncherModel* m) { return m->launch_pending != 0; }
+void launcher_model_launch_request(LauncherModel* m) { ++mutations; m->launch_pending = 1; }
 void launcher_model_import_mod_resource(LauncherModel* m, const char* pkg,
     const char* feature, const char* resource, const char* path) {
     (void)m; (void)pkg; (void)feature; (void)resource; (void)path; ++mutations;
@@ -41,6 +45,26 @@ int main(int argc, char** argv) {
     memset(&model, 0, sizeof(model));
     model.action = LNG_ACTION_NONE;
     if (argc != 2) return 2;
+    if (strcmp(argv[1], "activate") == 0) {
+        script("activate:play");
+        check(!launcher_debug_step_pending(&platform), "Play waits for exclusive model ownership");
+        model.rom_present = true;
+        launcher_debug_step(&platform, &model);
+        check(mutations == 1 && model.launch_pending == 1, "Play uses the shared launch request");
+        check(!launcher_debug_step_pending(&platform), "EOF preserves healthy provider work");
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_NONE, "EOF preserves deferred launch");
+        model.launch_pending = 0;
+        launcher_debug_step(&platform, &model);
+        check(model.action == LNG_ACTION_QUIT, "refused launch returns control after EOF");
+        return failures ? 1 : 0;
+    }
+    if (strcmp(argv[1], "blocked") == 0) {
+        script("activate:play");
+        launcher_debug_step(&platform, &model);
+        check(mutations == 0 && model.launch_pending == 0, "missing image keeps Play blocked");
+        return failures ? 1 : 0;
+    }
     /* The interpreter initializes once per launcher process. Each case gets
      * its own process instead of inventing reset semantics for its globals. */
     if (strcmp(argv[1], "wait") == 0) {
