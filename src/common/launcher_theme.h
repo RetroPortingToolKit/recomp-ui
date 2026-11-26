@@ -278,12 +278,35 @@ static inline LauncherTheme launcher_theme_gbc(void) {
     return t;
 }
 
+// Virtual Boy: red LED light on black, neutral controller-shell chrome.
+static inline LauncherTheme launcher_theme_vb(void) {
+    LauncherTheme t=launcher_theme_default();
+    t.background=lng_rgba(0.025f,0.020f,0.024f,1.0f);
+    t.background2=lng_rgba(0.075f,0.027f,0.035f,1.0f);
+    t.panel=lng_rgba(0.080f,0.067f,0.075f,1.0f);
+    t.panel_hovered=lng_rgba(0.145f,0.098f,0.110f,1.0f);
+    t.control=lng_rgba(0.137f,0.110f,0.122f,1.0f);
+    t.control_hovered=lng_rgba(0.204f,0.137f,0.153f,1.0f);
+    t.border=lng_rgba(0.290f,0.153f,0.173f,1.0f);
+    t.accent=lng_rgba(0.918f,0.114f,0.153f,1.0f);
+    t.accent_dim=lng_rgba(0.584f,0.059f,0.086f,1.0f);
+    t.accent2=lng_rgba(1.0f,0.267f,0.294f,1.0f);
+    t.accent_text=lng_rgba(1.0f,0.965f,0.969f,1.0f);
+    t.text=lng_rgba(0.957f,0.929f,0.937f,1.0f);
+    t.text_muted=lng_rgba(0.663f,0.588f,0.608f,1.0f);
+    t.focus_ring=lng_rgba(1.0f,0.443f,0.471f,1.0f);
+    t.scanlines=0;
+    return t;
+}
+
 // Pick a built-in theme by name ("psx" -> PlayStation, "gba" -> Game Boy
 // Advance, "gbc" -> Game Boy Color, "gb" -> Game Boy (DMG), "n64" -> Nintendo
 // 64, "nes" -> Nintendo Entertainment System, "genesis" -> Sega Genesis;
 // anything else -> default CRT). Note the "gb*" order: match "gba" and "gbc"
 // (3rd char) BEFORE the bare "gb" fallback.
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if(name && (name[0]=='v' || name[0]=='V') && (name[1]=='b' || name[1]=='B'))
+        return launcher_theme_vb();
     if (name && (name[0] == 'p' || name[0] == 'P') &&
         (name[1] == 's' || name[1] == 'S'))
         return launcher_theme_psx();

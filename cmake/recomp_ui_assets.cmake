@@ -65,9 +65,10 @@ set(_RUI_CONSOLE_ASSETS_gb
 # GBC uses the same runtime asset family as GB.
 set(_RUI_CONSOLE_ASSETS_gbc ${_RUI_CONSOLE_ASSETS_gb})
 
-# The Virtual Boy launcher profile uses common assets and host-supplied art.
-# Keep its explicit family valid without staging another console's images.
-set(_RUI_CONSOLE_ASSETS_vb)
+# Virtual Boy owns its controller diagram and stereoscopic red brand mark.
+set(_RUI_CONSOLE_ASSETS_vb
+    "${RUI_ASSETS}/consoles/vb/img/pad_vb.tga"
+    "${RUI_ASSETS}/consoles/vb/img/brand_vb.tga")
 
 set(_RUI_CONSOLE_ASSETS_nds
     "${RUI_ASSETS}/consoles/nds/img/pad_nds.tga"

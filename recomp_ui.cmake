@@ -329,6 +329,9 @@ function(recomp_target_launcher_ui TGT)
     endif()
     # Per-console brand mark (top-left, next to the game title): overrides the
     # default brand_mark.tga (e.g. the PlayStation shapes for PSX). 32-bit TGA.
+    if(RUI_CONSOLE STREQUAL "vb" AND NOT RUI_BRAND)
+        set(RUI_BRAND "${RUI_ASSETS}/consoles/vb/img/brand_vb.tga")
+    endif()
     if(RUI_BRAND AND EXISTS ${RUI_BRAND})
         add_custom_command(TARGET ${TGT} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

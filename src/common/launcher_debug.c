@@ -25,6 +25,8 @@ static int   g_cmd_count = 0;
 static int   g_cmd_index = 0;
 static int   g_wait_frames = 0;
 static bool  g_active = false;
+static bool g_play_requested;
+bool launcher_debug_take_play(void) { bool value=g_play_requested;g_play_requested=false;return value; }
 
 bool launcher_debug_active(void) { return g_active; }
 
@@ -142,6 +144,7 @@ static void synth_key(LauncherPlatform* p, SDL_Keycode key) {
     e.key.scancode = sc;
     e.key.down = true;
 #else
+    e.key.windowID = p && p->window ? SDL_GetWindowID(p->window) : 0;
     e.key.keysym.sym = key;
     e.key.keysym.scancode = sc;
     e.key.state = SDL_PRESSED;
@@ -196,6 +199,8 @@ static bool launcher_debug_step_impl(LauncherPlatform* p, LauncherModel* m) {
             launcher_model_set_view(m, LNG_VIEW_NETPLAY);
         }
         else if (strcmp(v, "lobby") == 0) launcher_model_set_view(m, LNG_VIEW_LOBBY);
+    } else if (strcmp(c, "activate:play") == 0) {
+        g_play_requested=true;
     } else if (strncmp(c, "player:", 7) == 0) {
         // Select which player the Controller view configures. Clamp to the
         // launcher's real player range (N64 profiles run up to 4) instead of

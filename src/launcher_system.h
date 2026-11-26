@@ -1,4 +1,4 @@
-// launcher_system.h — SystemProfile aggregator: one row per console.
+// launcher_system.h â€” SystemProfile aggregator: one row per console.
 //
 // The TYPES (SystemProfile + its module specs) live in
 // src/common/launcher_system_types.h; each BUILT-OUT console's row lives in
@@ -8,13 +8,13 @@
 // lookups, plus stub rows for consoles nobody ships on yet.
 //
 // Adding a system = adding src/consoles/<id>/<id>_profile.h (copy a built-out
-// console — PSX is the deep-surface model, GBA the cartridge-handheld model),
+// console â€” PSX is the deep-surface model, GBA the cartridge-handheld model),
 // including it here, and registering it in the two lookups below + the
 // dispatch in src/launcher_profile.h. Nothing else in the core changes.
 //
 // ---- how a game's SystemProfile is chosen -----------------------------------
 // The public C ABI (RecompLauncherCGameInfo, recomp_launcher.h) is NOT changed
-// by this refactor — hosts keep calling launcher_profile_apply(name, gi) (or
+// by this refactor â€” hosts keep calling launcher_profile_apply(name, gi) (or
 // hand-building `gi`) exactly as before, and that keeps writing the same ABI
 // capability flags it always has. launcher_system_infer() below derives the
 // matching SystemProfile FROM those already-set ABI fields (primarily
@@ -35,6 +35,8 @@
 #include "consoles/genesis/genesis_profile.h"
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
+#include "consoles/vb/vb_profile.h"
+#include "consoles/vb/vb_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,7 +45,7 @@ extern "C" {
 // ---- stub rows: identity only, minimal composition, NOT verified today --------
 // These never get selected by launcher_system_infer() unless a host sets
 // `platform` to exactly match (launcher_profile_apply already does, per name)
-// — no game ships on these yet, so they render with the same minimal
+// â€” no game ships on these yet, so they render with the same minimal
 // (legacy/SNES-shaped) settings surface as a safe default. Promoting a stub
 // to a real console = moving it to src/consoles/<id>/ (see header comment).
 #define LNG_STUB_PROFILE(ID, PLATFORM, ROM_NOUN)                                   \
@@ -58,11 +60,10 @@ extern "C" {
     }
 
 LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
-LNG_STUB_PROFILE(vb,     "VIRTUAL BOY",        "ROM");
 
 #undef LNG_STUB_PROFILE
 
-// Resolve a SystemProfile by its short id ("psx", "snes", ...) — same names
+// Resolve a SystemProfile by its short id ("psx", "snes", ...) â€” same names
 // launcher_profile_apply() accepts. Returns NULL if unknown.
 static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (!name || !name[0]) return NULL;
@@ -83,7 +84,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
 
 // Infer the SystemProfile for a game built through the C ABI. Primary signal
 // is `platform` (the same console-subtitle string launcher_profile_apply()
-// already sets per system — a de facto system id already present in the ABI).
+// already sets per system â€” a de facto system id already present in the ABI).
 // Falls back to a capability-flag heuristic for hosts that hand-build
 // RecompLauncherCGameInfo without a recognized platform string (matches
 // today's ONLY two real capability shapes: the PSX "deep settings" surface,

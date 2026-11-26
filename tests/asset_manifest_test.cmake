@@ -44,8 +44,8 @@ assert_console_asset_names(
 assert_console_asset_names(
     nds
     "brand_nds.tga;pad_nds.tga")
-assert_console_asset_names(vb "")
-assert_console_asset_names(VB "")
+assert_console_asset_names(vb "brand_vb.tga;pad_vb.tga")
+assert_console_asset_names(VB "brand_vb.tga;pad_vb.tga")
 
 _recomp_ui_resolve_console_assets(_gb_assets gb)
 _recomp_ui_resolve_console_assets(_gbc_assets gbc)
@@ -55,9 +55,9 @@ endif()
 
 _recomp_ui_resolve_console_assets(_all_assets all)
 list(LENGTH _all_assets _all_count)
-if(NOT _all_count EQUAL 24)
+if(NOT _all_count EQUAL 26)
     message(FATAL_ERROR
-        "The explicit all-console manifest should contain 24 assets, got ${_all_count}")
+        "The explicit all-console manifest should contain 26 assets, got ${_all_count}")
 endif()
 
 # Optional assets are declared but NOT required to exist — that is the whole

@@ -41,6 +41,8 @@ extern "C" {
 
 // True when LNG_SCRIPT is set (script mode active).
 bool launcher_debug_active(void);
+/* App-owned test action consumed by the visible Home Play handler. */
+bool launcher_debug_take_play(void);
 
 // Parse LNG_SCRIPT. Safe to call when unset (script mode simply stays off).
 void launcher_debug_init(void);

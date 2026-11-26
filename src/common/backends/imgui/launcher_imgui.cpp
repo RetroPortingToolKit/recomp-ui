@@ -12756,8 +12756,11 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     const bool can_play = launcher_model_can_launch(m);
     const bool bios_block = launcher_model_bios_blocks_play(m);
     const bool play_enabled = can_play || bios_block;
-    if (neon_cta("##play", ui_text(m->in_session ? "RESUME" : "PLAY"),
-                 ImVec2(play_w, play_h), play_enabled)) {
+    const bool clicked_play=neon_cta("##play", ui_text(m->in_session ? "RESUME" : "PLAY"),
+                 ImVec2(play_w, play_h), play_enabled);
+    const bool requested_play=launcher_debug_take_play();
+    if ((clicked_play || requested_play) && play_enabled) {
+        std::fprintf(stderr,"[launcher] Home Play accepted: verified=%d\n",launcher_model_rom_verified(m)?1:0);
         /* Prefer mismatch prompt over launch even if can_play races true. */
         if (bios_block)
             launcher_model_bios_play_prompt(m);

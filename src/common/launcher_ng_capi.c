@@ -222,6 +222,7 @@ int recomp_launcher_run_window(const char* window_title,
     LauncherTheme theme = launcher_theme_by_name(game ? game->theme : NULL);
 
     LngAction act = launcher_backend_run(&plat, &model, &theme);
+    fprintf(stderr,"[launcher] native handoff action=%d launch=%d quit=%d\n",(int)act,(int)LNG_ACTION_LAUNCH,(int)LNG_ACTION_QUIT);
 
     launcher_window_size_save(window_size_path, plat.logical_w, plat.logical_h);
     launcher_platform_close(&plat);
@@ -264,8 +265,10 @@ int recomp_launcher_run_window(const char* window_title,
                          "%s", model.relaunch_exe);
             return RECOMP_LAUNCHER_RESULT_RELAUNCH;
         }
+        fprintf(stderr,"[launcher] return LAUNCH original=%s\n",out_rom_path?out_rom_path:"");
         return RECOMP_LAUNCHER_RESULT_LAUNCH;
     }
 
+    fprintf(stderr,"[launcher] return QUIT\n");
     return RECOMP_LAUNCHER_RESULT_QUIT;
 }

@@ -1,4 +1,4 @@
-// launcher_profile.h — per-system "variant profiles" (ABI apply dispatcher).
+// launcher_profile.h â€” per-system "variant profiles" (ABI apply dispatcher).
 //
 // A variant profile bundles a whole console's launcher identity as ONE unit so
 // theme, controller art, platform label, ROM noun, and capability set can never
@@ -17,7 +17,7 @@
 //
 // Built-out consoles keep their apply row in their own unit under
 // src/consoles/<id>/<id>_profile.h (launcher_profile_apply_<id>() + the name
-// matcher) — this header just dispatches by name. Consoles still stubbed get
+// matcher) â€” this header just dispatches by name. Consoles still stubbed get
 // an identity-only row inline below until they are built out.
 //
 // Adding a new system = add src/consoles/<id>/ and one dispatch line here.
@@ -34,6 +34,8 @@
 #include "consoles/genesis/genesis_profile.h"
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
+#include "consoles/vb/vb_profile.h"
+#include "consoles/vb/vb_profile.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -77,9 +79,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
     if (lpr_is(name, "smsgg") || lpr_is(name, "sms") || lpr_is(name, "gg")) {
         gi->theme = NULL; gi->platform = "MASTER SYSTEM"; gi->rom_noun = "ROM"; return 1;
     }
-    if (lpr_is(name, "vb") || lpr_is(name, "virtualboy")) {
-        gi->theme = NULL; gi->platform = "VIRTUAL BOY"; gi->rom_noun = "ROM"; return 1;
-    }
+    if (launcher_console_is_vb(name)) { launcher_profile_apply_vb(gi); return 1; }
 
     // Neutral fallback.
     gi->theme = NULL; gi->rom_noun = "ROM";
