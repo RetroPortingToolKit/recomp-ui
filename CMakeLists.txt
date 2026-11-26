@@ -134,6 +134,13 @@ if(BUILD_TESTING)
             COMMAND $<TARGET_FILE:recomp-ui-launcher-debug-pending-test> ${_rui_pending_case})
     endforeach()
 
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME recomp-ui-netplay-start
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/netplay_start_test.py
+                --compiler ${CMAKE_CXX_COMPILER})
+    endif()
+
     # Real desktop/backend evidence is opt-in, not a headless CI requirement.
     add_executable(recomp-ui-worker-commit-probe EXCLUDE_FROM_ALL
         tests/launcher_worker_commit_probe.cpp)

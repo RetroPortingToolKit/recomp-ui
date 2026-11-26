@@ -10681,6 +10681,10 @@ static void np_lobby_start(LauncherModel* m,
     /* Ensure engine match_caps.rollback matches UI before start. */
     if (np->rollback_set)
         (void)np->rollback_set(np->ctx, m->netplay_rollback ? 1 : 0);
+    /* A title/profile may clamp the requested mode. Budget Auto D/P for the
+     * mode that will actually run, even when Settings was never opened. */
+    if (np->rollback_get)
+        m->netplay_rollback = np->rollback_get(np->ctx) != 0;
     const bool use_rb = m->netplay_rollback;
     const int max_rtt = np_lobby_max_peer_rtt_ms(m, np);
     /* Auto D: rollback uses §59 WAN-aware tiers; delay-sync covers the full
