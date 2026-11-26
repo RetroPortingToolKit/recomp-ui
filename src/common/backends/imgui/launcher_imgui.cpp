@@ -23,7 +23,6 @@
 #include "launcher_artwork.h"
 #include "launcher_audio_buffer.h"
 #include "launcher_quick_mods.h"
-#include "launcher_icons.h"
 #include "launcher_debug.h"
 #include "launcher_binds.h"
 #include "mouse_bindings.h"
@@ -14726,56 +14725,6 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
     if (rui_nav_rehome_to_play())
         ImGui::SetKeyboardFocusHere();
     float play_x = origin.x + fullw - play_w;
-    /* Utilities beside PLAY: hand the selected image to Steam and drop a
-     * desktop shortcut. Both act on the ROM chosen above, so they only appear
-     * when it can actually be launched. */
-    if (!m->in_session && m->view != LNG_VIEW_NETPLAY_MODE && launcher_model_can_launch(m)) {
-        static char util_status[192];
-        const char *game = (m->game_name && m->game_name[0]) ? m->game_name : "Legend Of Zelda NES";
-        const float util_w = px(176.0f);
-        const float util_gap = px(10.0f);
-        float util_x = play_x - util_w - util_gap;
-        if (m->netplay_supported &&
-            (m->view == LNG_VIEW_DASHBOARD || m->view == LNG_VIEW_SETTINGS ||
-             m->view == LNG_VIEW_CONTROLLER))
-            util_x -= px(170.0f) + px(12.0f);
-        /* Narrow windows would push them over the card edge; drop them instead. */
-        const bool util_fit = (util_x - util_w - util_gap) > origin.x + px(8.0f);
-        const char *rom = launcher_model_effective_rom_path(m);
-        char rom_arg[1024];
-        snprintf(rom_arg, sizeof rom_arg, "\"%s\"", rom ? rom : "");
-
-        if (util_fit) {
-        ImGui::SetCursorScreenPos(ImVec2(util_x - util_w - util_gap, cta_y));
-        if (ImGui::Button(ui_text("DESKTOP ICON"), ImVec2(util_w, play_h))) {
-            char err[256];
-            if (launcher_desktop_shortcut(NULL, rom_arg, game, err, sizeof err))
-                snprintf(util_status, sizeof util_status, "%s", ui_text("Desktop shortcut created."));
-            else
-                snprintf(util_status, sizeof util_status, "%s: %s", ui_text("Desktop shortcut failed"), err);
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", ui_text("Create a desktop shortcut for the selected image."));
-
-        ImGui::SetCursorScreenPos(ImVec2(util_x, cta_y));
-        if (ImGui::Button(ui_text("ADD TO STEAM"), ImVec2(util_w, play_h))) {
-            char err[256];
-            if (launcher_steam_shortcut(NULL, rom_arg, game, NULL, err, sizeof err))
-                snprintf(util_status, sizeof util_status,
-                         ui_text("Added to Steam. Restart Steam to see it."));
-            else
-                snprintf(util_status, sizeof util_status, "%s: %s", ui_text("Steam error"), err);
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", ui_text("Add the selected image to your Steam library (close Steam first)."));
-
-        if (util_status[0]) {
-            ImGui::SetCursorScreenPos(ImVec2(util_x - util_w - util_gap,
-                                             cta_y + play_h + px(4.0f)));
-            ImGui::TextColored(col(th.text_muted), "%s", util_status);
-        }
-        }
-    }
     if (m->in_session) {
         /* Opened from a running game: closing the window resumes it, so
          * leaving the game needs a button of its own. Netplay cannot start
