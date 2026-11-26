@@ -16725,8 +16725,12 @@ std::string asset(const char* rel) {
         char resolved[4096];
         if (!launcher_assets_dir_resolve(s_assets_directory.c_str(), resolved, sizeof resolved)) return path;
         std::filesystem::path root=std::filesystem::u8path(resolved);
-        if (path.rfind("assets/",0)==0) return (root/std::filesystem::u8path(path.substr(7))).u8string();
-        return (root.parent_path()/std::filesystem::u8path(path)).u8string();
+        auto utf8=[](const std::filesystem::path& value) {
+            auto bytes=value.u8string();
+            return std::string(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+        };
+        if (path.rfind("assets/",0)==0) return utf8(root/std::filesystem::u8path(path.substr(7)));
+        return utf8(root.parent_path()/std::filesystem::u8path(path));
     }
 
 #if defined(__ANDROID__)
