@@ -78,8 +78,34 @@ void draw_sections(RecompRuntimeUi *ui, const LauncherTheme &theme,
     }
 }
 
+/* Host navigation owns selection, so ImGui's keyboard focus cannot reveal it.
+ * Reveal a changed selection once; an unchanged row must not fight mouse scroll. */
+void reveal_changed_row(bool reveal) {
+    if (!reveal) return;
+    const float top = ImGui::GetWindowPos().y + ImGui::GetStyle().WindowPadding.y;
+    const float bottom = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() -
+                         ImGui::GetStyle().WindowPadding.y;
+    if (ImGui::GetItemRectMin().y < top)
+        ImGui::SetScrollHereY(0.0f);
+    else if (ImGui::GetItemRectMax().y > bottom)
+        ImGui::SetScrollHereY(1.0f);
+}
+
 void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
                 bool touch_friendly, float desktop_scale = 1.0f) {
+    ImGuiStorage *storage = ImGui::GetStateStorage();
+    ImGui::PushID(ui);
+    const ImGuiID row_key = ImGui::GetID("last-selected-row");
+    const ImGuiID page_key = ImGui::GetID("last-selected-page");
+    ImGui::PushID(static_cast<int>(ui->section_index));
+    const int page = static_cast<int>(ImGui::GetID(ui->page));
+    ImGui::PopID();
+    ImGui::PopID();
+    const int row = ui->in_section ? static_cast<int>(ui->row_index) : -1;
+    const bool changed = storage->GetInt(row_key, -2) != row ||
+                         storage->GetInt(page_key, ~page) != page;
+    storage->SetInt(row_key, row);
+    storage->SetInt(page_key, page);
     const size_t count = recomp_runtime_ui_page_entry_count(ui);
     for (size_t index = 0; index < count; ++index) {
         char folder[96];
@@ -103,6 +129,7 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
                     return;
                 }
             }
+            reveal_changed_row(changed && static_cast<int>(index) == row);
             if (ImGui::IsItemHovered()) {
                 ui->row_index = index;
                 ui->in_section = 1;
@@ -151,6 +178,7 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
             if (item->type != RECOMP_RUNTIME_UI_INT)
                 recomp_runtime_ui_adjust_current(ui, 1, 1, 0);
         }
+        reveal_changed_row(changed && static_cast<int>(index) == row);
         if (ImGui::IsItemHovered()) {
             ui->row_index = index;
             ui->in_section = 1;

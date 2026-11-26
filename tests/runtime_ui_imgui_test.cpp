@@ -276,6 +276,62 @@ void confirmation_cadence_case() {
     recomp_runtime_ui_destroy(ui);
 }
 
+void selection_scroll_case(bool folder_last) {
+    RecompRuntimeUiItem items[32]{};
+    char keys[32][16];
+    for (int i = 0; i < 32; ++i) {
+        std::snprintf(keys[i], sizeof(keys[i]), "row-%d", i);
+        items[i] = { keys[i], "Mods", keys[i], "A setting description.",
+                     RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr };
+    }
+    if (folder_last) items[31].section = "Mods/Last folder";
+    int value = 1;
+    RecompRuntimeUiConfig config{};
+    config.items = items; config.item_count = 32;
+    config.callbacks.context = &value;
+    config.callbacks.get_value = get_value;
+    config.callbacks.set_value = set_value;
+    RecompRuntimeUi *ui = recomp_runtime_ui_create(&config);
+    recomp_runtime_ui_open(ui);
+    recomp_runtime_ui_enter_section(ui, 0);
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr; io.DisplaySize = ImVec2(640, 480);
+    io.DeltaTime = 1.0f / 60.0f;
+    unsigned char *pixels; int w, h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+    ImGuiWindow *child = nullptr;
+    auto frame = [&](bool reset_scroll = false) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(600, 400));
+        ImGui::Begin("scroll test");
+        ImGui::BeginChild("rows", ImVec2(500, 200));
+        child = ImGui::GetCurrentWindow();
+        if (reset_scroll) ImGui::SetScrollY(0.0f);
+        draw_items(ui, launcher_theme_default(), false);
+        ImGui::EndChild(); ImGui::End(); ImGui::Render();
+    };
+    frame(); frame();
+    assert(child->Scroll.y == 0.0f);
+    /* Navigate the real model, with ImGui keyboard navigation disabled. */
+    for (int i = 0; i < 31; ++i)
+        recomp_runtime_ui_handle_input(ui, RECOMP_RUNTIME_UI_INPUT_DOWN, 1, 0);
+    frame(); frame();
+    assert(ui->row_index == 31 && child->Scroll.y > 500.0f);
+    /* An unchanged selection must allow manual scrolling away from it. */
+    frame(true); frame(); frame();
+    assert(child->Scroll.y == 0.0f);
+    recomp_runtime_ui_handle_input(ui, RECOMP_RUNTIME_UI_INPUT_UP, 1, 0);
+    frame(); frame();
+    assert(child->Scroll.y > 500.0f);
+    for (int i = 0; i < 30; ++i)
+        recomp_runtime_ui_handle_input(ui, RECOMP_RUNTIME_UI_INPUT_UP, 1, 0);
+    frame(); frame();
+    assert(ui->row_index == 0 && child->Scroll.y < 1.0f);
+    ImGui::DestroyContext(); recomp_runtime_ui_destroy(ui);
+}
+
 void footer_case(ImVec2 display, uint32_t flags) {
     static const RecompRuntimeUiItem item = {
         "disc", "Disc", "Selected disc", "Choose a disc.",
@@ -335,6 +391,8 @@ void footer_case(ImVec2 display, uint32_t flags) {
 } // namespace
 
 int main() {
+    selection_scroll_case(false);
+    selection_scroll_case(true);
     footer_case(ImVec2(640, 480), 0);
     footer_case(ImVec2(1280, 720), 0);
     footer_case(ImVec2(2880, 1800), 0);
