@@ -4797,6 +4797,7 @@ bool video_card_grows(const LauncherModel* m) {
     // NES legacy-surface additions (Integer scaling row, HD texture pack block)
     // add extra rows the fixed no_scroll band wasn't sized for.
     if (m->has_integer_scale || m->hdpack_supported) return true;
+    if (m->widescreen_supported) return true;
     return false;
 }
 
@@ -4965,6 +4966,15 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
         // the legacy launcher's vocabulary). Sits right under Window scale,
         // matching the old Display panel order.
         row_fullscreen(m, th);
+        if (m->widescreen_supported) {
+            row_label_right("Widescreen (16:9)", th, cb);
+            bool ws = m->s.widescreen != 0;
+            if (ImGui::Checkbox("##widescreen", &ws))
+                launcher_model_toggle_widescreen(m);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip(
+                    "Expand the horizontal view natively to fill widescreen and ultrawide displays.");
+        }
         if (m->num_display_layouts > 0) {
             const float lw = settings_cycle_w(m, "Screen layout", th,
                 launcher_model_cycle_display_layout, launcher_model_display_layout_label);
