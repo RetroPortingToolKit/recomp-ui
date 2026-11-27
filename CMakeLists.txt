@@ -918,6 +918,15 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME recomp-ui-cdi-profile COMMAND recomp-ui-cdi-profile-test)
 
+    add_executable(recomp-ui-3ds-profile-test tests/3ds_profile_test.c)
+    target_include_directories(recomp-ui-3ds-profile-test PRIVATE src src/common)
+    if(MSVC)
+        target_compile_options(recomp-ui-3ds-profile-test PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(recomp-ui-3ds-profile-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME recomp-ui-3ds-profile COMMAND recomp-ui-3ds-profile-test)
+
     add_executable(recomp-ui-nds-profile-test
         tests/nds_profile_test.c)
     target_include_directories(recomp-ui-nds-profile-test PRIVATE

@@ -49,6 +49,8 @@ assert_console_asset_names(
     "brand_nds.tga;pad_nds.tga")
 assert_console_asset_names(vb "")
 assert_console_asset_names(VB "")
+assert_console_asset_names(3ds "")
+assert_console_asset_names(3DS "")
 
 _recomp_ui_resolve_console_assets(_gb_assets gb)
 _recomp_ui_resolve_console_assets(_gbc_assets gbc)
