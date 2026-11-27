@@ -3971,10 +3971,11 @@ void draw_shader_row(LauncherModel* m, const LauncherTheme& th, float col_w = 0.
 void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
     eyebrow("DISPLAY");
 
-    // PS2 owns density/aspect in Mods and currently applies only window mode
-    // from this card. Legacy scale/filter rows have no host consumer here.
+    // PS2 keeps density in Mods. Window mode and game-defined screen shape
+    // have native settings consumers; legacy scale/filter rows do not.
     if (is_ps2_host(m)) {
         row_fullscreen(m, th);
+        draw_aspect_row(m, th);
         return;
     }
 
