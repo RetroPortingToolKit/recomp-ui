@@ -1346,12 +1346,8 @@ struct RecompLauncherCSettings {
     // tpak_enabled: 0 = unset (host predates the field / fresh config) -> the
     // model defaults a slot WITH a rom to enabled; use -1 for explicit off.
     //
-    // This field is ALSO what the launcher's per-port pak-kind dropdown reads
-    // and writes (launcher_imgui.cpp, draw_pak_card): enabled == Transfer Pak
-    // in the port, disabled == empty port. There is deliberately no separate
-    // kind field, because two fields for one fact can disagree. Adding a
-    // second pak kind (Controller Pak) is what forces a real pak_kind[] array
-    // here — see the note above draw_pak_card before adding one.
+    // Compatibility input when pak_kind is UNSET. Explicit accessory choices
+    // use pak_kind at the additive end of this struct.
     char tpak_rom_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     char tpak_save_path[RECOMP_LAUNCHER_MAX_TPAKS][512];
     int  tpak_enabled[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -1651,8 +1647,20 @@ struct RecompLauncherCSettings {
      * left on by accident. 0 = off (the default, and what a zero-initialized
      * host predating this field gets). Appended for ABI stability. */
     int  record_replay;
+
+    /* Controller accessory choice. UNSET preserves legacy tpak_enabled/ROM
+     * resolution; hosts persist explicit NONE/TRANSFER/RUMBLE choices. */
+    int  pak_kind[RECOMP_LAUNCHER_MAX_TPAKS];
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
+#define RECOMP_LAUNCHER_HAS_PAK_KIND 1
+
+typedef enum {
+    RECOMP_LAUNCHER_PAK_UNSET = 0,
+    RECOMP_LAUNCHER_PAK_NONE = 1,
+    RECOMP_LAUNCHER_PAK_TRANSFER = 2,
+    RECOMP_LAUNCHER_PAK_RUMBLE = 3
+} RecompLauncherPakKind;
 
 /* Largest run-ahead depth the launcher will offer for
  * RecompLauncherCSettings.run_ahead. Deeper than this and the cost (one full
@@ -2562,6 +2570,9 @@ typedef struct RecompLauncherCGameInfo {
      * button is also not shown once the title has box art (its own, or a
      * fetched launcher-cover.jpg). Appended for source compatibility. */
     const char*        cover_url_template;
+    /* Supported accessory choices, bits (1u << RECOMP_LAUNCHER_PAK_*).
+     * Zero preserves legacy None/Transfer Pak choices. None is always safe. */
+    unsigned pak_kind_mask;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_COVER_URL_TEMPLATE 1
 #define RECOMP_LAUNCHER_HAS_ROM_READER 1

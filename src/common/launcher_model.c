@@ -662,6 +662,7 @@ void launcher_model_init(LauncherModel* m,
         m->assist_fast_forward_divisor = game->assist_fast_forward_divisor > 0 &&
             game->assist_fast_forward_divisor <= 1000 ? game->assist_fast_forward_divisor : 1;
         m->tpak_slots           = clampi(game->tpak_slots, 0, RECOMP_LAUNCHER_MAX_TPAKS);
+        m->pak_kind_mask        = game->pak_kind_mask;
         m->tpak_inspect_cb      = game->tpak_inspect;
         m->audio_device_labels  = game->audio_device_labels;
         m->num_audio_devices    = game->num_audio_devices;
@@ -4580,10 +4581,42 @@ int launcher_model_pak_ports(const LauncherModel* m) {
     return n > 0 ? n : 0;
 }
 
+bool launcher_model_pak_kind_supported(const LauncherModel* m, int kind) {
+    if (!m || kind < RECOMP_LAUNCHER_PAK_NONE || kind > RECOMP_LAUNCHER_PAK_RUMBLE)
+        return false;
+    unsigned kinds = m->pak_kind_mask;
+    if (!kinds) kinds = (1u << RECOMP_LAUNCHER_PAK_NONE) |
+                        (1u << RECOMP_LAUNCHER_PAK_TRANSFER);
+    return ((kinds | (1u << RECOMP_LAUNCHER_PAK_NONE)) & (1u << kind)) != 0;
+}
+
+int launcher_model_pak_kind(const LauncherModel* m, int slot) {
+    if (slot < 0 || slot >= launcher_model_pak_ports(m)) return RECOMP_LAUNCHER_PAK_NONE;
+    const int kind = m->s.pak_kind[slot];
+    if (kind != RECOMP_LAUNCHER_PAK_UNSET)
+        return launcher_model_pak_kind_supported(m, kind) ? kind : RECOMP_LAUNCHER_PAK_NONE;
+    const int enabled = m->s.tpak_enabled[slot];
+    const bool transfer = enabled > 0 || (enabled == 0 && m->s.tpak_rom_path[slot][0]);
+    return transfer && launcher_model_pak_kind_supported(m, RECOMP_LAUNCHER_PAK_TRANSFER)
+        ? RECOMP_LAUNCHER_PAK_TRANSFER : RECOMP_LAUNCHER_PAK_NONE;
+}
+
+void launcher_model_set_pak_kind(LauncherModel* m, int slot, int kind) {
+    if (slot < 0 || slot >= launcher_model_pak_ports(m) ||
+        !launcher_model_pak_kind_supported(m, kind)) return;
+    m->s.pak_kind[slot] = kind;
+    m->s.tpak_enabled[slot] = kind == RECOMP_LAUNCHER_PAK_TRANSFER ? 1 : -1;
+}
+
 void launcher_model_set_tpak_rom(LauncherModel* m, int slot, const char* path) {
-    if (slot < 0 || slot >= launcher_model_pak_ports(m)) return;
+    if (slot < 0 || slot >= launcher_model_pak_ports(m) ||
+        !launcher_model_pak_kind_supported(m, RECOMP_LAUNCHER_PAK_TRANSFER)) return;
     safe_copy(m->s.tpak_rom_path[slot], sizeof(m->s.tpak_rom_path[slot]), path ? path : "");
-    if (m->s.tpak_rom_path[slot][0]) m->s.tpak_enabled[slot] = 1;  // inserting = wanting it on
+    /* Late picker results must not replace explicit Rumble/None choices. */
+    if (m->s.tpak_rom_path[slot][0] &&
+        (m->s.pak_kind[slot] == RECOMP_LAUNCHER_PAK_UNSET ||
+         m->s.pak_kind[slot] == RECOMP_LAUNCHER_PAK_TRANSFER))
+        m->s.tpak_enabled[slot] = 1;
     lm_inspect_tpak(m, slot);
 }
 
@@ -4596,22 +4629,21 @@ void launcher_model_clear_tpak(LauncherModel* m, int slot) {
 }
 
 void launcher_model_set_tpak_save(LauncherModel* m, int slot, const char* path) {
-    if (slot < 0 || slot >= launcher_model_pak_ports(m)) return;
+    if (slot < 0 || slot >= launcher_model_pak_ports(m) ||
+        !launcher_model_pak_kind_supported(m, RECOMP_LAUNCHER_PAK_TRANSFER)) return;
     safe_copy(m->s.tpak_save_path[slot], sizeof(m->s.tpak_save_path[slot]), path ? path : "");
     lm_inspect_tpak(m, slot);
 }
 
 bool launcher_model_tpak_enabled(const LauncherModel* m, int slot) {
-    if (slot < 0 || slot >= launcher_model_pak_ports(m)) return false;
-    int e = m->s.tpak_enabled[slot];
-    if (e > 0) return true;
-    if (e < 0) return false;
-    return m->s.tpak_rom_path[slot][0] != '\0';   // unset: on iff a cart is inserted
+    return launcher_model_pak_kind(m, slot) == RECOMP_LAUNCHER_PAK_TRANSFER;
 }
 
 void launcher_model_toggle_tpak(LauncherModel* m, int slot) {
-    if (slot < 0 || slot >= launcher_model_pak_ports(m)) return;
-    m->s.tpak_enabled[slot] = launcher_model_tpak_enabled(m, slot) ? -1 : 1;
+    const int kind = launcher_model_pak_kind(m, slot);
+    if (kind == RECOMP_LAUNCHER_PAK_RUMBLE) return;
+    launcher_model_set_pak_kind(m, slot, kind == RECOMP_LAUNCHER_PAK_TRANSFER
+        ? RECOMP_LAUNCHER_PAK_NONE : RECOMP_LAUNCHER_PAK_TRANSFER);
 }
 
 // ---- audio output device -------------------------------------------------------

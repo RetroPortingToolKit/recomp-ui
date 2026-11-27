@@ -381,6 +381,7 @@ typedef struct {
     // A NULL callback leaves tpak_inspected false and the card shows the
     // bare file name with the neutral cartridge tint.
     int  tpak_slots;                 // borrowed; 0 => "tpak" panel never composes
+    unsigned pak_kind_mask;
     int (*tpak_inspect_cb)(const char* rom_path, const char* save_path,
                            RecompLauncherCTpak* out);
     RecompLauncherCTpak tpak_info[RECOMP_LAUNCHER_MAX_TPAKS];
@@ -1269,6 +1270,9 @@ void launcher_model_toggle_virtual_stylus(LauncherModel* m);
 // no port takes a pak, and every setter below is a no-op. This is the ONE
 // range those setters accept; panels ask it rather than recomputing it.
 int  launcher_model_pak_ports(const LauncherModel* m);
+bool launcher_model_pak_kind_supported(const LauncherModel* m, int kind);
+int  launcher_model_pak_kind(const LauncherModel* m, int slot);
+void launcher_model_set_pak_kind(LauncherModel* m, int slot, int kind);
 
 // ---- N64 Transfer Pak slots (pak ports only; no-op guarded by slot range) ----
 // Adopt a GB cartridge ROM for one port's Transfer Pak. Re-runs the host's
@@ -1281,8 +1285,8 @@ void launcher_model_clear_tpak(LauncherModel* m, int slot);
 void launcher_model_set_tpak_save(LauncherModel* m, int slot, const char* path);
 // Enable/disable the pak on that port (a disabled pak reports absent).
 void launcher_model_toggle_tpak(LauncherModel* m, int slot);
-// True when the slot is enabled (resolves the tri-state tpak_enabled field:
-// >0 on, <0 off, 0 unset => on iff a cartridge is inserted).
+// True only when the selected accessory is Transfer Pak. UNSET resolves
+// legacy tpak_enabled (>0 on, <0 off, 0 on iff a cartridge is inserted).
 bool launcher_model_tpak_enabled(const LauncherModel* m, int slot);
 
 // ---- audio output device (num_audio_devices only) ----

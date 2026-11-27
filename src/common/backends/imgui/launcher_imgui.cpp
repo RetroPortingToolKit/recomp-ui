@@ -3574,57 +3574,20 @@ static const char* rui_basename(const char* path) {
 }
 
 // ---- pak kind -------------------------------------------------------------
-// The dropdown has deliberately NO backing field of its own. Settings already
-// carries tpak_enabled[] as a tri-state (0 = unset, 1 = on, -1 = off) meaning
-// "this port has a Transfer Pak in it"; a second flag would be free to
-// disagree with it, and then neither would be the answer. So the kind IS that
-// field, read through the model's resolver:
-//
-//   PAK_TRANSFER  <=>  launcher_model_tpak_enabled(m, port)
-//   PAK_NONE      <=>  !launcher_model_tpak_enabled(m, port)
-//
-// Picking a kind writes through launcher_model_toggle_tpak, which stores an
-// explicit 1 or -1 and never 0 — so a settings file written by an older build
-// keeps its original meaning on load (0 = unset = "on iff a cart is inserted",
-// launcher_model_tpak_enabled), and the first pick in this panel is what turns
-// that inherited default into a stated one.
-//
-// WHOEVER ADDS THE THIRD KIND (Controller Pak / Rumble Pak) READ THIS: a
-// tri-state boolean cannot express three kinds. That change needs a real
-// pak_kind[] array in the C ABI (recomp_launcher.h), with tpak_enabled[] kept
-// as the compatibility INPUT for a config that predates it — pak_kind unset +
-// tpak_enabled resolving true means Transfer Pak. Only pak_kind_of() and
-// pak_set_kind() below read or write the storage, so that is a two-function
-// change; do not try to pack a third kind into tpak_enabled.
-enum PakKind { PAK_NONE = 0, PAK_TRANSFER = 1 };
-
 static void pak_body_transfer(LauncherModel* m, const LauncherTheme& th, int port);
 
-// One row per pak kind the launcher can actually drive. Everything that varies
-// per kind is here: the dropdown entry, the heading of that player's section in
-// the panel below, and the body that draws the kind's controls.
-//
-// ADDING A KIND IS ADDING A ROW plus its body function. Neither the dropdown
-// nor the mixed panel branches on a kind — they iterate this table — so neither
-// has to be rewritten to gain one. A row with a null body is a kind that needs
-// no controls (None), and it contributes no section to the panel.
-//
-// Not listed = not offered. Memory Card / Controller Pak is deliberately absent
-// rather than present-and-greyed: a control that promises something no runtime
-// here can do is a lie the player cannot tell from a bug.
 struct PakKindDef {
     int         kind;
-    const char* label;   // dropdown entry AND section heading (uppercased there)
+    const char* label;
     void      (*body)(LauncherModel*, const LauncherTheme&, int port);
 };
 static const PakKindDef kPakKinds[] = {
-    { PAK_NONE,     "None",         nullptr },
-    { PAK_TRANSFER, "Transfer Pak", pak_body_transfer },
+    { RECOMP_LAUNCHER_PAK_NONE,     "None",         nullptr },
+    { RECOMP_LAUNCHER_PAK_TRANSFER, "Transfer Pak", pak_body_transfer },
+    { RECOMP_LAUNCHER_PAK_RUMBLE,   "Rumble Pak",   nullptr },
 };
 static const int kPakKindCount = (int)(sizeof(kPakKinds) / sizeof(kPakKinds[0]));
 
-// Never returns null: an unrecognized value reads as None, which is the safe
-// answer (no controls, no claim about a pak that isn't there).
 static const PakKindDef* pak_kind_def(int kind) {
     for (int i = 0; i < kPakKindCount; ++i)
         if (kPakKinds[i].kind == kind) return &kPakKinds[i];
@@ -3632,15 +3595,11 @@ static const PakKindDef* pak_kind_def(int kind) {
 }
 
 static int pak_kind_of(const LauncherModel* m, int port) {
-    return launcher_model_tpak_enabled(m, port) ? PAK_TRANSFER : PAK_NONE;
+    return launcher_model_pak_kind(m, port);
 }
 
-// Writes the pick back through the one field. A no-op when the kind already
-// matches, because toggle_tpak is a toggle — calling it on an already-correct
-// state would invert it.
 static void pak_set_kind(LauncherModel* m, int port, int kind) {
-    if (pak_kind_of(m, port) == kind) return;
-    launcher_model_toggle_tpak(m, port);   // stores an explicit 1 / -1
+    launcher_model_set_pak_kind(m, port, kind);
 }
 
 // The pak panel composes only while at least one player has picked a kind that
@@ -3668,7 +3627,8 @@ void pak_kind_picker(LauncherModel* m, int port, float w) {
     ImGui::SetNextItemWidth(w);
     if (ImGui::BeginCombo("##pakkind", ui_text(pak_kind_def(kind)->label))) {
         for (int i = 0; i < kPakKindCount; ++i)
-            if (ImGui::Selectable(ui_text(kPakKinds[i].label),
+            if (launcher_model_pak_kind_supported(m, kPakKinds[i].kind) &&
+                ImGui::Selectable(ui_text(kPakKinds[i].label),
                                   kind == kPakKinds[i].kind))
                 pak_set_kind(m, port, kPakKinds[i].kind);
         ImGui::EndCombo();
@@ -3776,7 +3736,7 @@ static void pak_body_transfer(LauncherModel* m, const LauncherTheme& th, int por
             // silently fall back to None and this section would vanish under
             // the player's hand. Removing the CARTRIDGE does not remove the
             // PAK, so restate the kind the player picked.
-            pak_set_kind(m, port, PAK_TRANSFER);
+            pak_set_kind(m, port, RECOMP_LAUNCHER_PAK_TRANSFER);
         }
     }
 
