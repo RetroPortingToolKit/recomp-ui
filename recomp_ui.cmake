@@ -485,6 +485,12 @@ function(recomp_target_launcher_netplay TGT)
     endif()
     if(NOT RTN_RECOMP_NET_TARGET)
         set(RTN_RECOMP_NET_TARGET recomp_net)
+        if(NOT TARGET recomp_net AND EXISTS "${RECOMP_UI_ROOT}/third_party/recomp-net/CMakeLists.txt")
+            set(RNET_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+            set(RNET_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            add_subdirectory("${RECOMP_UI_ROOT}/third_party/recomp-net"
+                "${CMAKE_BINARY_DIR}/recomp-ui-recomp-net" EXCLUDE_FROM_ALL)
+        endif()
     endif()
     if(NOT TARGET ${RTN_RECOMP_NET_TARGET})
         message(FATAL_ERROR

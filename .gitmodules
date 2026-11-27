@@ -1,0 +1,4 @@
+[submodule "third_party/recomp-net"]
+	path = third_party/recomp-net
+	url = https://github.com/RetroPortingToolKit/recomp-net.git
+	branch = experimental/local-rollback
