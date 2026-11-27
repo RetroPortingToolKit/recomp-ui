@@ -439,6 +439,7 @@ typedef struct {
     bool has_sharp_filter;
     bool has_affine_filter;
     bool has_frame_blend;
+    bool has_show_fps;
     bool has_run_ahead;
     bool has_start_from;      /* SystemProfile.start_from: the dashboard's "Start from" block */
     bool has_record_replay;   /* GameInfo.has_record_replay: footer checkbox */
@@ -967,6 +968,7 @@ void launcher_model_cycle_scaling_filter(LauncherModel* m);
 const char* launcher_model_scaling_filter_label(const LauncherModel* m);
 void launcher_model_toggle_affine_filter(LauncherModel* m);
 void launcher_model_toggle_frame_blend(LauncherModel* m);  // gated has_frame_blend
+void launcher_model_toggle_show_fps(LauncherModel* m);     // gated has_show_fps
 // Run-ahead depth, 0 (Off) .. RECOMP_LAUNCHER_RUN_AHEAD_MAX. Off by default:
 // each frame of depth is a whole extra emulated frame plus a snapshot/restore,
 // so it is opt-in rather than a cost every host pays. Set, not cycled -- the
