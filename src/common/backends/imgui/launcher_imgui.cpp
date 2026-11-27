@@ -2636,7 +2636,12 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
         }
     }
 
-    } else ImGui::TextDisabled("%s", ui_text("This disc was chosen before the game started. To change it, quit and start again."));
+    } else {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availw);
+        ImGui::TextDisabled("%s %s", ui_text(noun),
+            ui_text("selected. To change it, quit and choose another before starting."));
+        ImGui::PopTextWrapPos();
+    }
 
     // A required system file the host could not find (GameInfo.bios_name):
     // say so where the player is looking and point at Settings, which owns the

@@ -36,6 +36,7 @@
 #include "consoles/genesis/genesis_profile.h"
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
+#include "consoles/3ds/3ds_profile.h"
 #include "consoles/vb/vb_profile.h"
 #include "consoles/cdi/cdi_profile.h"
 #include "consoles/3do/3do_profile.h"
@@ -69,6 +70,7 @@ LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
 // launcher_profile_apply() accepts. Returns NULL if unknown.
 static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (!name || !name[0]) return NULL;
+    if (launcher_console_is_3ds(name)) return &kSystemProfileThreeDs;
     if (launcher_console_is_ps2(name)) return &kSystemProfilePs2;
     if (launcher_console_is_psx(name))  return &kSystemProfilePsx;
     if (launcher_console_is_snes(name)) return &kSystemProfileSnes;
@@ -96,6 +98,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
 // or the legacy/SNES-shaped minimal surface).
 static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGameInfo* gi) {
     if (gi && gi->platform && gi->platform[0]) {
+        if (lps_streq_ci(gi->platform, "NINTENDO 3DS")) return &kSystemProfileThreeDs;
         if (lps_streq_ci(gi->platform, "PHILIPS CD-I")) return &kSystemProfileCdi;
         if (lps_streq_ci(gi->platform, "PLAYSTATION 2")) return &kSystemProfilePs2;
         if (lps_streq_ci(gi->platform, "PLAYSTATION"))       return &kSystemProfilePsx;

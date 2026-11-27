@@ -1464,7 +1464,9 @@ static void lm_identify_rom(LauncherModel* m, const uint8_t* buf, size_t n) {
      * NES .nes images carry a 16-byte iNES/NES 2.0 header.
      * NESRecomp's ROM and package CRCs intentionally cover
      * every byte after that 16-byte header. */
-    size_t hdr = (n % 1024 == 512) ? 512 : 0;
+    const bool profile_metadata = m->profile && m->profile->id &&
+                                  !strcmp(m->profile->id, "3ds");
+    size_t hdr = !profile_metadata && (n % 1024 == 512) ? 512 : 0;
     if (n > 16 && buf[0] == 'N' && buf[1] == 'E' &&
         buf[2] == 'S' && buf[3] == 0x1A) {
         hdr = 16;

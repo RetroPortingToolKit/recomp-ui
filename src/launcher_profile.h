@@ -35,6 +35,7 @@
 #include "consoles/genesis/genesis_profile.h"
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
+#include "consoles/3ds/3ds_profile.h"
 #include "consoles/cdi/cdi_profile.h"
 #include "consoles/3do/3do_profile.h"
 #include <string.h>
@@ -65,6 +66,8 @@ static inline int lpr_is(const char* a, const char* b) {
 static inline int launcher_profile_apply(const char* name, RecompLauncherCGameInfo* gi) {
     if (!gi) return 0;
     if (launcher_console_is_cdi(name)) { launcher_profile_apply_cdi(gi); return 1; }
+
+    if (launcher_console_is_3ds(name)) { launcher_profile_apply_3ds(gi); return 1; }
 
     // --- built-out consoles (rows live in src/consoles/<id>/) ----------------
     if (launcher_console_is_ps2(name)) { launcher_profile_apply_ps2(gi); return 1; }
