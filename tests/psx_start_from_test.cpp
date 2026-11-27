@@ -340,6 +340,7 @@ static void test_hand_over(const fs::path& root) {
     game.name = "Start From Fixture";
     LauncherModel* m = (LauncherModel*)std::calloc(1, sizeof(LauncherModel));
     launcher_model_init(m, &io, &game, nullptr);
+    m->has_start_from = true; // Explicit low-level helper fixture, not a shipping launcher.
     const fs::path product = root / "product";
     psx_start_from_load(m, product.string().c_str(), nullptr);
     expect_int(launcher_model_start_count(m), 7, "the model holds the product's three save states and four replays");
@@ -472,6 +473,7 @@ static void test_unicode_paths(const fs::path& root) {
     launcher_profile_apply("psx", &game);
     game.name = "Unicode Fixture";
     launcher_model_init(m, &io, &game, nullptr);
+    m->has_start_from = true; // Explicit low-level helper fixture, not a shipping launcher.
     psx_start_from_load(m, product_u8.c_str(), nullptr);
     expect_int(launcher_model_start_count(m), 3, "the model is filled from a non-ASCII product folder");
     std::free(m);

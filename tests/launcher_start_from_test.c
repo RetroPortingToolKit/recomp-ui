@@ -49,6 +49,14 @@ static LauncherModel* session(int console, int discs) {
     return m;
 }
 
+/* Exercise the retained low-level helpers only in an explicit test fixture.
+ * Shipping profiles do not expose startup selection. */
+static LauncherModel* start_fixture(int console, int discs) {
+    LauncherModel* m = session(console, discs);
+    if (m && console == PSX) m->has_start_from = true;
+    return m;
+}
+
 static LauncherStartEntry state(int slot, int disc, const char* label) {
     LauncherStartEntry e;
     memset(&e, 0, sizeof(e));
@@ -75,7 +83,7 @@ static LauncherStartEntry replay(const char* path, const char* label) {
 static void test_which_console_has_it(void) {
     LauncherModel* m = session(PSX, 1);
     if (!m) return;
-    expect_int(launcher_model_start_from_available(m), 1, "PSX has the Start from block");
+    expect_int(launcher_model_start_from_available(m), 0, "PSX does not expose launcher startup selection");
     expect_int(launcher_model_start_count(m), 0, "it starts with no entry");
     expect_int(launcher_model_start_selected(m), -1, "and on Power on");
     free(m);
@@ -94,7 +102,7 @@ static void test_which_console_has_it(void) {
 }
 
 static void test_list(void) {
-    LauncherModel* m = session(PSX, 1);
+    LauncherModel* m = start_fixture(PSX, 1);
     LauncherStartEntry list[LNG_START_MAX + 4];
     LauncherStartNotes notes;
     if (!m) return;
@@ -120,7 +128,7 @@ static void test_list(void) {
 }
 
 static void test_choice_and_handover(void) {
-    LauncherModel* m = session(PSX, 1);
+    LauncherModel* m = start_fixture(PSX, 1);
     LauncherStartEntry list[3];
     RecompLauncherCSettings before;
     int slot = 99;
@@ -168,7 +176,7 @@ static void test_choice_and_handover(void) {
 /* A save state belongs to the disc it was made on, and the host loads the
  * slot of the disc it boots. */
 static void test_disc_of_a_state(void) {
-    LauncherModel* m = session(PSX, 3);
+    LauncherModel* m = start_fixture(PSX, 3);
     LauncherStartEntry list[3];
     if (!m) return;
     list[0] = state(1, 2, "Slot 2");
@@ -197,7 +205,7 @@ static void test_disc_of_a_state(void) {
     free(m);
 
     /* A state that names a disc the title does not have moves nothing. */
-    m = session(PSX, 3);
+    m = start_fixture(PSX, 3);
     if (!m) return;
     list[0] = state(1, 9, "Slot 2");
     launcher_model_set_start_entries(m, list, 1, NULL);
@@ -210,7 +218,7 @@ static void test_disc_of_a_state(void) {
 /* A replay is handed over by its file, never with a slot, and the choice is
  * one entry: a save state and a replay never go together. */
 static void test_replay_handover(void) {
-    LauncherModel* m = session(PSX, 3);
+    LauncherModel* m = start_fixture(PSX, 3);
     LauncherStartEntry list[3];
     RecompLauncherCSettings before;
     const char* path = "unset";
@@ -256,7 +264,7 @@ static void test_replay_handover(void) {
 /* A recording starts at power-on: Record replay and a save state or a replay
  * do not go together, and the later choice wins. */
 static void test_record_replay_coupling(void) {
-    LauncherModel* m = session(PSX, 1);
+    LauncherModel* m = start_fixture(PSX, 1);
     LauncherStartEntry list[2];
     if (!m) return;
     list[0] = state(0, 0, "Slot 1");
