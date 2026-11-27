@@ -11,7 +11,6 @@
 #include "launcher_backend.h"
 #include "launcher_binds.h"
 #include "launcher_model.h"
-#include "consoles/psx/psx_start_from.h"
 #include "launcher_platform.h"
 #include "launcher_profile.h"
 #include "launcher_theme.h"
@@ -746,13 +745,6 @@ int main(int argc, char** argv) {
             snprintf(model.setup_error, sizeof(model.setup_error), "%s", demo_error);
     }
     launcher_binds_load(&model, NULL, NULL);   // keybinds.ini + config.ini [KeyMap]
-    /* The "Start from" list, as recomp_launcher_run_window() reads it.
-     * Harness-only: LNG_PRODUCT_DIR names the product folder to read (its
-     * saves folder and its overlay_codegen_hash.h); default the exe's own. */
-    if (launcher_model_start_from_available(&model)) {
-        const char* product = SDL_getenv("LNG_PRODUCT_DIR");
-        psx_start_from_load(&model, product && product[0] ? product : SDL_GetBasePath(), NULL);
-    }
     fprintf(stderr, "[proto] rom=%s present=%d crc_match=%d sha_match=%d verified=%d size=%s\n",
             rom, model.rom_present, model.crc_match, model.sha_match,
             launcher_model_rom_verified(&model), model.rom_size);
@@ -779,20 +771,6 @@ int main(int argc, char** argv) {
     if (settings_out && settings_out[0]) {
         launcher_model_commit(&model, &s);
         proto_write_settings(settings_out, &s);
-        /* And the "Start from" hand-over, when it is not Power on: the
-         * start-up variable recomp_launcher_run_window() would set on PLAY. */
-        if (launcher_model_start_from_available(&model)) {
-            PsxStartVar vars[PSX_START_VARS];
-            launcher_model_start_sync(&model);
-            psx_start_from_vars(&model, 0, vars);
-            for (int i = 0; i < PSX_START_VARS; ++i) {
-                FILE* f = vars[i].value[0] ? fopen(settings_out, "ab") : NULL;
-                if (f) {
-                    fprintf(f, "%s=%s\n", vars[i].name, vars[i].value);
-                    fclose(f);
-                }
-            }
-        }
     }
 
     // In production this is the value recomp_launcher_run_window() returns to
