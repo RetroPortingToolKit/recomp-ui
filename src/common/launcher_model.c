@@ -1,5 +1,5 @@
 #include "launcher_rom_body.h"
-// launcher_model.c â€” implementation of the game-agnostic launcher view-model.
+// launcher_model.c — implementation of the game-agnostic launcher view-model.
 //
 // Pure logic: no SDL, no OpenGL, no UI toolkit. Safe to compile as C and link
 // into any game or either prototype backend.
@@ -243,7 +243,7 @@ static int lm_disc_index_for_path(const LauncherModel* m, const char* path) {
 
 // Bind rom_full to the roster after any ROM change. Either the new path IS a
 // roster image (select that slot) or the player browsed to a replacement for
-// the slot they had selected (record it as that slot's override) â€” never a
+// the slot they had selected (record it as that slot's override) — never a
 // silent collapse of an N-disc set to whatever single file was last picked.
 static void lm_bind_disc_selection(LauncherModel* m) {
     if (!m || m->num_discs <= 0) {
@@ -537,7 +537,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_skip_fmv         = game->has_skip_fmv != 0;
         m->has_turbo_loads      = game->has_turbo_loads != 0;
         // game->has_fullscreen_toggle is deliberately NOT read: the Fullscreen
-        // row is universal (drawn for every console) â€” see recomp_launcher.h.
+        // row is universal (drawn for every console) — see recomp_launcher.h.
         m->has_bios             = game->has_bios != 0;
         m->bios_name            = game->bios_name;
         m->bios_patterns        = game->num_bios_patterns > 0 ? game->bios_patterns : NULL;
@@ -576,7 +576,7 @@ void launcher_model_init(LauncherModel* m,
         m->persist_setup_discs_cb = game->persist_setup_discs;  // NULL on older hosts
         m->persist_setup_ctx    = game->persist_setup_ctx;
         /* Wizard + Generate & rebuild are a single opt-in. Without the flag,
-         * ignore prepare/rebuild/toolchain even if a host filled them â€” keeps
+         * ignore prepare/rebuild/toolchain even if a host filled them — keeps
          * unadvertised platforms from surfacing in-development UI. */
         m->setup_wizard_supported = game->setup_wizard_supported != 0;
         if (m->setup_wizard_supported) {
@@ -840,7 +840,7 @@ void launcher_model_init(LauncherModel* m,
     m->netplay_lobby_input_prediction = 10; /* P = 4 + D at default D=6 */
     m->netplay_manual_input_prediction = false; /* auto P from RTT when rollback */
     /* Default off so waiting-room ICE can prove a direct path; host Force
-     * Online start is always lobby SFU (Â§108). */
+     * Online start is always lobby SFU (§108). */
     m->netplay_force_input_relay = false;
     m->netplay_force_turn = false;
     /* Online matches always negotiate with ICE (STUN, then TURN), and the
@@ -864,7 +864,7 @@ void launcher_model_init(LauncherModel* m,
 
     // ---- memory-card slots: tri-state in (1 on, -1 off, 0 == "unset": a host
     // struct that predates this field, or was zero-initialized, reads as both
-    // cards plugged in â€” matching the legacy launcher's default), 0/1 from here
+    // cards plugged in — matching the legacy launcher's default), 0/1 from here
     // on. Without the -1 form a host could never show a slot the user had
     // switched off; it re-armed as on and was persisted that way. ----
     for (int slot = 0; slot < 2; ++slot)
@@ -924,19 +924,19 @@ void launcher_model_init(LauncherModel* m,
                 /* The neGcon exists only on PSX. */
                 m->s.pad_mode[p] = 1;
             }
-            /* Keyboard cannot drive Analog/Hybrid â€” present D-Pad.
+            /* Keyboard cannot drive Analog/Hybrid — present D-Pad.
              *
              * This is a PRESENTATION default, not a hardware clamp. The host
              * already short-circuits keyboard seats at the point of use:
              * effective_player_mode() in psxrecomp's runtime/src/main.cpp
              * reports DIGITAL for any seat whose kind is keyboard, whatever
              * the seat's stored mode says. So nothing downstream depends on
-             * this value being 2 â€” it only decides what the selector shows.
+             * this value being 2 — it only decides what the selector shows.
              *
              * Which is why it must NOT run when the mode is locked. A locked
              * title (game.toml [controller] lock_mode) hides the selector
              * entirely, so once locked_pad_mode is overwritten with D-Pad
-             * there is no control left that can put it back â€” not the
+             * there is no control left that can put it back — not the
              * selector (hidden), not launcher_model_set_pad_mode() and not
              * apply_default_pad_mode_for_source(), both of which correctly
              * refuse to touch a locked mode. And a release install defaults
@@ -994,7 +994,7 @@ void launcher_model_init(LauncherModel* m,
     launcher_model_apply_internal_resolution_settings(m);
     if (m->has_screen_kind) {
         // Clamp against the active profile's screen-model vocabulary (GBA has
-        // 5 LCD models; the legacy PSX-era set has 4) â€” see screen_kind_vocab.
+        // 5 LCD models; the legacy PSX-era set has 4) — see screen_kind_vocab.
         const SystemProfile* sk_prof = (const SystemProfile*)m->profile;
         int sk_n = (sk_prof && sk_prof->screen_kind_names && sk_prof->screen_kind_count > 0)
                      ? sk_prof->screen_kind_count : 4;
@@ -1031,7 +1031,7 @@ void launcher_model_init(LauncherModel* m,
     // Only touched when has_mouse_controls (every other game leaves the whole
     // mouse_* block at its memset-zero state, untouched). The host normally
     // seeds real defaults from its config; a zero sensitivity is the tell of a
-    // fresh/zero-initialized struct (e.g. a demo harness) â€” seed the full Snap
+    // fresh/zero-initialized struct (e.g. a demo harness) — seed the full Snap
     // default set in that case, otherwise just clamp the sensitivity.
     if (m->has_mouse_controls) {
         if (m->s.mouse_sensitivity <= 0.0f) {
@@ -1160,8 +1160,8 @@ void launcher_model_init(LauncherModel* m,
                 m->netplay_local_room = false;
                 m->netplay_host_endpoint[0] = '\0';
             }
-            /* Mirror engine match caps â€” UI default rollback=true must not
-             * flip a delay-sync Cable Club rematch on â–¶ Play without opening
+            /* Mirror engine match caps — UI default rollback=true must not
+             * flip a delay-sync Cable Club rematch on ▶ Play without opening
              * Settings. */
             if (m->netplay->rollback_get)
                 m->netplay_rollback =
@@ -1178,7 +1178,7 @@ void launcher_model_init(LauncherModel* m,
     /* First-run setup: only when the host opted into the wizard product.
      * Host can force it, or we open when ROM/BIOS is missing. A selected BIOS
      * that merely needs Generate & rebuild (needs_regen) is handled by the
-     * Switch-BIOS / PLAY prompts â€” not the full wizard. */
+     * Switch-BIOS / PLAY prompts — not the full wizard. */
     if (m->setup_wizard_supported) {
         const int force = game && game->needs_setup;
         const int missing_rom = !m->rom_present || strcmp(m->rom_size, "--") == 0;
@@ -1188,7 +1188,7 @@ void launcher_model_init(LauncherModel* m,
             m->setup_wizard_open = true;
     }
 
-    /* Probe toolchain readiness even when the wizard is closed â€” BIOS switch
+    /* Probe toolchain readiness even when the wizard is closed — BIOS switch
      * Generate & rebuild needs setup_tc_ready, and codegen hosts always set
      * setup_needs_toolchain. When a usable pack exists, also compare against
      * GitHub /releases/latest so page 0 can prompt for an update. */
@@ -1199,7 +1199,7 @@ void launcher_model_init(LauncherModel* m,
         m->setup_tc_update_available = false;
         m->setup_tc_local_ver[0] = '\0';
         m->setup_tc_remote_ver[0] = '\0';
-        /* Host may have just deleted a broken latest/ â€” surface that on page 0. */
+        /* Host may have just deleted a broken latest/ — surface that on page 0. */
         if (!m->setup_tc_ready && game && game->toolchain_repair_note) {
             const char* note = game->toolchain_repair_note();
             if (note && note[0])
@@ -1241,7 +1241,7 @@ void launcher_model_init(LauncherModel* m,
     // Placeholder display until launcher_binds_load() fills real values from
     // keybinds.ini / config.ini [KeyMap]. Walk the ACTIVE profile's button
     // count (SNES 12, PSX 16, ...) so every rebind slot the page will render
-    // gets a placeholder â€” kP1Defaults only names the SNES-shaped first 12.
+    // gets a placeholder — kP1Defaults only names the SNES-shaped first 12.
     {
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         int bc = prof ? prof->controller.button_count : LNG_BTN_COUNT;
@@ -1761,7 +1761,7 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
      * body (SMC header stripped) vs expected fingerprints.
      * Disc systems (verify.mode==1, e.g. PSX): only ftell for the size label.
      * Full-image CRC/SHA would block launcher open on multi-hundred-MB BINs
-     * and is unused â€” identity is disc_verify / identify_disc instead. */
+     * and is unused — identity is disc_verify / identify_disc instead. */
     m->rom_size[0] = '\0';
     m->crc_match = false;
     m->sha_match = false;
@@ -1837,13 +1837,13 @@ void launcher_model_set_rom(LauncherModel* m, const char* path) {
 // VerifyProbeFn against the current ROM/disc path, or synthesize a sensible
 // placeholder verdict when the probe is NULL / declines (no host wired up
 // yet) so the disc-verdict UI always renders a real verdict block instead of
-// a "not recognized" dead end. No-op for verify.mode==0 systems (SNES) â€” the
+// a "not recognized" dead end. No-op for verify.mode==0 systems (SNES) — the
 // CRC/SHA line above already covers them and m->verify stays zeroed.
 static void run_verify(LauncherModel* m) {
     if (!m->profile || m->profile->verify.mode != 1) return;
     memset(&m->verify, 0, sizeof(m->verify));
     // Host disc-verify callback (REAL serial/region/ISO/verdict) takes
-    // precedence â€” re-run here on every ROM/disc change.
+    // precedence — re-run here on every ROM/disc change.
     if (m->disc_verify_cb && m->rom_present) {
         RecompLauncherCDiscVerify dv; memset(&dv, 0, sizeof(dv));
         if (m->disc_verify_cb(m->rom_full, &dv)) {
@@ -2337,7 +2337,7 @@ const char* launcher_model_window_size_label(const LauncherModel* m) {
     int w = m->s.window_width > 0 ? m->s.window_width : kWindowWidths[0];
     int aspect = clampi(m->s.aspect_index, 0, 2);
     int h = (aspect == 1) ? (w * 9 / 16) : (aspect == 2) ? (w * 9 / 21) : (w * 3 / 4);
-    snprintf(buf, sizeof(buf), "%d \xC3\x97 %d", w, h);   // "Ã—" (U+00D7)
+    snprintf(buf, sizeof(buf), "%d \xC3\x97 %d", w, h);   // "×" (U+00D7)
     return buf;
 }
 
@@ -2388,7 +2388,7 @@ void launcher_model_apply_renderer_settings(LauncherModel* m) {
             lm_renderer_sync_id(m);
         } else if (m->renderer_labels && m->num_renderers > 0) {
             /* Multi-label cycle (Software / OpenGL / Vulkan). Prefer OpenGL
-             * when the seeded index is out of range â€” never snap to Software
+             * when the seeded index is out of range — never snap to Software
              * just because memset left renderer at 0 and the host forgot a seed. */
             if (m->s.renderer < 0 || m->s.renderer >= m->num_renderers) {
                 int def = 0;
@@ -2637,7 +2637,7 @@ int launcher_model_each_cycle_label(const LauncherModel* m,
 
 const char* launcher_model_supersampling_label(const LauncherModel* m) {
     /* Settings SSAA: offline full SW/GL path; netplay dual-raster uses this
-     * for OpenGL present quality while SW authority stays 1Ã—. */
+     * for OpenGL present quality while SW authority stays 1×. */
     static char buf[24];
     int v = clampi(m->s.supersampling ? m->s.supersampling : 1, 1, 4);
     if (v <= 1)
@@ -2868,7 +2868,7 @@ const char* launcher_model_vsync_label(const LauncherModel* m) {
 }
 
 // Legacy-surface checkbox: On <-> Off only. Adaptive counts as On (checked)
-// and flips to Off â€” a legacy host maps this onto a boolean renderer flag,
+// and flips to Off — a legacy host maps this onto a boolean renderer flag,
 // so there is no third state to preserve.
 void launcher_model_toggle_vsync(LauncherModel* m) {
     if (!m || !m->has_vsync) return;
@@ -2969,7 +2969,7 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
     /* Empty path = the host's own choice: the BIOS this build ships with
      * (OpenBIOS / bundled), or a host lookup (a required system file). Host
      * bios_verify("", ...) may refuse that for titles that require a retail
-     * dump; otherwise empty is OK â€” matching Settings â†’ BIOS. */
+     * dump; otherwise empty is OK — matching Settings → BIOS. */
     if (!m->s.bios_path[0]) {
         if (r >= 0) {
             if (r == 0) {
@@ -2980,7 +2980,7 @@ void launcher_model_refresh_bios_status(LauncherModel* m) {
             m->bios_not_needed = bv.not_needed != 0;
             m->setup_bios_ok = bv.ok != 0 || m->bios_not_needed;
             m->setup_bios_warn = bv.warn != 0;
-            /* Empty path is OpenBIOS â€” never treat as needing regen. */
+            /* Empty path is OpenBIOS — never treat as needing regen. */
             m->setup_bios_needs_regen = false;
             if (bv.detail[0])
                 safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
@@ -3170,7 +3170,7 @@ static void lm_persist_setup_sidecars(LauncherModel* m) {
      * any set where nothing is located yet) writes the mounted path as before. */
     const char* disc_value =
         lm_compose_disc_cfg(m, disc_cfg, sizeof(disc_cfg)) ? disc_cfg : rom;
-    /* PSX hosts read disc.cfg; cart hosts read rom.cfg â€” write both names.
+    /* PSX hosts read disc.cfg; cart hosts read rom.cfg — write both names.
      * rom.cfg stays single-path: it is the cart-host contract and has no
      * concept of a set. */
     /* A host that keeps the picks in its own settings file wants no sidecars. */
@@ -3350,7 +3350,7 @@ static void lm_bios_kick_generate(LauncherModel* m) {
         launcher_model_start_prepare_disc(m, m->rom_full);
         return;
     }
-    /* Need a disc pick â€” open the setup page, not a silent no-op. */
+    /* Need a disc pick — open the setup page, not a silent no-op. */
     lm_bios_revert_uncommitted(m);
     lm_restore_setup_wizard_after_bios(m, 1);
     if (!m->setup_wizard_open) {
@@ -3382,7 +3382,7 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
     }
 
     /* OpenBIOS (empty path): always hot-swap when accepted. Never open the
-     * Generate & rebuild confirm â€” Play uses the bundled backend already
+     * Generate & rebuild confirm — Play uses the bundled backend already
      * linked (or the setup host will emit it on first Generate for game C). */
     if (!normalized[0]) {
         /* Clearing a pick always applies: with nothing usable left the host's
@@ -3392,7 +3392,7 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
         return;
     }
 
-    /* Invalid dump (missing/wrong size) â€” keep the previous selection, and
+    /* Invalid dump (missing/wrong size) — keep the previous selection, and
      * say why the pick was refused. */
     if (!bv.ok && !bv.needs_regen) {
         safe_copy(m->setup_bios_detail, sizeof(m->setup_bios_detail),
@@ -3401,13 +3401,13 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
         return;
     }
 
-    /* Retail already compiled into this binary â†’ hot-swap (no rebuild). */
+    /* Retail already compiled into this binary → hot-swap (no rebuild). */
     if (bv.ok && !bv.needs_regen) {
         launcher_model_set_bios_path(m, normalized);
         return;
     }
 
-    /* Retail dump is valid but its backend is not linked yet â†’ confirm
+    /* Retail dump is valid but its backend is not linked yet → confirm
      * Generate & rebuild (codegen hosts kick generate on accept). */
     safe_copy(m->bios_pending_path, sizeof(m->bios_pending_path), normalized);
     if (bv.detail[0])
@@ -3418,11 +3418,11 @@ void launcher_model_request_bios_path(LauncherModel* m, const char* path) {
                   "Generate & rebuild to add it (or Use OpenBIOS).");
     /* Picked from inside first-run setup: stage it in place and let the wizard
      * turn its own primary button into Generate & rebuild. Popping "Switch
-     * BIOS?" here would hide the disc rows the player still has to fill in â€”
+     * BIOS?" here would hide the disc rows the player still has to fill in —
      * and its Generate button is disabled until a disc is picked, so the
      * modal was a dead end for anyone who chose the BIOS first. */
     if (m->setup_wizard_open) {
-        /* Only the FIRST staged pick records the revert target â€” picking a
+        /* Only the FIRST staged pick records the revert target — picking a
          * second unlinked dump must not make the first one the fallback. */
         if (!m->bios_switch_uncommitted)
             safe_copy(m->bios_revert_path, sizeof(m->bios_revert_path),
@@ -3473,7 +3473,7 @@ void launcher_model_bios_confirm_cancel(LauncherModel* m) {
 bool launcher_model_bios_blocks_play(const LauncherModel* m) {
     if (!m || !m->has_bios) return false;
     if (m->setup_preparing) return false;
-    /* Disc/ROM must otherwise look ready â€” otherwise the normal Play disable
+    /* Disc/ROM must otherwise look ready — otherwise the normal Play disable
      * / setup-wizard path is enough. */
     if (!m->rom_present || strcmp(m->rom_size, "--") == 0) return false;
     if (m->profile && m->profile->verify.mode == 1) {
@@ -3500,7 +3500,7 @@ void launcher_model_bios_play_prompt(LauncherModel* m) {
 void launcher_model_bios_play_use_openbios(LauncherModel* m) {
     if (!m) return;
     m->bios_play_modal_open = false;
-    /* OpenBIOS always applies immediately â€” no Generate & rebuild. */
+    /* OpenBIOS always applies immediately — no Generate & rebuild. */
     launcher_model_request_bios_path(m, "");
 }
 
@@ -3508,7 +3508,7 @@ void launcher_model_bios_play_generate(LauncherModel* m) {
     if (!m) return;
     if (m->setup_preparing) return;
     m->bios_play_modal_open = false;
-    /* Current m->s.bios_path is already the desired pick â€” stage + generate. */
+    /* Current m->s.bios_path is already the desired pick — stage + generate. */
     lm_bios_kick_generate(m);
 }
 
@@ -3521,7 +3521,7 @@ bool launcher_model_setup_media_confirm_only(const LauncherModel* m) {
     if (!m || !m->setup_wizard_supported) return false;
     if (m->prepare_required_before_continue) return false;
     /* Codegen hosts keep prepare_* wired after the first Generate & rebuild.
-     * Missing that wiring means a cart / non-codegen first-run â€” keep the
+     * Missing that wiring means a cart / non-codegen first-run — keep the
      * normal media picker copy, not the "confirm cleared paths" prompt. */
     if (!m->prepare_with_progress_cb && !m->prepare_disc_cb) return false;
     return true;
@@ -3579,8 +3579,8 @@ bool launcher_model_can_start_bios_regen(const LauncherModel* m) {
 
 void launcher_model_setup_start_bios_regen(LauncherModel* m) {
     if (!launcher_model_can_start_bios_regen(m)) return;
-    /* Kicked from inside the wizard: a failed job â€” or a toolchain that still
-     * has to be installed â€” must land back on the wizard, not a bare
+    /* Kicked from inside the wizard: a failed job — or a toolchain that still
+     * has to be installed — must land back on the wizard, not a bare
      * dashboard the player never reached. */
     if (m->setup_wizard_open)
         m->setup_wizard_suspended_for_bios = true;
@@ -3897,7 +3897,7 @@ static void launcher_model_begin_rebuild_locked(LauncherModel* m) {
     safe_copy(m->setup_status, sizeof(m->setup_status),
               (m->rebuild_busy_status && m->rebuild_busy_status[0])
                   ? m->rebuild_busy_status
-                  : "Building gameâ€¦");
+                  : "Building game…");
     if (!prep_spawn_thread(m))
         return;
 }
@@ -3919,7 +3919,7 @@ void launcher_model_begin_bios_prepare(LauncherModel* m) {
     safe_copy(m->setup_status, sizeof(m->setup_status),
               (m->bios_prepare_busy_status && m->bios_prepare_busy_status[0])
                   ? m->bios_prepare_busy_status
-                  : "Compiling your BIOS for this buildâ€¦");
+                  : "Compiling your BIOS for this build…");
     if (!prep_spawn_thread(m))
         return;
 }
@@ -3959,7 +3959,7 @@ static void launcher_model_begin_pgo_locked(LauncherModel* m) {
     safe_copy(m->setup_status, sizeof(m->setup_status),
               (m->pgo_busy_status && m->pgo_busy_status[0])
                   ? m->pgo_busy_status
-                  : "Optimizing FMV (instrument â†’ train â†’ rebuild)â€¦");
+                  : "Optimizing FMV (instrument → train → rebuild)…");
     if (!prep_spawn_thread(m))
         return;
 }
@@ -4001,7 +4001,7 @@ static void launcher_model_begin_fmv_timing_locked(LauncherModel* m) {
     safe_copy(m->setup_status, sizeof(m->setup_status),
               (m->fmv_timing_busy_status && m->fmv_timing_busy_status[0])
                   ? m->fmv_timing_busy_status
-                  : "Regenerating sources and rebuildingâ€¦");
+                  : "Regenerating sources and rebuilding…");
     if (!prep_spawn_thread(m))
         return;
 }
@@ -4035,7 +4035,7 @@ void launcher_model_skip_toolchain_update(LauncherModel* m) {
     m->setup_page = 1;
     m->setup_error[0] = '\0';
     safe_copy(m->setup_status, sizeof(m->setup_status),
-              "Keeping current toolchain â€” continue with BIOS and disc.");
+              "Keeping current toolchain — continue with BIOS and disc.");
 }
 
 void launcher_model_start_ensure_toolchain(LauncherModel* m) {
@@ -4086,15 +4086,15 @@ void launcher_model_start_ensure_toolchain(LauncherModel* m) {
     m->setup_prepare_fraction = -1.0f;
     m->setup_error[0] = '\0';
     safe_copy(m->setup_progress_title, sizeof(m->setup_progress_title),
-              m->setup_tc_native ? "Checking build toolsâ€¦"
-              : want_update ? "Updating build toolsâ€¦" : "Installing build toolsâ€¦");
+              m->setup_tc_native ? "Checking build tools…"
+              : want_update ? "Updating build tools…" : "Installing build tools…");
     safe_copy(m->setup_status, sizeof(m->setup_status),
               m->setup_tc_native
-                  ? "Checking for CMake, Ninja, Python 3 and Clang or GCCâ€¦"
+                  ? "Checking for CMake, Ninja, Python 3 and Clang or GCC…"
               : m->setup_tc_auto
-                  ? (want_update ? "Downloading toolchain updateâ€¦"
-                                 : "Downloading portable cmake/clangâ€¦")
-                  : "Installing toolchain from zipâ€¦");
+                  ? (want_update ? "Downloading toolchain update…"
+                                 : "Downloading portable cmake/clang…")
+                  : "Installing toolchain from zip…");
     prep_spawn_thread(m);
 }
 
@@ -4120,7 +4120,7 @@ void launcher_model_start_prepare_disc(LauncherModel* m, const char* source_path
     safe_copy(m->setup_status, sizeof(m->setup_status),
               (m->prepare_busy_status && m->prepare_busy_status[0])
                   ? m->prepare_busy_status
-                  : "Preparing disc imageâ€¦");
+                  : "Preparing disc image…");
     prep_spawn_thread(m);
 }
 
@@ -4254,7 +4254,7 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
             m->setup_page = 1;
             m->setup_error[0] = '\0';
             safe_copy(m->setup_status, sizeof(m->setup_status),
-                      "Build tools ready â€” continue with BIOS and disc.");
+                      "Build tools ready — continue with BIOS and disc.");
         } else {
             m->setup_status[0] = '\0';
             safe_copy(m->setup_error, sizeof(m->setup_error),
@@ -4318,10 +4318,10 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
             if (m->relaunch_after_rebuild) {
                 safe_copy(m->setup_status, sizeof(m->setup_status),
                           kind == PREP_JOB_PGO
-                              ? "FMV optimize complete â€” restartingâ€¦"
+                              ? "FMV optimize complete — restarting…"
                               : (kind == PREP_JOB_FMV_TIMING
-                                     ? "FMV timing applied â€” restartingâ€¦"
-                                     : "Build complete â€” restartingâ€¦"));
+                                     ? "FMV timing applied — restarting…"
+                                     : "Build complete — restarting…"));
                 m->action = LNG_ACTION_RELAUNCH;
             }
         } else {
@@ -4346,7 +4346,7 @@ void launcher_model_poll_prepare_disc(LauncherModel* m) {
             safe_copy(m->setup_status, sizeof(m->setup_status),
                       (m->prepare_success_status && m->prepare_success_status[0])
                           ? m->prepare_success_status
-                          : "Sources ready â€” starting buildâ€¦");
+                          : "Sources ready — starting build…");
             /* Keep bios_switch_uncommitted through rebuild. */
             launcher_model_begin_rebuild_locked(m);
             return;
@@ -4397,7 +4397,7 @@ static void lm_inspect_memcard(LauncherModel* m, int slot) {
 // launcher, which has no card image to read. A host that DOES inspect real
 // cards is authoritative: an inspection that never happened (no path bound,
 // or the callback declined) means there is no card to show, so the slot draws
-// blank rather than a pattern the player could mistake for foreign saves â€”
+// blank rather than a pattern the player could mistake for foreign saves —
 // which is exactly what a launcher reopened after a netplay match looked like.
 uint16_t launcher_model_memcard_blocks_used(const LauncherModel* m, int slot) {
     if (!m || slot < 0 || slot > 1) return 0;
@@ -4542,7 +4542,7 @@ void launcher_model_set_card_tab(LauncherModel* m, int slot) {
 int launcher_model_multitap_analog_available(const LauncherModel* m) {
     if (!m || m->player_count < 3) return 0;
     /* Digital-only titles (lock_mode + locked_pad_mode=D-Pad): DualShock-on-tap
-     * is unsupported â€” hide the Lobby / Controllers toggle. */
+     * is unsupported — hide the Lobby / Controllers toggle. */
     if (!m->pad_mode_selectable && m->locked_pad_mode == 2)
         return 0;
     const SystemProfile* prof = (const SystemProfile*)m->profile;
@@ -4634,17 +4634,17 @@ int launcher_model_tpak_blocking_port(const LauncherModel* m) {
 
 // How many controller ports on this system carry an accessory (pak) slot.
 // ONE answer, shared by the guards below and by every panel that draws a pak
-// control â€” a second, independently-computed count would be free to disagree
+// control — a second, independently-computed count would be free to disagree
 // with the range these setters accept, and then a picker could write a slot
 // the model refuses.
 //
 // A pak sits IN a controller, so the count is the number of controllers the
-// launcher actually draws (launcher_model_visible_player_count â€” the same
+// launcher actually draws (launcher_model_visible_player_count — the same
 // source draw_controllers_row uses), never a hardcoded 4.
 //
 // Which of those ports HAS a slot depends on the console, not on the title:
 //   - ControllerSpec.has_pak (N64): the pad itself has the slot, so every
-//     drawn port has one. GameInfo.tpak_slots is not consulted â€” a host that
+//     drawn port has one. GameInfo.tpak_slots is not consulted — a host that
 //     declares 0 because its title never asked for a Transfer Pak still has
 //     four N64 pads with four accessory slots in them.
 //   - every other console (has_pak 0): the host's declared tpak_slots is the
@@ -5277,7 +5277,7 @@ void launcher_model_apply_msu1_patch(LauncherModel* m) {
 
     fprintf(stderr, "launcher: wrote MSU-1 patched ROM: %s\n", target);
     // Switch the model onto the patched file and re-verify (this also
-    // recomputes msu1_patch_available â€” the patched ROM's CRC will no longer
+    // recomputes msu1_patch_available — the patched ROM's CRC will no longer
     // match the vanilla expected_crc, so it naturally clears). Belt-and-braces:
     // also mark skipped so the prompt never reappears if a game's expected_crc
     // happens to also match the patched image.
@@ -5292,7 +5292,7 @@ void launcher_model_skip_msu1_patch(LauncherModel* m) {
 }
 
 /* PSX Hybrid/Analog need sticks; keyboard players are forced to D-Pad.
- * Gamepads default to Analog â€” virtually every modern pad has sticks. */
+ * Gamepads default to Analog — virtually every modern pad has sticks. */
 static int pad_mode_is_psx_legacy(const LauncherModel* m) {
     const SystemProfile* prof = (const SystemProfile*)m->profile;
     const ControllerSpec* spec = prof ? &prof->controller : NULL;
@@ -5331,7 +5331,7 @@ void launcher_model_set_pad_mode(LauncherModel* m, int player, int mode) {
         if (launcher_model_negcon_mode_available(m)) m->s.pad_mode[player] = mode;
         return;
     }
-    /* Keyboard has no sticks â€” Analog is unavailable. */
+    /* Keyboard has no sticks — Analog is unavailable. */
     if (m->s.player_src[player] == 1 && mode != 2) return;
     mode = clampi(mode, 0, 2);
     if (mode == 0) mode = 1;   /* Hybrid is mod-only -> snap to Analog */
