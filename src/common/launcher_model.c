@@ -698,6 +698,7 @@ void launcher_model_init(LauncherModel* m,
         m->has_sharp_filter     = game->has_sharp_filter != 0;
         m->has_affine_filter    = game->has_affine_filter != 0;
         m->has_frame_blend      = game->has_frame_blend != 0;
+        m->has_show_fps         = game->has_show_fps != 0;
         m->has_run_ahead        = game->has_run_ahead != 0;
         m->has_record_replay    = game->has_record_replay != 0;
         m->record_replay_tooltip = game->record_replay_tooltip;
@@ -796,6 +797,8 @@ void launcher_model_init(LauncherModel* m,
     }
     if (m->has_frame_blend)
         m->s.frame_blend = m->s.frame_blend ? 1 : 0;
+    if (m->has_show_fps)
+        m->s.show_fps = m->s.show_fps ? 1 : 0;
     /* A host may seed a depth its build predates, or a negative from a
      * malformed config; clamp to what the control can actually show rather
      * than drawing a value no press can return to. */
@@ -2164,6 +2167,11 @@ void launcher_model_toggle_record_replay(LauncherModel* m) {
 
 const char* launcher_model_user_dir(const LauncherModel* m) {
     return m ? m->user_dir : "";
+}
+
+void launcher_model_toggle_show_fps(LauncherModel* m) {
+    if (!m || !m->has_show_fps) return;
+    m->s.show_fps = !m->s.show_fps;
 }
 
 void launcher_model_set_run_ahead(LauncherModel* m, int frames) {

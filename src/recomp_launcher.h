@@ -1656,8 +1656,12 @@ struct RecompLauncherCSettings {
      * left on by accident. 0 = off (the default, and what a zero-initialized
      * host predating this field gets). Appended for ABI stability. */
     int  record_replay;
+
+    /* Show FPS counter overlay on launch (GameInfo.has_show_fps), 0 = off. */
+    int  show_fps;
 };
 #define RECOMP_LAUNCHER_HAS_ZAPPER_SETTINGS 1
+#define RECOMP_LAUNCHER_HAS_SHOW_FPS 1
 
 /* Largest run-ahead depth the launcher will offer for
  * RecompLauncherCSettings.run_ahead. Deeper than this and the cost (one full
@@ -2621,6 +2625,9 @@ typedef struct RecompLauncherCGameInfo {
     const RecompLauncherCFixedController* fixed_controller;
     /* Named shortcut rows whose keyboard editor is owned elsewhere. */
     unsigned assist_key_disabled_mask;
+
+    /* Display row (checkbox) for Settings.show_fps. 0 => no row drawn. */
+    int  has_show_fps;
 } RecompLauncherCGameInfo;
 #define RECOMP_LAUNCHER_HAS_ASSIST_KEY_MASK 1
 
