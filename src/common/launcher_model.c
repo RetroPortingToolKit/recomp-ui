@@ -4230,7 +4230,8 @@ static bool psx_map_all_is_pad(const LauncherModel* m) {
 void launcher_model_begin_map_all(LauncherModel* m) {
     if (!m) return;
     const SystemProfile* prof = (const SystemProfile*)m->profile;
-    if (!prof || !prof->id || strcmp(prof->id, "psx") != 0) return;
+    if (!prof || !prof->id || (strcmp(prof->id, "psx") != 0 &&
+        (strcmp(prof->id, "ps2") != 0 || !prof->controller.has_pad_binds))) return;
     m->map_all_active = true;
     m->map_all_wait_release = false;
     m->map_all_step = 0;

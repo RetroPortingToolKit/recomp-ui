@@ -6000,7 +6000,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
     // input.cfg): GameInfo.hide_rebind drops the bindings card entirely and the
     // Controller view is source+deadzone only.
     const auto* controller_profile=(const SystemProfile*)m->profile;
-    if (m->hide_rebind || (controller_profile && !strcmp(controller_profile->id,"ps2") && m->s.player_src[m->cfg_player]==2)) return;
+    if (m->hide_rebind || (controller_profile && !strcmp(controller_profile->id,"ps2") &&
+        !controller_profile->controller.has_pad_binds && m->s.player_src[m->cfg_player]==2)) return;
 
     if (begin_panel("cfg_binds", 0)) {
         if (controller_profile && !strcmp(controller_profile->id,"ps2"))
@@ -6009,7 +6010,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         // (1..4) instead of one tall column with dead space to the right.
         const SystemProfile* prof = (const SystemProfile*)m->profile;
         const ControllerSpec& spec = prof->controller;
-        const bool is_psx = prof && prof->id && !strcmp(prof->id, "psx");
+        const bool is_psx = prof && prof->id && (!strcmp(prof->id, "psx") ||
+            (!strcmp(prof->id, "ps2") && prof->controller.has_pad_binds));
 
         // ---- PSX: bindings for whatever the player's input SOURCE is -------
         // Column-major layout (top→bottom then next column) matching
