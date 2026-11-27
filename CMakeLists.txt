@@ -794,19 +794,6 @@ if(BUILD_TESTING)
              COMMAND $<TARGET_FILE:recomp-ui-launcher-user-dir-test>
                      "${CMAKE_CURRENT_BINARY_DIR}/user-dir-test")
 
-    # The desktop icon file: the square picture, the .ico and the .png as
-    # written, and the save icon read from a memory-card image the test
-    # builds itself.
-    add_executable(recomp-ui-launcher-icon-test
-        tests/launcher_icon_test.c
-        src/common/launcher_icon.c
-        src/common/crc32.c)
-    target_include_directories(recomp-ui-launcher-icon-test PRIVATE src src/common)
-    add_test(
-        NAME recomp-ui-launcher-icon
-        COMMAND $<TARGET_FILE:recomp-ui-launcher-icon-test>
-                ${CMAKE_CURRENT_BINARY_DIR})
-
     add_executable(recomp-ui-launcher-mouse-source-test
         tests/launcher_mouse_source_test.c src/common/crc32.c src/common/sha1.c
         src/common/sha256.c src/common/ips_patch.c src/consoles/psx/memcard_format.c)

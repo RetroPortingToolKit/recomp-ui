@@ -466,9 +466,9 @@ directory may retain the former recomp-ui default (`OFF`); reconfigure it with
 the explicit `-DRECOMP_UI_ENABLE_MODS:BOOL=ON` command above. PSXRecomp emits a
 CMake warning when it detects this Mods-less cached state.
 
-#### Cover button and desktop icon (PlayStation disc panel)
+#### Cover button (PlayStation disc panel)
 
-The disc panel carries a **Fetch cover** button and a **desktop icon** button.
+The disc panel carries a **Fetch cover** button.
 recomp-ui ships no cover and has no built-in cover source: the host sets
 `GameInfo.cover_url_template` to an `https://` address with the disc serial as
 `{serial}` (for example `https://example.org/covers/{serial}.jpg`, with the
@@ -480,9 +480,9 @@ is fetched without a click; the request is made by the system's `curl` with an
 argument vector (no shell), https only, and the result must be a JPEG/PNG of a
 sane size.
 
-Both buttons save into the folder of the host's settings file
+The cover is saved into the folder of the host's settings file
 (`GameInfo.config_path`; a bare file name resolves to the current folder when
-the launcher opens). Without a settings file they are disabled.
+the launcher opens). Without a settings file the button is disabled.
 
 ### In-game settings overlay
 
