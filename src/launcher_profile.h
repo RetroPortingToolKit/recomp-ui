@@ -29,6 +29,7 @@
 #include "consoles/snes/snes_profile.h"
 #include "consoles/psx/psx_profile.h"
 #include "consoles/ps2/ps2_profile.h"
+#include "consoles/psvita/psvita_profile.h"
 #include "consoles/gba/gba_profile.h"
 #include "consoles/n64/n64_profile.h"
 #include "consoles/nes/nes_profile.h"
@@ -67,6 +68,7 @@ static inline int launcher_profile_apply(const char* name, RecompLauncherCGameIn
     if (launcher_console_is_cdi(name)) { launcher_profile_apply_cdi(gi); return 1; }
 
     // --- built-out consoles (rows live in src/consoles/<id>/) ----------------
+    if (launcher_console_is_psvita(name)) { launcher_profile_apply_psvita(gi); return 1; }
     if (launcher_console_is_ps2(name)) { launcher_profile_apply_ps2(gi); return 1; }
     if (launcher_console_is_psx(name))  { launcher_profile_apply_psx(gi);  return 1; }
     if (launcher_console_is_snes(name)) { launcher_profile_apply_snes(gi); return 1; }
