@@ -861,6 +861,17 @@ if(BUILD_TESTING)
         COMMAND $<TARGET_FILE:recomp-ui-psx-start-from-test>
                 ${CMAKE_CURRENT_BINARY_DIR})
 
+    add_executable(recomp-ui-launcher-pak-kind-test
+        tests/launcher_pak_kind_test.c
+        src/common/crc32.c src/common/sha1.c src/common/sha256.c
+        src/common/ips_patch.c src/consoles/psx/memcard_format.c)
+    target_include_directories(recomp-ui-launcher-pak-kind-test PRIVATE
+        src src/common src/consoles/psx)
+    target_link_libraries(recomp-ui-launcher-pak-kind-test PRIVATE ${RUI_SDL_TARGET})
+    target_compile_definitions(recomp-ui-launcher-pak-kind-test PRIVATE ${RUI_SDL_DEFS})
+    add_test(NAME recomp-ui-launcher-pak-kind
+             COMMAND $<TARGET_FILE:recomp-ui-launcher-pak-kind-test>)
+
     # Memory-card slot facts the Save panel paints: block-usage source order
     # (real inspect beats placeholder; a wired inspector never shows a made-up
     # pattern) and the tri-state enabled flag. Includes launcher_model.c like

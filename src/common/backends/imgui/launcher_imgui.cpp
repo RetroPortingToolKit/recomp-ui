@@ -8070,8 +8070,10 @@ static void pick_mod_feature_resource(
     const RecompLauncherCModResource& resource,
     std::function<void(const char* path, bool stored)> on_done = nullptr) {
     const auto* mods = m ? m->mods : nullptr;
-    if (!mods || !mods->feature_resource_set_path ||
-        recomp_mod_resource_is_managed(&resource)) return;
+    if (!mods || recomp_mod_resource_is_managed(&resource)) return;
+    const bool import_resource = resource.import_on_select &&
+                                 mods->feature_resource_import;
+    if (!import_resource && !mods->feature_resource_set_path) return;
     std::vector<std::string> patterns;
     const std::string remaining = resource.file_patterns;
     size_t start = 0;
@@ -8091,8 +8093,6 @@ static void pick_mod_feature_resource(
     const std::string feat_id = feature_id;
     const std::string res_id = resource.id;
     const std::string res_label = resource.label;
-    const bool import_resource = resource.import_on_select &&
-                                 mods->feature_resource_import;
     auto apply_resource = [m, mods, pkg_id, feat_id, res_id, res_label,
                            import_resource, on_done](const char* path) {
         bool stored = false;
@@ -8140,7 +8140,7 @@ static void prompt_missing_mod_resources(LauncherModel* m,
                                          int first_index = 0) {
     const auto* mods = m ? m->mods : nullptr;
     if (!mods || !mods->feature_resource_count || !mods->feature_resource_get ||
-        !mods->feature_resource_set_path)
+        (!mods->feature_resource_set_path && !mods->feature_resource_import))
         return;
     const int count = mods->feature_resource_count(
         mods->ctx, package_id.c_str(), feature_id.c_str());
@@ -14015,7 +14015,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
             }
             if (mods->feature_resource_count &&
                 mods->feature_resource_get &&
-                mods->feature_resource_set_path) {
+                (mods->feature_resource_set_path || mods->feature_resource_import)) {
                 const int resource_count = mods->feature_resource_count(
                     mods->ctx, feature.package_id, feature.id);
                 if (resource_count > 0) {
@@ -14031,6 +14031,9 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                 resource_index, &resource))
                             continue;
                         if (recomp_mod_resource_is_managed(&resource)) continue;
+                        if (!mods->feature_resource_set_path &&
+                            !(resource.import_on_select && mods->feature_resource_import))
+                            continue;
                         ImGui::PushID(resource.id);
                         if (resource.required) {
                             ImGui::TextUnformatted(resource.label);
@@ -14078,7 +14081,8 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                                                           feature.id, folder);
                             }
                         }
-                        if (!resource.required && resource.path[0]) {
+                        if (!resource.required && resource.path[0] &&
+                            mods->feature_resource_set_path) {
                             ImGui::SameLine();
                             if (ImGui::Button(ui_text("Clear selection"))) {
                                 if (!mods->feature_resource_set_path(
