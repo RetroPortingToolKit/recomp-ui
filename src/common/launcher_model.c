@@ -1,3 +1,4 @@
+#include "launcher_rom_body.h"
 // launcher_model.c — implementation of the game-agnostic launcher view-model.
 //
 // Pure logic: no SDL, no OpenGL, no UI toolkit. Safe to compile as C and link
@@ -1582,11 +1583,7 @@ static void lm_identify_rom(LauncherModel* m, const uint8_t* buf, size_t n) {
      * NES .nes images carry a 16-byte iNES/NES 2.0 header.
      * NESRecomp's ROM and package CRCs intentionally cover
      * every byte after that 16-byte header. */
-    size_t hdr = (n % 1024 == 512) ? 512 : 0;
-    if (n > 16 && buf[0] == 'N' && buf[1] == 'E' &&
-        buf[2] == 'S' && buf[3] == 0x1A) {
-        hdr = 16;
-    }
+    size_t hdr = launcher_rom_header_bytes(m->profile ? m->profile->id : NULL, buf, n);
     const uint8_t* body = buf + hdr;
     size_t blen = n - hdr;
     uint32_t crc = recompui_crc32_compute(body, blen);

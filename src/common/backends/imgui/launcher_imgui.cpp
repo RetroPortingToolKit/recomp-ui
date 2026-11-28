@@ -2581,9 +2581,8 @@ static int cover_serials(LauncherModel* m, char out[2][16]) {
     return n;
 }
 
-// A small square button with a drawn picture: 0 the download arrow, 1 a
-// picture frame. Reached by the pad and the keyboard like any button.
-static bool corner_button(const char* id, float side, bool enabled, int picture,
+// A small download-arrow button, reached by pad and keyboard like any button.
+static bool corner_button(const char* id, float side, bool enabled,
                           const LauncherTheme& th) {
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     if (!enabled) ImGui::BeginDisabled();
@@ -2596,17 +2595,12 @@ static bool corner_button(const char* id, float side, bool enabled, int picture,
     dl->AddRect(p0, p1, imcol(th.border), px(th.radius_sm), 0, px(1.0f));
     const ImU32 ink = imcol(enabled ? (hot ? th.accent : th.text) : th.text_muted, enabled ? 1.0f : 0.45f);
     const float cx = p0.x + side * 0.5f, cy = p0.y + side * 0.5f, u = side / 30.0f;
-    if (picture == 0) {   // an arrow into a tray
-        dl->AddLine(ImVec2(cx, cy - 8 * u), ImVec2(cx, cy + 3 * u), ink, 2.0f * u);
-        dl->AddLine(ImVec2(cx - 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
-        dl->AddLine(ImVec2(cx + 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
-        dl->AddLine(ImVec2(cx - 8 * u, cy + 4 * u), ImVec2(cx - 8 * u, cy + 8 * u), ink, 2.0f * u);
-        dl->AddLine(ImVec2(cx - 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 8 * u), ink, 2.0f * u);
-        dl->AddLine(ImVec2(cx + 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 4 * u), ink, 2.0f * u);
-    } else {              // a frame with a picture in it
-        dl->AddRect(ImVec2(cx - 8 * u, cy - 8 * u), ImVec2(cx + 8 * u, cy + 8 * u), ink, 3.0f * u, 0, 2.0f * u);
-        dl->AddRectFilled(ImVec2(cx - 4 * u, cy - 4 * u), ImVec2(cx + 4 * u, cy + 4 * u), ink, 1.0f * u);
-    }
+    dl->AddLine(ImVec2(cx, cy - 8 * u), ImVec2(cx, cy + 3 * u), ink, 2.0f * u);
+    dl->AddLine(ImVec2(cx - 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
+    dl->AddLine(ImVec2(cx + 5 * u, cy - 2 * u), ImVec2(cx, cy + 3.5f * u), ink, 2.0f * u);
+    dl->AddLine(ImVec2(cx - 8 * u, cy + 4 * u), ImVec2(cx - 8 * u, cy + 8 * u), ink, 2.0f * u);
+    dl->AddLine(ImVec2(cx - 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 8 * u), ink, 2.0f * u);
+    dl->AddLine(ImVec2(cx + 8 * u, cy + 8 * u), ImVec2(cx + 8 * u, cy + 4 * u), ink, 2.0f * u);
     return clicked;
 }
 
@@ -2631,11 +2625,9 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
     // its own, a fetched cover, or a gallery of the player's pictures.
     const bool have_art = g_boxart.id != 0 || !g_artwork.textures.empty();
     const bool offer_fetch = launcher_cover_fetch_offered(m->cover_url_template, have_art) != 0;
-    float y = corner.y;
     if (offer_fetch) {
-        ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
-        y += side + px(6.0f);
-        if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy && have_dir, 0, th)) {
+        ImGui::SetCursorPos(ImVec2(corner.x + availw - side, corner.y));
+        if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy && have_dir, th)) {
             char serials[2][16];
             const int n = cover_serials(m, serials);
             const char* list[2] = { serials[0], serials[1] };

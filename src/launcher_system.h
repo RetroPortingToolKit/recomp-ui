@@ -37,6 +37,7 @@
 #include "consoles/genesis/genesis_profile.h"
 #include "consoles/gb/gb_profile.h"
 #include "consoles/nds/nds_profile.h"
+#include "consoles/3ds/3ds_profile.h"
 #include "consoles/vb/vb_profile.h"
 #include "consoles/cdi/cdi_profile.h"
 #include "consoles/3do/3do_profile.h"
@@ -81,6 +82,7 @@ static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (launcher_console_is_gbc(name))  return &kSystemProfileGbc;
     if (launcher_console_is_gb(name))   return &kSystemProfileGb;
     if (launcher_console_is_nds(name))  return &kSystemProfileNds;
+    if (launcher_console_is_3ds(name))  return &kSystemProfile3ds;
     if (launcher_console_is_cdi(name))  return &kSystemProfileCdi;
     if (launcher_console_is_3do(name))  return &kSystemProfile3do;
     if (lps_streq_ci(name, "smsgg") || lps_streq_ci(name, "sms") || lps_streq_ci(name, "gg"))
@@ -123,6 +125,7 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
         if (lps_streq_ci(gi->platform, "GAME BOY COLOR"))    return &kSystemProfileGbc;
         if (lps_streq_ci(gi->platform, "GAME BOY"))          return &kSystemProfileGb;
         if (lps_streq_ci(gi->platform, "NINTENDO DS"))       return &kSystemProfileNds;
+        if (lps_streq_ci(gi->platform, "NINTENDO 3DS"))      return &kSystemProfile3ds;
         if (lps_streq_ci(gi->platform, "3DO"))               return &kSystemProfile3do;
         if (lps_streq_ci(gi->platform, "MASTER SYSTEM"))     return &kSystemProfile_smsgg;
         if (lps_streq_ci(gi->platform, "VIRTUAL BOY"))       return &kSystemProfile_vb;
