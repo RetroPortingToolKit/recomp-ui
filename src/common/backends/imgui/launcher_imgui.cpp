@@ -67,6 +67,10 @@
   #include <intrin.h>
 #endif
 
+static const RecompLauncherCHostControls* s_host_controls=nullptr;
+extern "C" void recomp_launcher_set_host_controls(const RecompLauncherCHostControls* controls) {
+    s_host_controls=controls;
+}
 static RecompLauncherCHostFrame s_host_frame=nullptr;
 static void* s_host_frame_context=nullptr;
 extern "C" void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context) {
@@ -1651,6 +1655,17 @@ void draw_crt_background(ImVec2 origin, ImVec2 size) {
     bg->AddRectFilledMultiColor(origin, ImVec2(origin.x + size.x, origin.y + px(90)),
                                 imcol(th.accent, 0.10f), imcol(th.accent, 0.10f),
                                 imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));
+    if(th.background_style==2){
+        const float t=(float)ImGui::GetTime();
+        for(int band=0;band<4;++band){
+            ImVec2 last(origin.x,origin.y+size.y*.48f);
+            for(int i=0;i<=96;++i){float x=(float)i/96;
+                ImVec2 next(origin.x+x*size.x,origin.y+size.y*(.48f+.085f*std::sin(x*5.4f+t*.16f+band*.35f)+band*.028f));
+                if(i)bg->AddLine(last,next,IM_COL32(155,210,242,48-band*8),14.0f-band*2.0f);last=next;
+            }
+        }
+    }
+
     // scanlines over everything, very subtle — only for CRT-style themes (the PSX
     // theme sets scanlines = 0 for a flat, disc-era look).
     if (th.scanlines) {
@@ -3834,7 +3849,9 @@ static void pad_mode_combo(LauncherModel* m, int p, float w, bool live) {
 // keyboard entry splits into "Keyboard + Mouse" (mouse-aim on) and "Keyboard"
 // (off); otherwise it is the single legacy "Keyboard" entry, byte-for-byte
 // identical to before for every non-mouse game.
+#include "launcher_host_input.inc"
 void draw_source_selectables(LauncherModel* m, int p) {
+    if(p==0 && host_input_available()) { draw_host_sources(m); return; }
     auto choose=[&](int kind,uint32_t id,const char* name,const char* guid) {
         if(p==0 && launcher_model_mouse_pair_available(m))
             launcher_model_set_primary_source(m,kind,id,name,guid);
@@ -4174,7 +4191,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
     }
 
     ImGui::SetNextItemWidth(cw);
-    if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
+    if (ImGui::BeginCombo("##src", (p==0 && host_input_available() ? host_source_label() : ui_text(launcher_model_player_src_label(m, p))))) {
         draw_source_selectables(m, p);
         ImGui::EndCombo();
     }
@@ -4199,7 +4216,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
         const float btnh = px(32);
         if (ImGui::Button(ui_text("Configure"), ImVec2(half, btnh))) launcher_model_open_config(m, p);
         ImGui::SameLine(0, gap);
-        const bool on = m->s.player_src[p] != 0;
+        const bool on = p==0 && host_input_available() ? host_selected_pad_live() : m->s.player_src[p] != 0;
         const char* st = ui_text(on ? "connected" : "not assigned");
         const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
         // center the dot+label within the right half, vertically on the button
@@ -4290,7 +4307,7 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
         ImGui::SameLine(0, gap);
     }
     ImGui::SetNextItemWidth(src_w);
-    if (ImGui::BeginCombo("##src", ui_text(launcher_model_player_src_label(m, p)))) {
+    if (ImGui::BeginCombo("##src", (p==0 && host_input_available() ? host_source_label() : ui_text(launcher_model_player_src_label(m, p))))) {
         draw_source_selectables(m, p);
         ImGui::EndCombo();
     }
@@ -4303,7 +4320,7 @@ static void draw_player_card(LauncherModel* m, const LauncherTheme& th, int p, f
         if (ImGui::Button(ui_text("Configure"), ImVec2(btnw, btnh)))
             launcher_model_open_config(m, p);
         ImGui::SameLine(0, wide ? px(16.0f) : gap);
-        const bool on = m->s.player_src[p] != 0;
+        const bool on = p==0 && host_input_available() ? host_selected_pad_live() : m->s.player_src[p] != 0;
         const char* st = ui_text(on ? "connected" : "not assigned");
         if (!wide) {
             // center the dot+label within the right half
@@ -5420,6 +5437,11 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
     const float cb = ImGui::GetFrameHeight();   // a checkbox is square
     // Sample rate: hidden for consoles whose runtime has no audio-frequency
     // setting (SystemProfile.hide_audio_freq — NES has Volume only).
+    if (s_host_controls && s_host_controls->show_audio_enable) {
+        row_label_right("Enable sound", th, cb);
+        bool enabled=m->s.enable_audio!=0;
+        if(ImGui::Checkbox("##host_sound_enabled",&enabled)) m->s.enable_audio=enabled?1:0;
+    }
     const SystemProfile* audio_prof = (const SystemProfile*)m->profile;
     // A zero rate means the host drives audio automatically (no configurable rate).
     if (m->s.audio_freq > 0 && (!audio_prof || !audio_prof->hide_audio_freq)) {
@@ -5596,7 +5618,7 @@ void panel_input_draw(LauncherModel* m, const LauncherTheme* th) {
 // profile lists "system" (PSX, GBA) AND only shown for a game instance that
 // needs one (has_bios) — composition + availability, both layers, matching
 // the architecture.
-int avail_system(const LauncherModel* m) { return launcher_model_bios_applies(m); }
+int avail_system(const LauncherModel* m) { return (s_host_controls && s_host_controls->field_count>0) || launcher_model_bios_applies(m); }
 
 // SYSTEM card for a host-named required system file (GameInfo.bios_name, e.g.
 // the Famicom Disk System BIOS): the file in use (the player's pick, or what
@@ -5639,7 +5661,9 @@ static void draw_named_system_file(LauncherModel* m, const LauncherTheme& th) {
     }
 }
 
+#include "launcher_host_system.inc"
 void draw_system_controls(LauncherModel* m, const LauncherTheme& th) {
+    if (s_host_controls && s_host_controls->field_count>0) { draw_host_system(m); return; }
     eyebrow("SYSTEM");
 
     if (m->bios_name) {
@@ -6863,6 +6887,7 @@ static void draw_kb_profile_notes(const LauncherTheme& th) {
 // renders its own real vocabulary (SNES: A/B/X/Y/L/R/...; PSX: Triangle/
 // Circle/Cross/Square/L1/L2/R1/R2/L3/R3/...) instead of a hardcoded SNES set.
 void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+    if (host_input_available()) { draw_host_controller(m, th); return; }
     const int p = m->cfg_player;
     const SystemProfile* cfg_prof = (const SystemProfile*)m->profile;
     const bool cfg_psx = cfg_prof && cfg_prof->id && !strcmp(cfg_prof->id, "psx");
@@ -6877,7 +6902,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
         ImGui::Text("%s %d", ui_text("CONTROLLER - PLAYER"), p + 1); ImGui::PopStyleColor(); ImGui::Spacing();
         row_label("Input source", th);
         ImGui::SetNextItemWidth(px(200));
-        if (ImGui::BeginCombo("##csrc", ui_text(launcher_model_player_src_label(m, p)))) {
+        if (ImGui::BeginCombo("##csrc", (p==0 && host_input_available() ? host_source_label() : ui_text(launcher_model_player_src_label(m, p))))) {
             draw_source_selectables(m, p);
             ImGui::EndCombo();
         }
@@ -14306,10 +14331,12 @@ void draw_footer(LauncherModel* m, const LauncherTheme& th, float footer_h) {
 
     const ImVec2 win = ImGui::GetWindowPos();
     if (m->view == LNG_VIEW_DASHBOARD && !is_ps2_host(m)) {
+        if (!s_host_controls || !s_host_controls->hide_skip_launcher) {
         bool skip = m->s.skip_launcher != 0;
         ImGui::SetCursorScreenPos(ImVec2(origin.x, cta_y + (play_h - ImGui::GetFrameHeight()) * 0.5f));
         if (ImGui::Checkbox(ui_text("Skip launcher on boot"), &skip))
             launcher_model_request_skip_toggle(m);
+        }
         if (launcher_model_record_replay_available(m)) {
             ImGui::SameLine(0, px(18.0f));
             bool rec = m->s.record_replay != 0;

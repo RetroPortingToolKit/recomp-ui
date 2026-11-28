@@ -76,7 +76,11 @@ set(_RUI_CONSOLE_ASSETS_ps2
 set(_RUI_CONSOLE_ASSETS_3do "")
 set(_RUI_CONSOLE_ASSETS_psvita "")
 set(_RUI_CONSOLE_ASSETS_3ds "")
-set(_RUI_CONSOLE_IDS snes psx gba n64 nes genesis gb nds vb cdi ps2 3do psvita 3ds)
+set(_RUI_CONSOLE_ASSETS_psp)
+set(_RUI_CONSOLE_OPTIONAL_ASSETS_psp
+    "${RUI_ASSETS}/consoles/psp/img/boxart.jpg"
+    "${RUI_ASSETS}/consoles/psp/img/BOXART-NOTICE.md")
+set(_RUI_CONSOLE_IDS psp snes psx gba n64 nes genesis gb nds vb cdi ps2 3do psvita 3ds)
 set(_RUI_ACCEPTED_CONSOLE_IDS ${_RUI_CONSOLE_IDS} gbc)
 
 function(_recomp_ui_resolve_console_assets OUT_VAR CONSOLE)

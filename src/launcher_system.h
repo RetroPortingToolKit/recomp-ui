@@ -30,6 +30,7 @@
 #include "consoles/snes/snes_profile.h"
 #include "consoles/psx/psx_profile.h"
 #include "consoles/ps2/ps2_profile.h"
+#include "consoles/psp/psp_profile.h"
 #include "consoles/psvita/psvita_profile.h"
 #include "consoles/gba/gba_profile.h"
 #include "consoles/n64/n64_profile.h"
@@ -72,6 +73,7 @@ LNG_STUB_PROFILE(smsgg,  "MASTER SYSTEM",      "ROM");
 static inline const SystemProfile* launcher_system_by_id(const char* name) {
     if (!name || !name[0]) return NULL;
     if (launcher_console_is_psvita(name)) return &kSystemProfileVita;
+    if (launcher_console_is_psp(name)) return &kSystemProfilePsp;
     if (launcher_console_is_ps2(name)) return &kSystemProfilePs2;
     if (launcher_console_is_psx(name))  return &kSystemProfilePsx;
     if (launcher_console_is_snes(name)) return &kSystemProfileSnes;
@@ -102,6 +104,7 @@ static inline const SystemProfile* launcher_system_infer(const RecompLauncherCGa
     if (gi && gi->platform && gi->platform[0]) {
         if (lps_streq_ci(gi->platform, "PHILIPS CD-I")) return &kSystemProfileCdi;
         if (lps_streq_ci(gi->platform, "PLAYSTATION VITA")) return &kSystemProfileVita;
+        if (lps_streq_ci(gi->platform, "PSP")) return &kSystemProfilePsp;
         if (lps_streq_ci(gi->platform, "PLAYSTATION 2")) return &kSystemProfilePs2;
         if (lps_streq_ci(gi->platform, "PLAYSTATION"))       return &kSystemProfilePsx;
         if (lps_streq_ci(gi->platform, "SUPER NINTENDO"))    return &kSystemProfileSnes;

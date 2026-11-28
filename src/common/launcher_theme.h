@@ -315,7 +315,19 @@ static inline LauncherTheme launcher_theme_ps2(void) {
  t.border=lng_rgba(.16f,.3f,.49f,.72f);t.scanlines=0;t.background_style=1;return t;
 }
 
+// SPDX-License-Identifier: MIT
+static inline LauncherTheme launcher_theme_psp(void){
+    LauncherTheme t=launcher_theme_default();
+    t.background=lng_rgba(.025f,.045f,.085f,1);t.background2=lng_rgba(.11f,.20f,.30f,1);
+    t.panel=lng_rgba(.12f,.19f,.27f,.72f);t.panel_hovered=lng_rgba(.19f,.28f,.37f,.85f);
+    t.control=lng_rgba(.20f,.28f,.36f,.82f);t.control_hovered=lng_rgba(.27f,.37f,.46f,.95f);
+    t.accent=lng_rgba(.72f,.90f,1,1);t.accent_dim=lng_rgba(.32f,.60f,.77f,1);
+    t.accent_text=lng_rgba(.035f,.08f,.12f,1);t.accent2=t.accent;t.focus_ring=lng_rgba(.65f,.92f,1,1);
+    t.border=lng_rgba(.65f,.82f,.95f,.28f);t.scanlines=0;t.radius_lg=16;t.background_style=2;return t;
+}
+
 static inline LauncherTheme launcher_theme_by_name(const char* name) {
+    if (name && (name[0]=='p'||name[0]=='P') && (name[1]=='s'||name[1]=='S') && (name[2]=='p'||name[2]=='P') && !name[3]) return launcher_theme_psp();
     if (name && (name[0]=='c' || name[0]=='C') &&
         (name[1]=='d' || name[1]=='D') && (name[2]=='i' || name[2]=='I') && !name[3])
         return launcher_theme_cdi();
