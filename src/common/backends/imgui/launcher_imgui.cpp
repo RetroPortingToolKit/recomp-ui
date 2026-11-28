@@ -449,7 +449,7 @@ static std::string lower_ascii(std::string s) {
 
 static bool builtin_picker_matches(const std::filesystem::path& path) {
     if (g_picker.patterns.empty()) return true;
-    const std::string filename = lower_ascii(path.filename().string());
+    const std::string filename = lower_ascii(path.filename().u8string());
     for (const std::string& raw : g_picker.patterns) {
         const std::string pattern = lower_ascii(raw);
         if (pattern.empty() || pattern == "*" || pattern == "*.*") return true;
@@ -469,14 +469,14 @@ static std::filesystem::path builtin_picker_initial_path(
         LauncherModel* m, const std::string& hint) {
     std::error_code ec;
     if (!hint.empty()) {
-        std::filesystem::path hinted(hint);
+        auto hinted=std::filesystem::u8path(hint);
         if (std::filesystem::is_regular_file(hinted, ec) ||
             std::filesystem::is_directory(hinted, ec))
             return hinted;
     }
     if (m && m->rom_full[0]) {
         ec.clear();
-        std::filesystem::path current(m->rom_full);
+        auto current=std::filesystem::u8path(m->rom_full);
         if (std::filesystem::is_regular_file(current, ec)) return current;
     }
     if (const char* image = std::getenv("RECOMP_APPIMAGE_PATH")) {
@@ -535,13 +535,13 @@ static void open_builtin_picker(LauncherModel* m, PickRequest&& req) {
     if (std::filesystem::is_regular_file(initial, ec)) {
         if (req.mode != PickMode::Folder)
             std::snprintf(g_picker.selected, sizeof(g_picker.selected), "%s",
-                          initial.string().c_str());
+                          initial.u8string().c_str());
         initial = initial.parent_path();
     }
     if (initial.empty() || !std::filesystem::is_directory(initial, ec))
         initial = std::filesystem::current_path(ec);
     std::snprintf(g_picker.directory, sizeof(g_picker.directory), "%s",
-                  initial.string().c_str());
+                  initial.u8string().c_str());
     g_picker.focus_path = true;
 }
 
@@ -758,7 +758,7 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
                                       ImGuiInputTextFlags_EnterReturnsTrue);
     if (enter_dir) {
         std::error_code ec;
-        if (!fs::is_directory(fs::path(g_picker.directory), ec))
+        if (!fs::is_directory(fs::u8path(g_picker.directory), ec))
             std::snprintf(g_picker.error, sizeof(g_picker.error),
                           "That folder does not exist or cannot be opened.");
         else
@@ -766,10 +766,10 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
     }
 
     if (ImGui::Button("Up", ImVec2(px(82), px(30)))) {
-        fs::path parent = fs::path(g_picker.directory).parent_path();
+        fs::path parent = fs::u8path(g_picker.directory).parent_path();
         if (!parent.empty()) {
             std::snprintf(g_picker.directory, sizeof(g_picker.directory),
-                          "%s", parent.string().c_str());
+                          "%s", parent.u8string().c_str());
             g_picker.selected[0] = '\0';
             g_picker.error[0] = '\0';
         }
@@ -790,7 +790,7 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
     };
     std::vector<PickerEntry> entries;
     std::error_code ec;
-    const fs::path directory(g_picker.directory);
+    const auto directory=fs::u8path(g_picker.directory);
     fs::directory_iterator it(directory, fs::directory_options::skip_permission_denied, ec);
     if (!ec) {
         for (const fs::directory_entry& entry : it) {
@@ -807,8 +807,8 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
         std::sort(entries.begin(), entries.end(),
                   [](const PickerEntry& a, const PickerEntry& b) {
                       if (a.directory != b.directory) return a.directory > b.directory;
-                      return lower_ascii(a.path.filename().string()) <
-                             lower_ascii(b.path.filename().string());
+                      return lower_ascii(a.path.filename().u8string()) <
+                             lower_ascii(b.path.filename().u8string());
                   });
     } else if (!g_picker.error[0]) {
         std::snprintf(g_picker.error, sizeof(g_picker.error),
@@ -818,23 +818,23 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
     ImGui::BeginChild("##builtin_picker_entries", ImVec2(0, px(300)),
                       ImGuiChildFlags_Borders);
     for (const PickerEntry& entry : entries) {
-        const std::string name = entry.path.filename().string();
+        const std::string name = entry.path.filename().u8string();
         std::string label = entry.directory ? "[Folder] " + name : name;
-        label += "##" + entry.path.string();
+        label += "##" + entry.path.u8string();
         const bool selected =
-            !entry.directory && entry.path.string() == g_picker.selected;
+            !entry.directory && entry.path.u8string() == g_picker.selected;
         if (ImGui::Selectable(label.c_str(), selected,
                               ImGuiSelectableFlags_AllowDoubleClick)) {
             if (entry.directory) {
                 std::snprintf(g_picker.directory,
                               sizeof(g_picker.directory), "%s",
-                              entry.path.string().c_str());
+                              entry.path.u8string().c_str());
                 g_picker.selected[0] = '\0';
                 g_picker.error[0] = '\0';
             } else {
                 std::snprintf(g_picker.selected,
                               sizeof(g_picker.selected), "%s",
-                              entry.path.string().c_str());
+                              entry.path.u8string().c_str());
                 g_picker.error[0] = '\0';
             }
         }
@@ -872,7 +872,7 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
         if (g_picker.mode == PickMode::Folder) {
             fs::path chosen(g_picker.directory);
             if (fs::is_directory(chosen, file_ec)) {
-                const std::string out = chosen.string();
+                const std::string out = chosen.u8string();
                 if (standalone_popup) ImGui::CloseCurrentPopup();
                 builtin_picker_finish(out.c_str());
                 return;
@@ -888,9 +888,9 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
                               "Type a file name to save as.");
             } else {
                 if (target.is_relative())
-                    target = fs::path(g_picker.directory) / target;
+                    target = fs::u8path(g_picker.directory) / target;
                 fs::path parent = target.parent_path();
-                if (parent.empty()) parent = fs::path(g_picker.directory);
+                if (parent.empty()) parent = fs::u8path(g_picker.directory);
                 if (!fs::is_directory(parent, file_ec)) {
                     std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
                                   "That folder does not exist.");
@@ -901,17 +901,17 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
                                   "That file already exists. Press Overwrite "
                                   "to replace it.");
                 } else {
-                    const std::string out = target.string();
+                    const std::string out = target.u8string();
                     if (standalone_popup) ImGui::CloseCurrentPopup();
                     builtin_picker_finish(out.c_str());
                     return;
                 }
             }
         } else {
-            fs::path selected(g_picker.selected);
+            auto selected=fs::u8path(g_picker.selected);
             if (fs::is_regular_file(selected, file_ec) &&
                 builtin_picker_matches(selected)) {
-                const std::string out = selected.string();
+                const std::string out = selected.u8string();
                 if (standalone_popup) ImGui::CloseCurrentPopup();
                 builtin_picker_finish(out.c_str());
                 return;
@@ -11516,7 +11516,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                   "%s %s", ui_text("Install"), archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
+    if (mods->install_archive && ImGui::Button(install_label)) {
         ui_pick_file(m, ui_text("Install Mod Package"), {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -11527,7 +11527,7 @@ static void draw_mod_packages(LauncherModel* m, const LauncherTheme& th) {
                               "Package installed. Changes apply when you press PLAY.");
         });
     }
-    ImGui::SameLine();
+    if(mods->install_archive)ImGui::SameLine();
     ImGui::SetNextItemWidth(px(300));
     ImGui::InputTextWithHint("##mod_search", "Search mods and options...",
                              m->mod_search, sizeof(m->mod_search));
@@ -12001,7 +12001,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
                   "Install %s", archive_extension);
     std::snprintf(archive_pattern, sizeof(archive_pattern),
                   "*%s", archive_extension);
-    if (ImGui::Button(install_label)) {
+    if (mods->install_archive && ImGui::Button(install_label)) {
         ui_pick_file(m, "Install Mod Package", {archive_pattern},
                      archive_description, [m, mods](const char* path) {
             if (!path) return;
@@ -12016,7 +12016,7 @@ static void draw_mod_features(LauncherModel* m, const LauncherTheme& th) {
     }
     /* No "Enable all": in a title with many mods it turns on features that
      * need owner files or conflict with each other, all at once. */
-    ImGui::SameLine();
+    if(mods->install_archive)ImGui::SameLine();
     if (ImGui::Button(ui_text("Disable all")))
         disable_all_mod_features(m);
     if (ImGui::IsItemHovered())
