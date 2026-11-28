@@ -33,7 +33,7 @@ static const char* host_source_label() {
     if(h->source==2) {
         static char label[64];std::snprintf(label,sizeof(label),"XInput controller %d",h->gamepad_index+1);return label;
     }
-    return "Automatic (keyboard + XInput)";
+    return s_host_controls->legacy_xinput ? "Automatic (keyboard + XInput)" : "Automatic";
 }
 static void host_choose_source(LauncherModel* m,int source,int index=0) {
     auto value=host_input();auto* h=&value;h->source=source;
@@ -43,7 +43,7 @@ static void host_choose_source(LauncherModel* m,int source,int index=0) {
 }
 static void draw_host_sources(LauncherModel* m) {
     auto value=host_input();auto* h=&value;
-    if(ImGui::Selectable("Automatic (keyboard + XInput)",h->source==0))host_choose_source(m,0);
+    if(ImGui::Selectable(s_host_controls->legacy_xinput ? "Automatic (keyboard + XInput)" : "Automatic",h->source==0))host_choose_source(m,0);
     if(ImGui::Selectable("Keyboard",h->source==1))host_choose_source(m,1);
     if(ImGui::Selectable("None",h->source==3))host_choose_source(m,3);
     ImGui::Separator();ImGui::TextDisabled("Connected controllers");
@@ -78,5 +78,14 @@ static void draw_host_controller(LauncherModel* m,const LauncherTheme& th) {
         if(host_input().source==4 && !host_selected_pad_live())ImGui::TextWrapped("Selected controller is disconnected. Another controller will not replace it.");
         ImGui::TextWrapped("Choose a connected controller by name. Only that device controls gameplay. Keyboard and Automatic are separate choices.");
         if(s_host_controls->input_help)ImGui::TextWrapped("%s",s_host_controls->input_help);
+        if(m->profile && m->profile->id && !std::strcmp(m->profile->id,"psp")) {
+            // Authored PSP button glyphs; no third-party controller artwork.
+            auto* dl=ImGui::GetWindowDrawList();ImVec2 p=ImGui::GetCursorScreenPos();float y=p.y+12;
+            dl->AddTriangle(ImVec2(p.x+10,y-9),ImVec2(p.x+1,y+8),ImVec2(p.x+19,y+8),IM_COL32(110,230,210,255),2);
+            dl->AddCircle(ImVec2(p.x+48,y),9,IM_COL32(255,150,170,255),20,2);
+            dl->AddLine(ImVec2(p.x+77,y-8),ImVec2(p.x+93,y+8),IM_COL32(140,190,255,255),2);
+            dl->AddLine(ImVec2(p.x+93,y-8),ImVec2(p.x+77,y+8),IM_COL32(140,190,255,255),2);
+            dl->AddRect(ImVec2(p.x+113,y-8),ImVec2(p.x+129,y+8),IM_COL32(220,160,235,255),0,0,2);ImGui::Dummy(ImVec2(140,28));
+        }
     }end_panel();
 }
