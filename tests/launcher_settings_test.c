@@ -314,6 +314,18 @@ int main(int argc, char** argv) {
         run(&interpolation, &settings);
         require(observed.frame_interp_fps == 360 && settings.frame_interp_fps == 360,
                 "a host-supplied 360 Hz target survives initialization and commit");
+
+        interpolation.config_path = "interpolation-60.ini";
+        settings.frame_interp_fps = 60;
+        run(&interpolation, &settings);
+        require(observed.frame_interp_fps == 60 && settings.frame_interp_fps == 60,
+                "a host-supplied 60 Hz default survives initialization and commit");
+        settings.frame_interp_fps = 0;
+        cycle_interpolation = 1;
+        run(&interpolation, &settings);
+        require(settings.frame_interp_fps == 60,
+                "display refresh cycles to the explicit 60 Hz target");
+        cycle_interpolation = 0;
     }
     puts("launcher settings persistence: PASS");
     return 0;
