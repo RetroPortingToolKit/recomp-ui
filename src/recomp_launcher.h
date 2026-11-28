@@ -2750,6 +2750,38 @@ void recomp_launcher_unregister_mod_text_paths(
  * no preparation worker owns the provider;
  * phase1 after GL rendering/before swap permits requested capture only.
  * Opaque model/platform pointers are borrowed during callback only. */
+/* Optional host-owned storage and gameplay-input adapter. Register before
+ * run_window, clear after it returns. The host retains the provider, fields,
+ * buffers and context for that call's lifetime. NULL restores standard UI.
+ * UI only edits the supplied fields; persistence and runtime translation stay
+ * with the host. No SDL handles cross this interface. */
+typedef struct RecompLauncherCHostField {
+    const char *label, *help;
+    char *value;
+    size_t capacity;
+    int locked;
+} RecompLauncherCHostField;
+typedef struct RecompLauncherCHostInput {
+    int source; /* 0 automatic, 1 keyboard, 2 legacy XInput, 3 none, 4 exact SDL */
+    int gamepad_index;
+    char controller_guid[33], controller_path[1025], controller_name[256];
+} RecompLauncherCHostInput;
+typedef struct RecompLauncherCHostControls {
+    void *ctx;
+    const char *system_title, *system_help, *input_help;
+    RecompLauncherCHostField *fields;
+    int field_count;
+    /* Optional new image path after a field edit; copied immediately by UI. */
+    const char *(*field_changed)(void *ctx, int field_index);
+    int (*get_input)(void *ctx, RecompLauncherCHostInput *out);
+    int (*set_input)(void *ctx, const RecompLauncherCHostInput *selection);
+    int legacy_xinput;
+    int show_audio_enable;
+    int hide_skip_launcher;
+} RecompLauncherCHostControls;
+#define RECOMP_LAUNCHER_HAS_HOST_CONTROLS 1
+void recomp_launcher_set_host_controls(const RecompLauncherCHostControls *controls);
+
 typedef void (*RecompLauncherCHostFrame)(void*,void*,void*,unsigned);
 void recomp_launcher_set_host_frame_hook(RecompLauncherCHostFrame hook,void* context);
 void recomp_launcher_set_window_hidden(int hidden);
