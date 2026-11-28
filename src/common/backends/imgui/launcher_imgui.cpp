@@ -45,7 +45,6 @@
 #include "launcher_mod_button.h"
 #include "launcher_player_tabs.h" // the dashboard tab strips
 #include "launcher_cover.h"       // the cover button: fetch, check, save
-#include "launcher_icon.h"        // a desktop icon file from the cover or a save
 #if defined(LNG_SDL3)
   #include "imgui_impl_sdl3.h"
   #define LNG_ImplSDL_InitForOpenGL  ImGui_ImplSDL3_InitForOpenGL
@@ -2536,21 +2535,12 @@ void draw_artwork_gallery(LauncherModel* m,float height,float width) {
     }
 }
 
-// ---- cover and desktop icon -------------------------------------------------
-// Two small buttons at the top right of the disc panel. The first fetches the
-// cover of the mounted disc from the address the host names
-// (GameInfo.cover_url_template; no template, no button) and saves it in the
-// title's own folder; the cover slot shows it from then on, and the button is
-// gone once the title has box art. Nothing is fetched without the click, and
-// no cover is shipped. The second makes a desktop icon file from that cover,
-// or from the icon of the game's own save on a memory card (launcher_cover.h,
-// launcher_icon.h). Both need a known game folder (launcher_model_user_dir).
+// ---- cover artwork ---------------------------------------------------------
+// Fetch a cover into the title folder; artwork and window icons stay available.
 static std::string g_cover_path;        // <title's folder>/launcher-cover.jpg
 static char        g_cover_line[200];   // what the last click did
 static double      g_cover_line_until;  // ImGui time until which the line shows
 static int         g_cover_tool = -1;   // this system has a curl: not asked yet
-static int         g_icon_save_card;    // the card (1 or 2) that holds a save of this title; 0 none
-static unsigned char g_icon_save_px[16 * 16 * 4];
 
 static std::string user_file(const LauncherModel* m, const char* leaf) {
     return std::string(launcher_model_user_dir(m)) + leaf;
@@ -2624,19 +2614,7 @@ static bool corner_button(const char* id, float side, bool enabled, int picture,
     return clicked;
 }
 
-// Writes launcher-icon.ico and launcher-icon.png from a picture and says so.
-static void icon_write(const LauncherModel* m, const unsigned char* rgba, int w, int h, bool hard) {
-    const std::string ico = user_file(m, LAUNCHER_ICON_ICO), png = user_file(m, LAUNCHER_ICON_PNG);
-    const bool ok = launcher_icon_write_ico(ico.c_str(), rgba, w, h, hard ? 1 : 0) != 0;
-    launcher_icon_write_png(png.c_str(), rgba, w, h, 256, hard ? 1 : 0);
-    char line[200];
-    if (ok) snprintf(line, sizeof(line), "%s %s", ui_text("Icon saved in the game folder:"), LAUNCHER_ICON_ICO);
-    else    snprintf(line, sizeof(line), "%s", ui_text("The icon could not be saved in the game folder."));
-    cover_say(line);
-}
-
-// The two buttons, at the top right of a panel whose content starts at
-// `corner` and is `availw` wide. The cursor is put back where it was.
+// The cover button leaves the surrounding panel layout unchanged.
 static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2 corner, float availw) {
     const float side = px(30.0f);
     const ImVec2 back = ImGui::GetCursorPos();
@@ -2660,7 +2638,6 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
     float y = corner.y;
     if (offer_fetch) {
         ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
-        y += side + px(6.0f);
         if (corner_button("##cover_fetch", side, g_cover_tool == 1 && !busy && have_dir, 0, th)) {
             char serials[2][16];
             const int n = cover_serials(m, serials);
@@ -2683,51 +2660,6 @@ static void draw_cover_buttons(LauncherModel* m, const LauncherTheme& th, ImVec2
         }
     }
 
-    ImGui::SetCursorPos(ImVec2(corner.x + availw - side, y));
-    if (corner_button("##desk_icon", side, have_dir, 1, th)) {
-        // What the menu can offer is looked up once, as it opens.
-        char serials[2][16];
-        const int n = cover_serials(m, serials);
-        const char* list[2] = { serials[0], serials[1] };
-        g_icon_save_card = 0;
-        for (int slot = 0; slot < 2 && !g_icon_save_card && n > 0; ++slot)
-            if (m->s.memcard_path[slot][0] &&
-                launcher_icon_from_memcard(m->s.memcard_path[slot], list, n, g_icon_save_px, nullptr))
-                g_icon_save_card = slot + 1;
-        ImGui::OpenPopup("##desk_icon_menu");
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
-        ImGui::SetTooltip("%s", ui_text(have_dir
-            ? "Makes a desktop icon file for this game, from its cover\n"
-              "or from the icon of its save on a memory card."
-            : "The game folder is not known, so an icon cannot be saved."));
-    if (ImGui::BeginPopup("##desk_icon_menu")) {
-        const bool has_cover = launcher_cover_check_file(g_cover_path.c_str(), nullptr, nullptr) != 0;
-        if (!has_cover) ImGui::BeginDisabled();
-        if (ImGui::Selectable(ui_text("Icon from the cover")) && has_cover) {
-            int w = 0, h = 0;
-            if (unsigned char* rgba = launcher_image_load_rgba(g_cover_path.c_str(), &w, &h)) {
-                icon_write(m, rgba, w, h, false);
-                launcher_image_free(rgba);
-            } else {
-                cover_say(ui_text(launcher_cover_state_text(LNG_COVER_BAD_IMAGE)));
-            }
-        }
-        if (!has_cover) ImGui::EndDisabled();
-        if (g_icon_save_card) {
-            char label[64];
-            snprintf(label, sizeof(label), "%s (%s %d)", ui_text("Icon from the game's save"),
-                     ui_text("Card"), g_icon_save_card);
-            if (ImGui::Selectable(label)) icon_write(m, g_icon_save_px, 16, 16, true);
-        }
-        ImGui::Separator();
-        ImGui::TextColored(col(th.text_muted), "%s",
-                           ui_text(has_cover ? "The file is " LAUNCHER_ICON_ICO " in the game folder.\n"
-                                               "Use it in your shortcut: Properties, Change Icon."
-                                             : "No cover file in the game folder yet. A save of this\n"
-                                               "game on a memory card gives its save icon."));
-        ImGui::EndPopup();
-    }
     ImGui::SetCursorPos(back);
 }
 
