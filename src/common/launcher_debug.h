@@ -9,6 +9,10 @@
 //
 //   view:dashboard|settings|controller|assist_tools|credits
 //                                          switch view (no clicking required)
+//   mod-select:N                          select a provider feature by index
+//   mod-option:ID:VALUE                    set the selected feature's option
+//   resource-import:ID:PATH                import a selected feature resource
+//   wait-ready                            wait for an owned preparation job
 //   player:0|1                           which player the controller view edits
 //   tab:N                                open player N's tab on the dashboard (0-based)
 //   cardtab:N                            open memory card N's tab on the dashboard (0-based)
